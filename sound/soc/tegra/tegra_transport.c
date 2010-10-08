@@ -22,6 +22,7 @@
 
 #include "tegra_transport.h"
 #include <linux/completion.h>
+#include <linux/module.h>
 
 #define transport_send_message(msg_type)                                     \
 	message.Semaphore = 0;                                               \
@@ -36,6 +37,83 @@
 	}                                                                    \
 	wait_for_completion(&comp);                                          \
 
+
+NvError NvRmTransportSendMsg(
+		NvRmTransportHandle hTransport,
+		void* pMessageBuffer,
+		NvU32 MessageSize,
+		NvU32 TimeoutMS ) {
+	static NvError (*func)(
+		NvRmTransportHandle hTransport,
+		void* pMessageBuffer,
+		NvU32 MessageSize,
+		NvU32 TimeoutMS )=(void*)0xc005ed28;
+	return (*func)(hTransport, pMessageBuffer, MessageSize, TimeoutMS);
+
+}
+EXPORT_SYMBOL(NvRmTransportSendMsg);
+
+NvError NvRmTransportRecvMsg(
+	NvRmTransportHandle hTransport,
+	void* pMessageBuffer,
+	NvU32 MaxSize,
+	NvU32 * pMessageSize ) {
+	static NvError (*func)(
+		NvRmTransportHandle hTransport,
+		void* pMessageBuffer,
+		NvU32 MaxSize,
+		NvU32 * pMessageSize )=(void*)0xc005eb08;
+	return (*func)(hTransport, pMessageBuffer, MaxSize, pMessageSize);
+
+}
+EXPORT_SYMBOL(NvRmTransportRecvMsg);
+
+NvRmDeviceHandle s_hRmGlobal=(void*)0xC0436A28;
+EXPORT_SYMBOL(s_hRmGlobal);
+
+void NvRmTransportGetPortName(
+	NvRmTransportHandle hTransport,
+	NvU8 * PortName,
+	NvU32 PortNameSize ) {
+	static void (*func)(
+		NvRmTransportHandle hTransport,
+		NvU8 * PortName,
+		NvU32 PortNameSize )=(void*)0xc005e9f8;
+	(*func)(hTransport, PortName, PortNameSize);
+
+}
+EXPORT_SYMBOL(NvRmTransportGetPortName);
+
+NvError NvRmTransportOpen(
+	NvRmDeviceHandle hRmDevice,
+	char * pPortName,
+	NvOsSemaphoreHandle RecvMessageSemaphore,
+	NvRmTransportHandle * phTransport ) {
+	static NvError (*func)(
+		NvRmDeviceHandle hRmDevice,
+		char * pPortName,
+		NvOsSemaphoreHandle RecvMessageSemaphore,
+		NvRmTransportHandle * phTransport )=(void*)0xc005f4fc;
+	return (*func)(hRmDevice, pPortName, RecvMessageSemaphore, phTransport);
+}
+EXPORT_SYMBOL(NvRmTransportOpen);
+
+NvError NvRmTransportConnect(
+	NvRmTransportHandle hTransport,
+	NvU32 TimeoutMS ) {
+	static NvError (*func)(
+		NvRmTransportHandle hTransport,
+		NvU32 TimeoutMS )=(void*)0xc005f01c;
+	return (*func)(hTransport, TimeoutMS);
+
+}
+EXPORT_SYMBOL(NvRmTransportConnect);
+
+void NvRmTransportClose(
+	NvRmTransportHandle hTransport ) {
+	static void (*func)(NvRmTransportHandle hTransport )=(void*)0xc005f254;
+	(*func)(hTransport);
+}
 
 static AlsaTransport* atrans = 0;
 
@@ -436,6 +514,7 @@ EXIT_WITH_ERROR:
 EXIT:
 	return status;
 }
+EXPORT_SYMBOL(tegra_transport_init);
 
 void tegra_transport_deinit(void)
 {
@@ -476,6 +555,7 @@ void tegra_transport_deinit(void)
 EXIT:
 	return;
 }
+EXPORT_SYMBOL(tegra_transport_deinit);
 
 static void tegra_audiofx_notifier_thread(void *arg)
 {
@@ -607,6 +687,7 @@ EXIT_WITH_ERROR:
 EXIT:
 	return e;
 }
+EXPORT_SYMBOL(tegra_audiofx_createfx);
 
 void tegra_audiofx_destroyfx(struct tegra_audio_data *audio_context)
 {
@@ -642,6 +723,7 @@ void tegra_audiofx_destroyfx(struct tegra_audio_data *audio_context)
 
 	return;
 }
+EXPORT_SYMBOL(tegra_audiofx_destroyfx);
 
 #define audiofx_create_object(path_object, FxId)                          \
 	path_object = tegra_transport_mixer_create_object(hMixer, FxId);  \
@@ -710,6 +792,7 @@ EXIT:
 
 	return e;
 }
+EXPORT_SYMBOL(tegra_audiofx_create_output);
 
 NvError tegra_audiofx_destroy_output(StandardPath* pPath)
 {
@@ -740,6 +823,7 @@ NvError tegra_audiofx_destroy_output(StandardPath* pPath)
 
 	return NvSuccess;
 }
+EXPORT_SYMBOL(tegra_audiofx_destroy_output);
 
 NvError tegra_audiofx_create_input(NvRmDeviceHandle hRmDevice,
                             NvAudioFxMixerHandle hMixer,
@@ -811,6 +895,7 @@ EXIT:
 
 	return e;
 }
+EXPORT_SYMBOL(tegra_audiofx_create_input);
 
 
 NvError tegra_audiofx_destroy_input(StandardPath* pInput)
@@ -837,4 +922,5 @@ NvError tegra_audiofx_destroy_input(StandardPath* pInput)
 
 	return NvSuccess;
 }
+EXPORT_SYMBOL(tegra_audiofx_destroy_input);
 

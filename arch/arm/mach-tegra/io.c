@@ -34,9 +34,11 @@
 #include "nvos.h"
 #include "mach/nvrm_linux.h"
 #include "ap15/arapbpm.h"
+#include <linux/module.h>
 
 extern void __init tegra_nvos_kernel_init(void);
 NvRmDeviceHandle s_hRmGlobal = NULL;
+EXPORT_SYMBOL(s_hRmGlobal);
 
 #define declare_aperture(_name, _pa, _size)		\
 	{						\

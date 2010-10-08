@@ -30,6 +30,7 @@
  *
  */
 
+#include <linux/module.h>
 #include "nvodm_services.h"
 #include "nvrm_gpio.h"
 #include "nvrm_spi.h"
@@ -301,6 +302,7 @@ NvOdmExternalClockConfig(
     NvRmClose(hRmDev);
     return result;
 }
+EXPORT_SYMBOL(NvOdmExternalClockConfig);
 
 NvBool NvOdmGetStraps(NvOdmStrapGroup StrapGroup, NvU32* pStrapValue)
 {

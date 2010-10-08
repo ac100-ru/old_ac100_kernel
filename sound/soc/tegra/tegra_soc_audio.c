@@ -39,6 +39,24 @@
 #include "nvodm_query_discovery.h"
 #include "tegra_transport.h"
 
+NvBool
+NvOdmExternalClockConfig(
+		NvU64 Guid,
+		NvBool EnableTristate,
+		NvU32 *pInstances,
+		NvU32 *pFrequencies,
+		NvU32 *pNum) {
+	static NvBool (*func)(
+		NvU64 Guid,
+		NvBool EnableTristate,
+		NvU32 *pInstances,
+		NvU32 *pFrequencies,
+		NvU32 *pNum)=(void*)0xc0075fcc; 
+	return (*func)(Guid, EnableTristate, pInstances, pFrequencies, pNum);
+
+}
+
+
 struct codec_setup_data {
 	unsigned dem0_pin;
 	unsigned dem1_pin;

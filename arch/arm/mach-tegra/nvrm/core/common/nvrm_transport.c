@@ -48,6 +48,7 @@
 #include "nvcommon.h"
 #include "avp.h"
 #include <linux/jiffies.h>
+#include <linux/module.h>
 
 #define LOOPBACK_PROFILE 0
 
@@ -981,6 +982,7 @@ fail:
 
     return err;
 }
+EXPORT_SYMBOL(NvRmTransportOpen);
 
 
 /**
@@ -1050,6 +1052,7 @@ void NvRmTransportClose(NvRmTransportHandle hPort)
 
     NvOsMutexUnlock(s_TransportInfo.mutex);
 }
+EXPORT_SYMBOL(NvRmTransportClose);
 
 
 /**
@@ -1363,6 +1366,7 @@ NvError NvRmTransportConnect(NvRmTransportHandle hPort, NvU32 TimeoutMS)
     NvOsMutexUnlock(s_TransportInfo.mutex);
     return NvSuccess;
 }
+EXPORT_SYMBOL(NvRmTransportConnect);
 
 
 /**
@@ -1588,8 +1592,7 @@ NvRmTransportSendMsg(
 
     return err;
 }
-
-
+EXPORT_SYMBOL(NvRmTransportSendMsg);
 
 /**
  * Receive the message from the other end port.
@@ -1668,6 +1671,7 @@ NvRmTransportRecvMsg(
 
     return NvSuccess;
 }
+EXPORT_SYMBOL(NvRmTransportRecvMsg);
 
 void 
 NvRmTransportGetPortName( 
@@ -1688,3 +1692,4 @@ NvRmTransportGetPortName(
 
     NvOsStrncpy((char *)PortName, hPort->PortName, PortNameSize);
 }
+EXPORT_SYMBOL(NvRmTransportGetPortName);

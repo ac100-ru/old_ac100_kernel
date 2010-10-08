@@ -1773,6 +1773,23 @@ static int add_versions(struct buffer *b, struct module *mod)
 	for (s = mod->unres; s; s = s->next) {
 		if (!s->module)
 			continue;
+		if(strcmp(s->name, "usbnet_skb_return")==0) {
+			s->crc=0x6C6B733C;
+		} else if(strcmp(s->name, "usbnet_generic_cdc_bind")==0) {
+			s->crc=0x2CF9D761;
+		} else if(strcmp(s->name, "usbnet_cdc_unbind")==0) {
+			s->crc=0x2B474795;
+		} else if(strcmp(s->name, "NvOsSemaphoreCreate")==0) {
+			s->crc=0xBD2A7DC;
+		} else if(strcmp(s->name, "NvOsThreadCreate")==0) {
+			s->crc=0xCF1B91C6;
+		} else if(strcmp(s->name, "NvRmMemMap")==0) {
+			s->crc=0x4D172067;
+		} else if(strcmp(s->name, "NvRmMemHandleCreate")==0) {
+			s->crc=0x8C74C700;
+		} else if(strcmp(s->name, "NvRmMemAlloc")==0) {
+			s->crc=0x3bcf4193;
+		}
 		if (!s->crc_valid) {
 			warn("\"%s\" [%s.ko] has no CRC!\n",
 				s->name, mod->name);
