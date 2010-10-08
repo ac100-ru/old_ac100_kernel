@@ -86,6 +86,9 @@
 #define DRIVER_NAME		"usb_mass_storage"
 #define MAX_LUNS		8
 
+#define DEFAULT_VENDOR  "TOSHIBA"
+#define DEFAULT_PRODUCT "AC_AND_AZ"
+
 static const char shortname[] = DRIVER_NAME;
 
 #ifdef DEBUG
@@ -1248,8 +1251,10 @@ static int do_inquiry(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 	buf[3] = 2;		/* SCSI-2 INQUIRY data format */
 	buf[4] = 31;		/* Additional length */
 				/* No special options */
-	sprintf(buf + 8, "%-8s%-16s%04x", fsg->vendor,
-			fsg->product, fsg->release);
+	sprintf(buf + 8, "%-8s%-16s%04x", DEFAULT_VENDOR,
+			DEFAULT_PRODUCT, fsg->release);
+	//sprintf(buf + 8, "%-8s%-16s%04x", fsg->vendor,
+			//fsg->product, fsg->release);
 	return 36;
 }
 
@@ -2897,12 +2902,17 @@ static int __init fsg_probe(struct platform_device *pdev)
 	fsg->pdev = pdev;
 	printk(KERN_INFO "fsg_probe pdata: %p\n", pdata);
 
+    fsg->vendor = DEFAULT_VENDOR;
+    fsg->product = DEFAULT_PRODUCT;
+
 	if (pdata) {
+        /*
 		if (pdata->vendor)
 			fsg->vendor = pdata->vendor;
 
 		if (pdata->product)
 			fsg->product = pdata->product;
+            */
 
 		if (pdata->release)
 			fsg->release = pdata->release;

@@ -65,8 +65,8 @@ enum {NVEC_MAX_REQUESTOR_TAG = 8};
 enum {NVEC_REQUESTOR_TAG_INVALID = NVEC_MAX_REQUESTOR_TAG + 1};
 
 /* Timeout values */
-enum {NVEC_RESPONSE_TIMEOUT_DEFAULT = 600};     // in msec
-enum {NVEC_REQUEST_TIMEOUT_DEFAULT = 600};      // in msec
+enum {NVEC_RESPONSE_TIMEOUT_DEFAULT = 900};     // in msec   //original is 600
+enum {NVEC_REQUEST_TIMEOUT_DEFAULT = 900};      // in msec   //original is 600
 enum {NVEC_EVENT_TIMEOUT_DEFAULT = 100};        // in msec
 enum {NVEC_PING_TIMEOUT = 2000};                // in msec
 
@@ -215,12 +215,14 @@ typedef struct NvEcPrivStateRec
 // lastTime - timeoutBase = 1 + overflow flag (ignored in C)
 // this would *NOT* work if the counter was not 32 bits.
 
+#if 0   //blue--
 // timeout macros.
 #define NVEC_TIME_BASE( p, idx ) \
             ((p)->lastTime - (p)->timeoutBase[(idx)])
 
 #define NVEC_TIMEDIFF_WITH_BASE( p, idx ) \
             ((p)->timeDiff + NVEC_TIME_BASE((p), (idx)))
+#endif
 
 #if defined(__cplusplus)
 }

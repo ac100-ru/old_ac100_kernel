@@ -33,7 +33,7 @@
 
 #include <nvodm_pmu.h>
 
-#define PMU_IOCTL_ENABLE  1
+#define PMU_IOCTL_ENABLE 1
 
 /* Create a custom rtc structrue and move this to that structure */
 static NvOdmPmuDeviceHandle hPmu = NULL;
@@ -46,7 +46,7 @@ static int tegra_rtc_read_time(struct device *dev, struct rtc_time *tm)
 		return -1;
 
 	if (!NvOdmPmuReadRtc(hPmu, &now)) {
-		printk("NvOdmPmuReadRtc failed\n");
+		pr_debug("NvOdmPmuReadRtc failed\n");
 		return -1;
 	}
 

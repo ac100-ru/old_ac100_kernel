@@ -934,8 +934,8 @@ static void sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 	writew(0, host->ioaddr + SDHCI_CLOCK_CONTROL);
 
 	if (clock == 0) {
-		if (host->ops->set_clock)
-			div = host->ops->set_clock(host, 0);
+		//if (host->ops->set_clock)              //back to R.9.12.09
+		//	div = host->ops->set_clock(host, 0); //
 		goto out;
 	}
 	host->last_clock = clock;

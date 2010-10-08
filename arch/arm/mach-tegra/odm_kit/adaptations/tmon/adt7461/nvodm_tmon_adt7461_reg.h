@@ -60,6 +60,8 @@ extern "C"
 // ODM policy: comparator limit values for critical shutdown (in degrees C)
 #define ADT7461_ODM_LOCAL_COMPARATOR_LIMIT_VALUE        (120L)
 #define ADT7461_ODM_REMOTE_COMPARATOR_LIMIT_VALUE       (115L)
+// Change from 115C to 100C according to thermal team's request -brian
+//#define ADT7461_ODM_REMOTE_COMPARATOR_LIMIT_VALUE       (100L)
 
 // ODM ADT7461 remote channel measurement offset
 #define ADT7461_ODM_REMOTE_OFFSET_VALUE                 (6L)
@@ -76,6 +78,8 @@ extern "C"
 #define ADT7461_LOCAL_INTR_LIMIT_HIGH_POR               (0x55)
 #define ADT7461_LOCAL_INTR_LIMIT_LOW_POR                (0x00)
 #define ADT7461_REMOTE_INTR_LIMIT_HIGH_POR              (0x55)
+// Change it from 85C to 80C according to thermal team's request -brian
+//#define ADT7461_REMOTE_INTR_LIMIT_HIGH_POR              (0x50)
 #define ADT7461_REMOTE_INTR_LIMIT_LOW_POR               (0x00)
 // #define ADT7461_ONE_SHOT_POR unknown
 #define ADT7461_REMOTE_TDATA_FRACTION_POR               (0x00)
@@ -84,6 +88,8 @@ extern "C"
 #define ADT7461_REMOTE_INTR_LIMIT_HIGH_FRACTION_POR     (0x00)
 #define ADT7461_REMOTE_INTR_LIMIT_LOW_FRACTION_POR      (0x00)
 #define ADT7461_REMOTE_COMPARATOR_LIMIT_POR             (0x55)
+// Change it from 85C to 80C according to thermal team's request -brian
+//#define ADT7461_REMOTE_COMPARATOR_LIMIT_POR             (0x50)
 #define ADT7461_LOCAL_COMPARATOR_LIMIT_POR              (0x55)
 #define ADT7461_COMPARATOR_HYSTERESIS_POR               (0x0A)
 #define ADT7461_INTR_CNT_DELAY_POR                      (0x01)

@@ -35,70 +35,124 @@
 #include "nvodm_mouse.h"
 #include "nvec_device.h"
 
+#include "nvec_mouse.h"
+//#include "elantech_nvec.h"
+
+#include "nvodm_ec.h"
+
+
 #define DRIVER_DESC "NvEc mouse driver"
 #define DRIVER_LICENSE "GPL"
 
+#define MOVE_RATE 2
+#define MOUSE_RETRY 20
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE(DRIVER_LICENSE);
 
-enum nvec_mouse_type {
-	nvec_mouse_type_none,
-	nvec_mouse_type_standard,
-	nvec_mouse_type_intellimouse,
-	nvec_mouse_type_intelli5buttonmouse,
-};
+static NvBool resume_init_failed = NV_FALSE; // for F20 issue workaround
+//static const NvU8 cmdDisable    = 0xF5;
 
-#define NVEC_PAYLOAD	32
+//extern int enable_sending_scancode(void);
+//extern int disable_sending_scancode(void);
 
-struct nvec_mouse
+//*************************henry+disable/enable wheel scroll
+unsigned touchpad_wheel_enable=1;
+//set elan wheel mode; mode=1 turn on wheel function ;mode=0 turn off wheel function
+void set_elan_wheel_mode(unsigned mode)
 {
-	struct input_dev	*input_dev;
-	struct task_struct	*task;
-	NvOdmOsSemaphoreHandle	semaphore;
-	char			name[128];
-	NvOdmMouseDeviceHandle	hDevice;
-	enum nvec_mouse_type	type;
-	unsigned char		data[NVEC_PAYLOAD];
-	int			valid_data_size;
-	int			enableWake;
-	int			packetSize;
-	unsigned char		previousState;
-	int			shutdown;
-};
+	touchpad_wheel_enable=mode;
+}
 
-// Commands sent to the mouse.
-//
-static const NvU8 cmdReadId		= 0xF2;
-static const NvU8 cmdSetSampleRate	= 0xF3;
-static const NvU8 cmdEnable		= 0xF4;
-static const NvU8 cmdReset		= 0xFF;
-static const NvU8 cmdSetResolution	= 0xE8;
-static const NvU8 cmdSetScaling1_1	= 0xE6;
-static const NvU8 cmdSetResolution2_1	= 0xE7;
-static const NvU8 cmdSetStreamMode	= 0xEA;
+//get elan wheel mode; mode=1 turn on wheel function ;mode=0 turn off wheel function
+unsigned get_elan_wheel_mode(void)
+{
+	return touchpad_wheel_enable;
+}
+EXPORT_SYMBOL_GPL(set_elan_wheel_mode);
+EXPORT_SYMBOL_GPL(get_elan_wheel_mode);
+//*************************henry+
 
-//
-// Mouse Responses
-//
-static const NvU8 responseAck			= 0xFA;
-static const NvU8 responseResend		= 0xFE;
-static const NvU8 responseStandardMouseId	= 0x00;
-static const NvU8 responseIntelliMouseId	= 0x03;
-static const NvU8 responseIntelli5buttonMouseId	= 0x04;
-static const NvU8 responseBatSuccess		= 0xAA;
-static const NvU8 responseBatError		= 0xFC;
+int touchpad_status = 0;
 
+struct nvec_mouse *ec_odm_touchpad;
+
+int nvec_mouse_cmd(struct nvec_mouse *mouse, unsigned int cmd, int resp_size);
+
+int check_touchpad_status(ec_odm_touchpad_params *touchpad_params)
+{
+    touchpad_params->read_buf = touchpad_status;
+
+    return 0;    
+}
+
+int enable_touchpad(ec_odm_touchpad_params *touchpad_params)
+{
+    /*
+    if (nvec_mouse_cmd(ec_odm_touchpad, cmdEnable, 1)) {
+        printk("**touchpad operation: disable touchpad fail!\n");   
+        return -1;
+    }
+    */
+    touchpad_status = 1;
+
+    return 0;    
+}
+
+int disable_touchpad(ec_odm_touchpad_params *touchpad_params)
+{
+    /*
+    if (nvec_mouse_cmd(ec_odm_touchpad, cmdDisable, 1)) {
+        printk("**touchpad operation: disable touchpad fail!\n");   
+        return -1;
+    }
+    */
+    touchpad_status = 0;
+
+    return 0;    
+}
 
 int nvec_mouse_cmd(struct nvec_mouse *mouse, unsigned int cmd,
 	int resp_size)
 {
+  #if 0
 	volatile int cnt = 3;
+    int retry_time = 3;
 
+	while (cnt--) {
+        /* Retry 3 times when send mouse command failed */
+        while (retry_time) {
+		    if (!NvOdmMouseSendRequest(mouse->hDevice, cmd, resp_size,
+			    &mouse->valid_data_size, mouse->data)) {
+                if (retry_time == 1) {
+			        pr_err("**nvec_mouse_cmd: SendRequest: fail\n");
+                    return -1;
+                }
+                retry_time--;	
+                continue;	    
+		    } 
+
+            break;
+        }
+
+        if (mouse->valid_data_size != resp_size) {
+			pr_err("**nvec_mouse_cmd: not valid data size\n");
+			continue;
+		}
+		if (mouse->valid_data_size == 0 ||
+			mouse->data[0] == responseAck) {
+			return 0;
+		}
+	}
+	pr_err("**nvec_mouse_cmd error\n");
+
+	return -1;
+#endif
+	volatile int cnt = 3;
 	while (cnt--) {
 		if (!NvOdmMouseSendRequest(mouse->hDevice, cmd, resp_size,
 			&mouse->valid_data_size, mouse->data)) {
 			pr_err("**nvec_mouse_cmd: SendRequest: fail\n");
-			return -1;
+			continue;
 		} if (mouse->valid_data_size != resp_size) {
 			pr_err("**nvec_mouse_cmd: not valid data size\n");
 			continue;
@@ -135,28 +189,36 @@ static int nvec_setSampleRate(struct nvec_mouse *mouse,
 
 int nvec_IsIntellimouse(struct nvec_mouse *mouse)
 {
+	/*
 	if (((!nvec_setSampleRate(mouse, 0xC8)) &&
 		(!nvec_setSampleRate(mouse, 0x64)) &&
 		(!nvec_setSampleRate(mouse, 0x50)))
-		&& ((!nvec_mouse_cmd(mouse, cmdReadId, 1)) &&
+		&& ((!nvec_mouse_cmd(mouse, cmdReadId, 2)) &&
 			(mouse->data[1] == responseIntelliMouseId))) {
 
 		printk("mouse->data[1]=0x%x\n", mouse->data[1]);
 		return 0;
 	}
 	return -ENODEV;
+	*/
+	//PAZ00 touchpad is 4byte mouse.
+	return 0;
 }
 
 int nvec_IsIntelli5buttonmouse(struct nvec_mouse *mouse)
 {
+	/*
 	if (((!nvec_setSampleRate(mouse, 0xC8)) &&
 		 (!nvec_setSampleRate(mouse, 0xC8)) &&
 		 (!nvec_setSampleRate(mouse, 0x50)))
-		&& ((!nvec_mouse_cmd(mouse, cmdReadId, 1)) &&
+		&& ((!nvec_mouse_cmd(mouse, cmdReadId, 2)) &&
 		mouse->data[1] == responseIntelli5buttonMouseId)) {
 		printk("mouse->data[1]=0x%x\n", mouse->data[1]);
 		return 0;
 	}
+	return -ENODEV;
+	*/
+	//PAZ00 touchpad is not 5buttonmouse. 
 	return -ENODEV;
 }
 
@@ -189,6 +251,10 @@ static int nvec_mouse_receive_thread(void *arg)
 		if (!NvOdmMouseGetEventInfo(mouse->hDevice, &size, data))
 			continue;
 
+		//pr_err("henry:nvec mouse packets size=%i \n",size);		
+//pr_info("henry2: %s, data[0] = %d data[1] = %d data[2] = %d  data[3] = %d\n",__FUNCTION__,data[0],data[1],data[2],data[3]);
+//pr_info("henry2: %s, size = %d \n",__FUNCTION__,size);
+
 		/* Short packets are not valid? */
 		if (size < 3) continue;
 
@@ -213,24 +279,82 @@ static int nvec_mouse_receive_thread(void *arg)
 			x = dataBuffer[1];
 			y = -dataBuffer[2];
 
-			input_report_rel(input_dev, REL_X, x);
-			input_report_rel(input_dev, REL_Y, y);
+			input_report_rel(input_dev, REL_X, MOVE_RATE * x);
+			input_report_rel(input_dev, REL_Y, MOVE_RATE * y);
 
 			input_sync(input_dev);
 		}
 
-		if (mouse->packetSize == 4 && dataBuffer[3])
-			input_report_rel(input_dev, REL_WHEEL, dataBuffer[3]);
+		if (mouse->packetSize == 4 && dataBuffer[3] && touchpad_wheel_enable){
+		    //henry+ support synaptics
+		    if (data[3]>127 && data[3]<160)   
+			input_report_rel(input_dev, REL_WHEEL, -1); //down
+		   else if (data[3]>160)
+		        input_report_rel(input_dev, REL_WHEEL, 1 );  //up
+		   else
+		       input_report_rel(input_dev, REL_WHEEL, -1 * dataBuffer[3]);  //henry input_report_rel(input_dev, REL_WHEEL, dataBuffer[3]);
+		}
 
 		input_sync(input_dev);
 	}
 	return 0;
 }
 
+static NvBool nvec_mouse_setting(struct nvec_mouse *mouse)
+{
+	// change to absolute mode! 
+	// Why need three setSampleRate command ???
+	if (nvec_setSampleRate(mouse, 0xC8)) {
+        pr_err("**mouse_resume: setsamplerate fail, 0xC8\n");
+		return NV_FALSE;
+	}
+	if (nvec_setSampleRate(mouse, 0x64)) {
+        pr_err("**mouse_resume: setsamplerate fail, 0x64\n");
+		return NV_FALSE;
+	}
+	if (nvec_setSampleRate(mouse, 0x50)) {
+        pr_err("**mouse_resume: setsamplerate fail, 0x50\n");
+		return NV_FALSE;
+	}
+	
+	/* Set the resolution */
+    if (nvec_mouse_cmd(mouse, cmdSetResolution, 1) ||
+        nvec_mouse_cmd(mouse, 2, 1)) {
+        pr_err("**mouse_resume: cmd fail\n");
+		return NV_FALSE;
+	}
+
+	/* Set scaling */
+    if (nvec_mouse_cmd(mouse, cmdSetScaling1_1, 1)) {
+        pr_err("**mouse_resume: cmdsetscaling fail\n");
+		return NV_FALSE;
+	}
+
+    //Henry:add run set auto-receive byte command before enable touchpad. 2010.7.13
+    if (!NvOdmMouseStartStreaming(mouse->hDevice, mouse->packetSize)) {
+		pr_err("**mouse_resume: streaming fail\n");		
+		return NV_FALSE;
+	}
+
+	if (nvec_mouse_cmd(mouse, cmdEnable, 1)) {
+        pr_err("**mouse_resume: mouse cmd fail\n");
+		return NV_FALSE;
+	}
+
+    if (!NvOdmMousePowerResume(mouse->hDevice)) {
+	    pr_err("**mouse_resume: NvOdmMousePowerResume fail\n");
+		return NV_FALSE;
+	}
+
+	return NV_TRUE;
+}
+
 static int nvec_mouse_open(struct input_dev *dev)
 {
 	struct nvec_mouse *mouse = input_get_drvdata(dev);
+    ec_odm_touchpad = input_get_drvdata(dev);
 
+#if 0
 	/* Set the resolution */
 	/*
 	 * Factor	Resolution
@@ -243,29 +367,43 @@ static int nvec_mouse_open(struct input_dev *dev)
 	if (nvec_mouse_cmd(mouse, cmdSetResolution, 1) ||
 		nvec_mouse_cmd(mouse, 2, 1)) {
 		pr_err("**nvec_mouse_open: cmd fail\n");
-		return -EINVAL;
+		//return -EINVAL; //for coldboot test
 	}
 
 	/* Set scaling */
 	if (nvec_mouse_cmd(mouse, cmdSetScaling1_1, 1)) {
 		pr_err("**nvec_mouse_open: cmdsetscaling fail\n");
-		return -EINVAL;
+		//return -EINVAL; //for coldboot test
 	}
 
 	if (nvec_setSampleRate(mouse, 0x64)) {
 		pr_err("**nvec_mouse_open: setsamplerate fail\n");
-		return -EINVAL;
+		//return -EINVAL; //for coldboot test
 	}
 
 	if (nvec_mouse_cmd(mouse, cmdEnable, 1)) {
 		pr_err("**nvec_mouse_open: mouse cmd fail\n");
-		return -EINVAL;
-	}
+		//return -EINVAL; //for coldboot test
+	} else {
+        touchpad_status = 1;
+    }
 
 	if (!NvOdmMouseStartStreaming(mouse->hDevice, mouse->packetSize)) {
 		pr_err("**nvec_mouse_open: streaming fail\n");
-		return -EINVAL;
+		//return -EINVAL; //for coldboot test
 	}
+
+    //enable_sending_scancode();
+#else
+	// do mouse settings!
+	int retry = MOUSE_RETRY;
+	do {
+        if (!nvec_mouse_setting(mouse))
+			NvOsWaitUS(50000);
+		else
+			break;
+	} while (retry-- > 0);
+#endif
 
 	return 0;
 }
@@ -275,10 +413,23 @@ static void nvec_mouse_close(struct input_dev *dev)
 	return;
 }
 
-static int mouse_resume(struct nvec_mouse *m)
+static int mouse_resume(struct nvec_mouse *mouse)
 {
-	if (!m || !m->hDevice || !NvOdmMousePowerResume(m->hDevice))
+	if (!mouse || !mouse->hDevice)
 		return -1;
+
+#if 0 //remove the initialize to late resume for reducing resume time!
+	// do initialize again!
+	if (!NvOdmMouseReset(mouse->hDevice)) {
+		pr_err("**mouse_resume: cmdReset fail\n");
+		resume_init_failed = NV_TRUE;
+	} else {
+        if (!nvec_mouse_setting(mouse))
+		    resume_init_failed = NV_TRUE;
+	}
+#else
+    resume_init_failed = NV_TRUE;
+#endif
 
 	return 0;
 }
@@ -293,18 +444,86 @@ static int mouse_suspend(struct nvec_mouse *m)
 
 static int nvec_mouse_suspend(struct nvec_device *pdev, pm_message_t state)
 {
+	if (pdev==NULL)
+		return 0;        
 	struct input_dev *input_dev = nvec_get_drvdata(pdev);
+	if (input_dev==NULL)
+		return 0;
 	struct nvec_mouse *mouse = input_get_drvdata(input_dev);
+	if (mouse==NULL)
+		return 0;
 
+    //disable_sending_scancode();
 	return mouse_suspend(mouse);
 }
 
 static int nvec_mouse_resume(struct nvec_device *pdev)
 {
+	if (pdev==NULL)
+		return 0;  
 	struct input_dev *input_dev = nvec_get_drvdata(pdev);
+	if (input_dev==NULL)
+		return 0;
 	struct nvec_mouse *mouse = input_get_drvdata(input_dev);
+	if (mouse==NULL)
+		return 0;
 
+    //enable_sending_scancode();
 	return mouse_resume(mouse);
+}
+
+static void nvec_mouse_early_suspend(struct early_suspend *h)
+{
+	struct nvec_mouse *mouse;
+	mouse = container_of(h, struct nvec_mouse, early_suspend);
+	nvec_mouse_cmd(mouse, cmdDisable, 1);
+	//pr_info("Henry: disable mouse in early suspend ====\n");
+}
+
+static void nvec_mouse_late_resume(struct early_suspend *h)
+{	
+	struct nvec_mouse *mouse;
+	NvBool ret;
+        int    retry;
+
+	mouse = container_of(h, struct nvec_mouse, early_suspend);
+	
+	if (resume_init_failed == NV_FALSE) {
+	    nvec_mouse_cmd(mouse, cmdEnable, 1);
+	    //pr_info("Henry: enable mouse in late resume ====\n");
+		return;
+    }
+
+	resume_init_failed = NV_FALSE;
+        
+	// reset again!
+	retry = MOUSE_RETRY;
+    do {
+		if ((ret = NvOdmMouseReset(mouse->hDevice)) == NV_FALSE)
+			NvOsWaitUS(50000);
+	} while (ret == NV_FALSE && retry-- > 0);
+	if (retry == 0) goto tp_failed;
+
+	// do mouse settings again!
+	retry = MOUSE_RETRY;
+	do {
+	    if ((ret = nvec_mouse_setting(mouse)) == NV_FALSE)
+			NvOsWaitUS(50000);
+	} while (ret == NV_FALSE && retry-- > 0);
+	if (retry == 0) goto tp_failed;
+     
+	// enable mouse!
+	retry = MOUSE_RETRY;
+	do {
+	    ret = (nvec_mouse_cmd(mouse, cmdEnable, 1) == 0) ? 
+		          NV_TRUE : NV_FALSE;
+		if (ret == NV_FALSE)
+			NvOsWaitUS(50000);
+	} while (ret == NV_FALSE && retry-- > 0);
+
+tp_failed:
+    if (retry == 0)
+	    pr_info("\tIf F20 still happend, then the workaround is failed!\n");
 }
 
 static int __devinit nvec_mouse_probe(struct nvec_device *pdev)
@@ -312,6 +531,7 @@ static int __devinit nvec_mouse_probe(struct nvec_device *pdev)
 	int error;
 	struct nvec_mouse *mouse;
 	struct input_dev *input_dev;
+    int    retry;
 
 	mouse = kzalloc(sizeof(struct nvec_mouse), GFP_KERNEL);
 	input_dev = input_allocate_device();
@@ -321,11 +541,23 @@ static int __devinit nvec_mouse_probe(struct nvec_device *pdev)
 		goto fail;
 	}
 
-	if (!NvOdmMouseDeviceOpen(&mouse->hDevice)) {
-		pr_err("NvOdmMouseDeviceOpen failed\n");
+    // must be successful...
+	retry = MOUSE_RETRY;
+    do {
+	    if (!NvOdmMouseDeviceOpen(&mouse->hDevice)) {
+		    pr_err("NvOdmMouseDeviceOpen failed\n");
+		    //error = -ENODEV;
+		    //goto fail;
+			NvOsWaitUS(10000);
+	    } else
+		    break;
+	} while (retry-- > 0);
+         
+        if(retry <= 0){
 		error = -ENODEV;
 		goto fail;
-	}
+        }
+	
 
 	mouse->input_dev = input_dev;
 	input_set_drvdata(input_dev, mouse);
@@ -333,6 +565,8 @@ static int __devinit nvec_mouse_probe(struct nvec_device *pdev)
 	mouse->type = nvec_mouse_type_none;
 	mouse->enableWake = 0;
 
+
+#if 0
 	/* Probe for the type of the mouse */
 	if (!nvec_IsStandardMouse(mouse)) {
 		if (!nvec_IsIntellimouse(mouse)) {
@@ -349,6 +583,33 @@ static int __devinit nvec_mouse_probe(struct nvec_device *pdev)
 		error = -ENODEV;
 		goto fail_no_mouse_found;
 	}
+#endif
+    //add retry 8/17
+    retry = MOUSE_RETRY;
+    do {
+	    if (!nvec_IsStandardMouse(mouse)) {
+			if (!nvec_IsIntellimouse(mouse)) {
+				mouse->packetSize = 4;
+				if (!nvec_IsIntelli5buttonmouse(mouse))
+					mouse->type = nvec_mouse_type_intelli5buttonmouse;
+				else
+					mouse->type = nvec_mouse_type_intellimouse;
+			} else {
+				mouse->packetSize = 3;
+				mouse->type = nvec_mouse_type_standard;
+			}
+		  break;
+		} else {
+			NvOsWaitUS(10000);
+			pr_err("nvec_mouse: nvec_IsStandardMouse fail,will retry!\n");			
+		}
+
+	} while (retry-- > 0);
+        if(retry <= 0){
+		error = -ENODEV;
+		goto fail_no_mouse_found;
+        }
+     //add retry 8/17
 
 	nvec_set_drvdata(pdev, input_dev);
 
@@ -367,6 +628,7 @@ static int __devinit nvec_mouse_probe(struct nvec_device *pdev)
 		error = -ENOMEM;
 		goto fail_thread_create;
 	}
+
 	wake_up_process(mouse->task);
 
 	if (!strlen(mouse->name))
@@ -388,8 +650,16 @@ static int __devinit nvec_mouse_probe(struct nvec_device *pdev)
 		pr_err("**nvec_mouse_probe: input_register_device: fail\n");
 		goto fail_input_register;
 	}
+    
+	mouse->early_suspend.suspend = nvec_mouse_early_suspend;
+	//for reducing resume time! don't set the early suspend level!
+	//mouse->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB; 
+	mouse->early_suspend.resume = nvec_mouse_late_resume; 
+	register_early_suspend(&mouse->early_suspend);
 
 	mouse->previousState = 0;
+    
+	resume_init_failed = NV_FALSE; // for F20 issue workaround!
 
 	printk(KERN_INFO DRIVER_DESC ": registered NVEC mouse driver\n");
 	return 0;
@@ -401,14 +671,16 @@ fail_thread_create:
 	mouse->semaphore = NULL;
 fail_semaphore_create:
 fail_no_mouse_found:
+	pr_err("**nvec_mouse_probe: fail_no_mouse_found fail\n");
 	NvOdmMouseDeviceClose(mouse->hDevice);
 	mouse->hDevice = NULL;
+
 fail:
 	input_free_device(input_dev);
 	kfree(mouse);
 	mouse = NULL;
-
-	return error;
+	//return error; //S3 hang up issue workaround 8/17
+	return 0;
 }
 
 static void nvec_mouse_remove(struct nvec_device *dev)
@@ -416,6 +688,8 @@ static void nvec_mouse_remove(struct nvec_device *dev)
 	struct input_dev *input_dev = nvec_get_drvdata(dev);
 	struct nvec_mouse *mouse = input_get_drvdata(input_dev);
 
+	unregister_early_suspend(&mouse->early_suspend);
+	
 	mouse->shutdown = 1;
 	NvOdmOsSemaphoreSignal(mouse->semaphore);
 	(void)kthread_stop(mouse->task);
@@ -426,7 +700,7 @@ static void nvec_mouse_remove(struct nvec_device *dev)
 	mouse = NULL;
 }
 
-static struct nvec_driver nvec_mouse_driver = {
+static struct nvec_driver nvec_mouse = {
 	.name		= "nvec_mouse",
 	.probe		= nvec_mouse_probe,
 	.remove		= nvec_mouse_remove,
@@ -436,54 +710,35 @@ static struct nvec_driver nvec_mouse_driver = {
 
 static struct nvec_device nvec_mouse_device = {
 	.name	= "nvec_mouse",
-	.driver	= &nvec_mouse_driver,
+	.driver	= &nvec_mouse,
 };
 
 static int __init nvec_mouse_init(void)
 {
-	int err = 0;
-	struct nvec_mouse *mouse;
+	int err;
 
-	mouse = kzalloc(sizeof(struct nvec_mouse), GFP_KERNEL);
-	if (!mouse) {
-		pr_err("**nvec_mouse_init: kzalloc for mouse: fail\n");
-		err = -ENOMEM;
-		return err;
-	}
-
-	if (!NvOdmMouseDeviceOpen(&mouse->hDevice)) {
-		pr_err("NvOdmMouseDeviceOpen failed\n");
-		err = -ENODEV;
-		goto fail;
-	}
-
-	err = nvec_register_driver(&nvec_mouse_driver);
+	err = nvec_register_driver(&nvec_mouse);
 	if (err)
 	{
 		pr_err("**nvec_mouse_init: nvec_register_driver: fail\n");
-		goto fail_register;
+		return err;
 	}
 
 	err = nvec_register_device(&nvec_mouse_device);
 	if (err)
 	{
 		pr_err("**nvec_mouse_init: nvec_device_add: fail\n");
-		nvec_unregister_driver(&nvec_mouse_driver);
-		goto fail_register;
+		nvec_unregister_driver(&nvec_mouse);
+		return err;
 	}
-
-fail_register:
-	NvOdmMouseDeviceClose(mouse->hDevice);
-fail:
-	kfree(mouse);
-	mouse = NULL;
-	return err;
+    
+	return 0;
 }
 
 static void __exit nvec_mouse_exit(void)
 {
 	nvec_unregister_device(&nvec_mouse_device);
-	nvec_unregister_driver(&nvec_mouse_driver);
+	nvec_unregister_driver(&nvec_mouse);
 }
 
 module_init(nvec_mouse_init);

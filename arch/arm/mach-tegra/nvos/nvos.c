@@ -1137,7 +1137,7 @@ NvU64 NvOsGetTimeUS(void)
     getnstimeofday(&ts);
     nsec = timespec_to_ns(&ts);
     do_div(nsec, 1000);
-    return (NvU32)nsec;
+    return (NvU64)nsec;
 }
 
 void NvOsDataCacheWritebackRange(

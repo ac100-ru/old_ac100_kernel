@@ -190,6 +190,7 @@ static void tegra_ehci_restart (struct usb_hcd *hcd)
 
 static void tegra_ehci_shutdown (struct usb_hcd *hcd)
 {
+#if 0
 	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
 
 	if (ehci->host_resumed) {
@@ -198,6 +199,14 @@ static void tegra_ehci_shutdown (struct usb_hcd *hcd)
 		/* we are ready to shut down, powerdown the phy */
 		tegra_ehci_power_down(hcd);
 	}
+#endif
+	/* ehci_shutdown touches the USB controller registers, make sure
+	 * controller has clocks to it */
+	tegra_ehci_power_up(hcd);
+	/* call ehci shut down */
+	ehci_shutdown(hcd);
+	/* we are ready to shut down, powerdown the phy */
+	tegra_ehci_power_down(hcd);
 }
 
 /*
@@ -710,6 +719,7 @@ static int tegra_ehci_suspend(struct platform_device *pdev, pm_message_t state)
 #endif
 
 	if (ehci->host_resumed) {
+		ehci_halt(ehci);
 		tegra_ehci_power_down(hcd);
 	}
 

@@ -304,7 +304,6 @@ NvOdmExternalClockConfig(
 
 NvBool NvOdmGetStraps(NvOdmStrapGroup StrapGroup, NvU32* pStrapValue)
 {
-/*
     NvRmDeviceHandle hRmDevice = NULL;
     NV_ASSERT(NvOdmStrapGroup_Num == NvRmStrapGroup_Num);
 
@@ -314,7 +313,6 @@ NvBool NvOdmGetStraps(NvOdmStrapGroup StrapGroup, NvU32* pStrapValue)
             hRmDevice, (NvRmStrapGroup)StrapGroup, pStrapValue) == NvSuccess)
             return NV_TRUE;
     }
-*/    
     return NV_FALSE;
 }
 

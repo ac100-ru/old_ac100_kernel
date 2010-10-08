@@ -184,6 +184,13 @@ static struct platform_device tegra_rfkill =
 };
 #endif
 
+/* hook add thermal test code driver support*/
+#ifdef CONFIG_THERMAL_TEGRA
+static struct platform_device tegra_thermometer_device = {
+	.name = "tegra_thermometer",
+	.id   = -1,
+};
+#endif
 
 /*  FIXME:  NvBl uses 57.6k for FPGAs.  16x multiplier for UART baud rate
  *  should be chip-dependent. */
@@ -515,6 +522,10 @@ static void __init tegra_machine_init(void)
     tegra_common_init();
     tegra_clk_init();
     NvConfigDebugConsole(s_hRmGlobal);
+/* Hook add thermal test code driver support in this */
+#ifdef CONFIG_THERMAL_TEGRA
+  (void) platform_device_register(&tegra_thermometer_device);
+#endif
 
 #ifdef CONFIG_TEGRA_DPRAM
     tegra_init_snor_controller();
@@ -596,6 +607,14 @@ static void __init tegra_machine_init(void)
 #endif
 
 	pm_power_off = tegra_system_power_off;
+
+	/* power on BT USB */
+	NvOdmServicesGpioHandle hGpio;
+	NvOdmGpioPinHandle BtPwdn;
+	hGpio = NvOdmGpioOpen();
+	BtPwdn = NvOdmGpioAcquirePinHandle(hGpio, 'u'-'a', 1);
+	NvOdmGpioConfig(hGpio, BtPwdn, NvOdmGpioPinMode_Output);
+	NvOdmGpioSetState(hGpio, BtPwdn, 1);
 }
 
 MACHINE_START(TEGRA_GENERIC, "Tegra generic")

@@ -53,6 +53,13 @@ extern "C"
 {
 #endif
 
+
+// Robert 2010/03/19 --- define PVT, DVT and EVT hardware layout
+#define	PVT_HARDWARE_LAYOUT
+//#define	DVT_HARDWARE_LAYOUT
+//#define	EVT_HARDWARE_LAYOUT
+
+
 /**
  * Defines GPIO pin groups.
  */

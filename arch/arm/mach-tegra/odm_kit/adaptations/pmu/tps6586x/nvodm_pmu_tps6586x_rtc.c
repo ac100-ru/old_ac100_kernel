@@ -59,7 +59,6 @@ Tps6586xRtcCountRead(
     NvU32* Count)
 {
     NvU32 ReadBuffer[2];
-
     // 1) The I2C address pointer must not be left pointing in the range 0xC6 to 0xCA
     // 2) The maximum time for the address pointer to be in this range is 1ms
     // 3) Always read RTC_ALARM2 in the following order to prevent the address pointer
@@ -275,7 +274,29 @@ Tps6586xRtcAlarmCountWrite(
 NvBool
 Tps6586xRtcIsAlarmIntEnabled(NvOdmPmuDeviceHandle hDevice)
 {
-    return NV_FALSE;
+    NvU32 Counter;
+    NvU32 ReadBuffer[3];
+
+    if ( rtc_alarm_active ) {
+
+        if ( ALARM1_used ) {
+            Tps6586xI2cRead8(hDevice, TPS6586x_RC3_RTC_ALARM1_LO, 	&ReadBuffer[2]);
+            Tps6586xI2cRead8(hDevice, TPS6586x_RC2_RTC_ALARM1_MID, 	&ReadBuffer[1]);
+            Tps6586xI2cRead8(hDevice, TPS6586x_RC1_RTC_ALARM1_HI, 	&ReadBuffer[0]);
+            Counter = (ReadBuffer[0] << 16) + (ReadBuffer[1] << 8) + ReadBuffer[2];
+            *Count = Counter >> 10;
+        } else {
+            Tps6586xI2cRead8(hDevice, TPS6586x_RC5_RTC_ALARM2_LO, 	&ReadBuffer[1]);
+            Tps6586xI2cRead8(hDevice, TPS6586x_RC4_RTC_ALARM2_HI, 	&ReadBuffer[0]);
+            Counter = (ReadBuffer[0]<<8) + ReadBuffer[1];
+            *Count = Counter << 2;
+        }
+
+        return NV_TRUE;
+
+    } else {
+        return NV_FALSE;
+    }
 }
 
 /* Enables / Disables the RTC alarm interrupt */
@@ -285,7 +306,45 @@ Tps6586xRtcAlarmIntEnable(
     NvOdmPmuDeviceHandle hDevice,
     NvBool Enable)
 {
-    return NV_FALSE;
+     NvU32   data = 0;
+    //Disable Alarm 2 interrupt
+    if (!Tps6586xI2cRead8(hDevice, TPS6586x_RB3_INT_MASK4, &data))
+    {
+        printk("[NV DEBUG(%s)] rtc register TPS6586x_RB3_INT_MASK4  get Invalid data\n ", __FUNCTION__);	
+        return NV_FALSE;
+    }else
+    {
+	if(Enable)
+            data &= ~(1 << 2);
+        else
+            data |= (1 << 2);
+        if(! Tps6586xI2cWrite8(hDevice, TPS6586x_RB3_INT_MASK4, data ))
+        {
+            printk("[NV DEBUG(%s)] rtc register TPS6586x_RB3_INT_MASK4 write failed out!\n ", __FUNCTION__);
+            return NV_FALSE;
+        }
+    }
+    //reset data
+    data = 0;
+
+    //Disable Alarm 1 interrupt
+    if (!Tps6586xI2cRead8(hDevice, TPS6586x_RB4_INT_MASK5, &data))
+    {
+        printk("[NV DEBUG(%s)] rtc register TPS6586x_RB4_INT_MASK5 get Invalid data\n ",__FUNCTION__);	
+        return NV_FALSE;
+    }else
+    {
+	if(Enable)
+            data &= ~(1 << 5);
+        else
+            data |= (1 << 5);
+	if(! Tps6586xI2cWrite8(hDevice, TPS6586x_RB4_INT_MASK5, data ))
+        {
+            printk("[NV DEBUG(%s)] rtc register TPS6586x_RB3_INT_MASK5 write failed out!\n ", __FUNCTION__);
+            return NV_FALSE;
+        }
+    }
+    return NV_TRUE;
 }
 
 /* Checks if boot was from nopower / powered state */

@@ -62,21 +62,12 @@ typedef struct NvOdmPmuDeviceTPSRec
     /* Device's private data */
     void *priv;
     
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
      /* Gpio Handles (for external supplies) */
      NvOdmServicesGpioHandle hGpio;
      NvOdmGpioPinHandle hPin[TPS6586x_EXTERNAL_SUPPLY_AP_GPIO_NUM];
-#else
-    /* The current voltage */
-    NvU32 curVoltageTable[VRAILCOUNT];
-#endif
 
     /* The ref cnt table of the power supplies */
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
     NvU32 supplyRefCntTable[TPS6586xPmuSupply_Num];
-#else
-    NvU32 supplyRefCntTable[VRAILCOUNT];
-#endif
 
 } NvOdmPmuDeviceTPS;
 
@@ -92,6 +83,11 @@ void Tps6586xGetBatteryFullLifeTime( NvOdmPmuDeviceHandle hDevice, NvOdmPmuBatte
 void Tps6586xGetBatteryChemistry( NvOdmPmuDeviceHandle hDevice, NvOdmPmuBatteryInstance batteryInst, NvOdmPmuBatteryChemistry *pChemistry);
 NvBool Tps6586xSetChargingCurrent( NvOdmPmuDeviceHandle hDevice, NvOdmPmuChargingPath chargingPath, NvU32 chargingCurrentLimitMa, NvOdmUsbChargerType ChargerType); 
 void Tps6586xInterruptHandler( NvOdmPmuDeviceHandle  hDevice);
+
+//Simon@NV
+NvBool Tps6586xCheckAlarmIntEnabled( NvOdmPmuDeviceHandle  hDevice);
+NvBool Tps6585xEnableAlarmInt( NvOdmPmuDeviceHandle hDevice, NvBool Enable);
+
 NvBool Tps6586xReadRtc( NvOdmPmuDeviceHandle  hDevice, NvU32 *Count);
 NvBool Tps6586xWriteRtc( NvOdmPmuDeviceHandle  hDevice, NvU32 Count);
 NvBool Tps6586xReadAlarm( NvOdmPmuDeviceHandle  hDevice, NvU32 *Count);

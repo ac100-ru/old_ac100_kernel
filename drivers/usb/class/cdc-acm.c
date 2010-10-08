@@ -672,6 +672,13 @@ static int acm_tty_write(struct tty_struct *tty, const unsigned char *buf, int c
 	if (!count)
 		return 0;
 
+    /* Dig: wakeup usb before writing data */
+	if (usb_autopm_get_interface(acm->control) >= 0) {
+		acm->control->needs_remote_wakeup = 1;
+		usb_autopm_put_interface(acm->control);
+    }
+	tty_wakeup(tty);
+
 	spin_lock_irqsave(&acm->write_lock, flags);
 	if ((wbn = acm_wb_alloc(acm)) < 0) {
 		spin_unlock_irqrestore(&acm->write_lock, flags);
@@ -1188,6 +1195,10 @@ skip_countries:
 	tty_register_device(acm_tty_driver, minor, &control_interface->dev);
 
 	acm_table[minor] = acm;
+
+    /* Dig */
+    usb_dev->autosuspend_disabled = 0;
+    usb_dev->autoresume_disabled = 0;
 
 	return 0;
 alloc_fail8:

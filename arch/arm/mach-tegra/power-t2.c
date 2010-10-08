@@ -20,10 +20,27 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define PROCYON_RTC_WAKE 1
+
 #include "mach/power.h"
 #include "linux/interrupt.h"
 #include "nvassert.h"
 #include "ap20/arapbdev_kbc.h"
+
+#ifdef PROCYON_RTC_WAKE
+#include <linux/delay.h>
+#include "nvrm_gpio.h"
+#include "nvrm_module.h"
+#include "nvodm_query_gpio.h"
+#include "nvodm_services.h"
+#define NVODM_PORT(x) ((x) - 'a')
+#define EC_REQUEST_PORT NVODM_PORT('v')
+#define EC_REQUEST_PIN  2
+
+static NvOdmServicesGpioHandle s_hGpio = NULL;
+static NvOdmGpioPinHandle s_hECRequestPin = NULL;
+#endif
+
 
 extern int enter_power_state(PowerState state, unsigned int proc_id);
 extern void prepare_for_wb0(void);
@@ -65,6 +82,57 @@ volatile void *g_pIRAM, *g_pRtc, *g_pPL310;
 #define AP20_BASE_PA_BOOT_INFO	0x40000000
 #define MAX_IRQ_CONTROLLERS	4
 #define MAX_IRQ	(32*(MAX_IRQ_CONTROLLERS+1))
+
+
+void tegra_restore_uart_registor(void)
+{
+    NvError e;
+    NvU32 *pVirAdr;
+    
+	e = NvRmPhysicalMemMap(0x70006000, 0x1000, NVOS_MEM_READ_WRITE,
+                NvOsMemAttribute_Uncached, (void **)&pVirAdr);
+    if (e == NvSuccess) {
+        NV_WRITE32(pVirAdr+3, 0x93);  //0x7000600C
+        NV_WRITE32(pVirAdr+2, 0xC1);  //0x70006008
+        NV_WRITE32(pVirAdr+4, 0x0B);  //0x70006010
+        NV_WRITE32(pVirAdr  , 0x75);  //0x70006000
+        NV_WRITE32(pVirAdr+3, 0x13);  //0x7000600C
+        NvRmPhysicalMemUnmap(pVirAdr, 0x1000);
+    }
+}
+
+#ifdef PROCYON_RTC_WAKE
+static void rtcWakeEcSignal(void)
+{
+	//printk(" %s entering.....\n",__FUNCTION__);
+	if (!s_hGpio)
+		s_hGpio = NvOdmGpioOpen();
+
+	if (!s_hGpio)
+	{
+		//printk("ERROR: Not able to open gpio handle\n");
+		return;
+	}
+
+	if (!s_hECRequestPin)
+		s_hECRequestPin = NvOdmGpioAcquirePinHandle(s_hGpio, EC_REQUEST_PORT,
+                                                        EC_REQUEST_PIN);
+	if (!s_hECRequestPin)
+	{
+		NvOdmGpioClose(s_hGpio);
+		s_hGpio = NULL;
+		//printk("ERROR: Not able to Acquire pin handle\n");
+		return;
+	}
+
+	NvOdmGpioConfig(s_hGpio,s_hECRequestPin, NvOdmGpioPinMode_Output);
+
+	//printk("Trigger EC request to wake up EC\n");
+	NvOdmGpioSetState(s_hGpio, s_hECRequestPin, 0x0);
+	mdelay(80);
+	NvOdmGpioSetState(s_hGpio, s_hECRequestPin, 0x01);
+}
+#endif
 
 void cpu_ap20_do_lp0(void)
 {
@@ -115,10 +183,10 @@ void cpu_ap20_do_lp0(void)
 
 	//Re-initialize the L2 cache
 	tegra_pl310_init();
-
+	
 	//Inform RM about entry to LP0 state
 	NvRmPrivPowerSetState(s_hRmGlobal, NvRmPowerState_LP0);
-	printk("LP0: Exited...\n");
+	
 	shadow_runstate_scratch_regs();
 
 	//Restore the scratch1 register
@@ -146,6 +214,14 @@ void cpu_ap20_do_lp0(void)
 	//Restore the saved module(s) context
 	//Interrupt, gpio, pin mux, clock management etc
 	perform_context_operation(PowerModuleContext_Restore);
+	
+	//On Procyon, We need to pull-low EC_REQ# for 80 ms to ask EC turn on I/O power rails for resume
+#ifdef PROCYON_RTC_WAKE
+	rtcWakeEcSignal();
+#endif
+	
+	tegra_restore_uart_registor();
+	printk("LP0: Exited...\n");
 }
 
 void cpu_ap20_do_lp1(void)

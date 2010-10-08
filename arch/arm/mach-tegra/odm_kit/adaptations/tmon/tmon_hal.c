@@ -47,7 +47,7 @@
 #define TMON_PSEUDOHANDLE_ZONE(h) ( ((NvU32)(h)) & 0xFFFF )
 
 /*****************************************************************************/
-
+extern void Adt7461Reinit(NvOdmTmonDeviceHandle hTmon);
 static NvOdmTmonDevice*
 TmonGetInstance(NvOdmTmonZoneID ZoneId)
 {
@@ -159,7 +159,7 @@ NvBool NvOdmTmonSuspend(NvOdmTmonDeviceHandle hTmon)
     NvOdmTmonZoneID ZoneId = TMON_PSEUDOHANDLE_ZONE(hTmon);
     NvOdmTmonDevice* pTmon = TmonGetInstance(ZoneId);
 
-    if (pTmon && pTmon->RefCount)
+	if (pTmon && pTmon->RefCount)
     {
         NV_ASSERT(pTmon->pfnStop);
         if (pTmon->pfnStop(pTmon, ZoneId))
@@ -176,7 +176,11 @@ NvBool NvOdmTmonResume(NvOdmTmonDeviceHandle hTmon)
     if (pTmon && pTmon->RefCount)
     {
         NV_ASSERT(pTmon->pfnRun);
-        if (pTmon->pfnRun(pTmon, ZoneId))
+		
+		// re-init, keep Temperature value correct!
+		Adt7461Reinit(pTmon); 
+        
+		if (pTmon->pfnRun(pTmon, ZoneId))
             return NV_TRUE;
     }
     return NV_FALSE;

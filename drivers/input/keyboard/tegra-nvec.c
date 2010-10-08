@@ -33,6 +33,7 @@
 #include "nvodm_services.h"
 #include "nvodm_keyboard.h"
 #include "nvec_device.h"
+#include <linux/earlysuspend.h>
 
 #define DRIVER_DESC "NvEc keyboard driver"
 #define DRIVER_LICENSE "GPL"
@@ -45,15 +46,21 @@ MODULE_LICENSE(DRIVER_LICENSE);
 
 /* The total number of scan codes will be (first - last) */
 #define EC_FIRST_CODE 0x00
-#define EC_LAST_CODE 0x58
+//#define EC_LAST_CODE 0x58
+#define EC_LAST_CODE 0x7d
 #define EC_TOTAL_CODES (EC_LAST_CODE - EC_FIRST_CODE + 1)
+
+int power_button_event = 0;
+int lid_switch_event = 0;
+int lcd_status = 1;
+static NvBool   b_flag_keyboard_suspend = NV_FALSE;
 
 /**
  * @brief This is the actual Scan-code-to-VKey mapping table. For new layouts
  *        this is the only structure which needs to be modified to return the
  *        proper vkey depending on the scan code.
  */
-NvU8 code_tab_102us[EC_TOTAL_CODES] = {
+NvU32 code_tab_102us[EC_TOTAL_CODES] = {
 	KEY_GRAVE,	// 0x00
 	KEY_ESC,
 	KEY_1,
@@ -123,7 +130,7 @@ NvU8 code_tab_102us[EC_TOTAL_CODES] = {
 	KEY_F8,
 	KEY_F9,
 	KEY_F10,
-	KEY_NUMLOCK,
+	KEY_FN,
 	0,		//VK_SCROLL
 	KEY_KP7,
 	KEY_KP8,
@@ -138,11 +145,48 @@ NvU8 code_tab_102us[EC_TOTAL_CODES] = {
 	KEY_KP3,
 	KEY_KP0,
 	KEY_KPDOT,
-	0,		//VK_SNAPSHOT
+	KEY_MENU,		//VK_SNAPSHOT
+	KEY_POWER,
+	KEY_102ND,		//VK_OEM_102   henry+ 0x2B (43) BACKSLASH have been used,change to use 0X56 (86)
+	KEY_F11,		//VK_F11
+	KEY_F12,		//VK_F12
+	0, 
+	0, 
+	0, 
+	0, 
+	0, 
+	0, 
+	0, 
+	0, // 60 
 	0,
-	0,		//VK_OEM_102
-	0,		//VK_F11
-	0,		//VK_F12
+	0,
+	KEY_SEARCH, // add search key map 
+	0,		
+	0,
+	0,
+	0,	
+	0,		
+	0, 
+	0, 
+	0, 
+	0, 
+	0, 
+	0, 
+	0, 
+	0, // 70 
+	0,
+	0,
+	KEY_KP5,  //73 for JP keyboard '\' key, report 0x4c
+	0,		
+	0,
+	0,
+	0,	
+	0,		
+	0, 
+	0, 
+    0, 
+	0, 
+	KEY_KP9, //7d  for JP keyboard '|' key, report 0x49
 };
 
 /* The total number of scan codes will be (first - last) */
@@ -156,7 +200,7 @@ NvU8 code_tab_102us[EC_TOTAL_CODES] = {
  *        To avoid moving the already designed buttons to accomodate these
  *        new buttons, the new scan codes are preceded by 'E0'.
  */
-NvU8 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
+NvU32 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
 	0,		// 0xE0 0x10
 	0,
 	0,
@@ -170,7 +214,7 @@ NvU8 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
 	0,
 	0,
 	0,		//VK_RETURN,
-	0,		//VK_RCONTROL,
+	KEY_RIGHTCTRL,		//VK_RCONTROL,
 	0,
 	0,
 	KEY_MUTE,	// 0xE0 0x20
@@ -187,7 +231,7 @@ NvU8 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
 	0,
 	0,
 	0,
-	KEY_VOLUMEDOWN,
+	0,
 	0,
 	KEY_VOLUMEUP,	// 0xE0 0x30
 	0,
@@ -196,8 +240,8 @@ NvU8 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
 	0,
 	KEY_KPSLASH,	//VK_DIVIDE
 	0,
-	0,		//VK_SNAPSHOT
-	0,		//VK_RMENU
+	KEY_SYSRQ,		//VK_SNAPSHOT
+	KEY_RIGHTALT,		//VK_RMENU
 	0,		//VK_OEM_NV_BACKLIGHT_UP
 	0,		//VK_OEM_NV_BACKLIGHT_DN
 	0,		//VK_OEM_NV_BACKLIGHT_AUTOTOGGLE
@@ -206,7 +250,7 @@ NvU8 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
 	0,		//VK_OEM_NV_DISPLAY_SELECT
 	0,		//VK_OEM_NV_AIRPLANE_TOGGLE
 	0,		//0xE0 0x40
-	0,		//VK_OEM_NV_RESERVED
+	KEY_LEFT,		//VK_OEM_NV_RESERVED    henry+ for JP keyboard
 	0,		//VK_OEM_NV_RESERVED
 	0,		//VK_OEM_NV_RESERVED
 	0,		//VK_OEM_NV_RESERVED
@@ -214,7 +258,7 @@ NvU8 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
 	KEY_CANCEL,
 	KEY_HOME,
 	KEY_UP,
-	0,		//VK_PRIOR
+	KEY_PAGEUP,		//VK_PRIOR
 	0,
 	KEY_LEFT,
 	0,
@@ -222,7 +266,7 @@ NvU8 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
 	0,
 	KEY_END,
 	KEY_DOWN,	// 0xE0 0x50
-	0,		//VK_NEXT
+	KEY_PAGEDOWN,		//VK_NEXT
 	KEY_INSERT,
 	KEY_DELETE,
 	0,
@@ -232,12 +276,12 @@ NvU8 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
 	0,
 	0,
 	0,
-	KEY_MENU,	//VK_LWIN
+	KEY_LEFTMETA,	//VK_LWIN
 	0,		//VK_RWIN
 	KEY_BACK,	//VK_APPS
+	KEY_KPMINUS, //for power button workaround
+	0, 
 	0,
-	0,
-	0,		// 0xE0 0x60
 	0,
 	0,
 	0,
@@ -264,11 +308,35 @@ struct nvec_keyboard
 	NvEcEventRegistrationHandle	hEvent;
 };
 
+//extern int paz00_set_lcd_output(int mode);
+
+struct input_dev *nvec_input_dev;
+NvBool nvec_keyboard_suppend_flag(void)
+{
+	return b_flag_keyboard_suspend;
+}
+int nvec_keyboard_report_key(unsigned int code, int value)
+{   
+    if (!nvec_input_dev){
+	pr_info("NVEC keyboard driver no ready!\n");
+	return -1;
+    }
+//*********henry+ enter suspend,disable report data*******************
+//Henry+ when suspend only close lip report report KEY_SLEEP ,so need bypass it.
+if (b_flag_keyboard_suspend==NV_TRUE && code!=KEY_OPEN) {
+	pr_info("NVEC keyboard driver suspend,bypass the report code=x%0x!\n",code);
+	return -2;
+    }
+
+//*********henry+ enter suspend,disable report data*******************
+    input_report_key(nvec_input_dev, code, value); 
+    return 0;
+}
+
 static int nvec_keyboard_recv(void *arg)
 {
 	struct input_dev *input_dev = (struct input_dev *)arg;
-	struct nvec_keyboard *keyboard = input_get_drvdata(input_dev);
-
+	struct nvec_keyboard *keyboard = input_get_drvdata(input_dev);        
 	/* keyboard event thread should be frozen before suspending the
 	 * keyboard and NVEC drivers */
 	set_freezable_with_signal();
@@ -279,6 +347,37 @@ static int nvec_keyboard_recv(void *arg)
 		NvU8 flags;
 
 		if (!NvOdmKeyboardGetKeyData(&code, &flags, 0)) {
+ 
+	    	//*********henry+ enter suspend,disable report data*******************
+	    	if (b_flag_keyboard_suspend==NV_TRUE && code!=0xe05e){
+			pr_info("NVEC keyboard driver suspend,bypass the report code=x%0x!\n",code);
+			continue;
+	    	}
+/* 2010.7.14 remove by Henry,EC behavior have changed, press power button <2sec report event,lid close/open report event
+            if (power_button_event == 1) {
+                if (lcd_status == 1) {
+                    paz00_set_lcd_output(0);  
+                    lcd_status = 0;   
+                } else if (lcd_status == 0) {
+                    paz00_set_lcd_output(1);  
+                    lcd_status = 1;                
+                }          
+            }
+
+            power_button_event = 0;
+
+            if (lid_switch_event == 1) {
+                if (lcd_status == 0) {
+                    paz00_set_lcd_output(0);  
+                } else if (lcd_status == 1) {
+                    paz00_set_lcd_output(1);  
+                }
+            } else if (lid_switch_event == 2) {
+                paz00_set_lcd_output(0);  
+            }
+
+            lid_switch_event = 0;
+*/            
 			printk(KERN_INFO "nvec_keyboard: unhandled "
 				"scancode %x\n", code);
 			continue;
@@ -286,9 +385,23 @@ static int nvec_keyboard_recv(void *arg)
 
 		if (keyboard->shutdown)
 			break;
+		//*********henry+ enter suspend,disable report data*******************
+		if (b_flag_keyboard_suspend==NV_TRUE && code!=0xe05e) {
+			pr_info("NVEC keyboard driver suspend,bypass the report code=x%0x!\n",code);
+			continue;
+	    }
+			
+		if(code==0x4343)
+		{   //henry+ specially handle for F9 key,
+		    //report make code and break code.
+			input_report_key(keyboard->input_dev, KEY_F9, 2);
+			input_report_key(keyboard->input_dev, KEY_F9, 0);			
+			continue;
+		}
 
 		pressed = (flags & NV_ODM_SCAN_CODE_FLAG_MAKE);
 
+        //power_button_event = 0;
 
 		if ((code >= EC_FIRST_CODE) && (code <= EC_LAST_CODE)) {
 			code -= EC_FIRST_CODE;
@@ -320,7 +433,9 @@ static void nvec_keyboard_close(struct input_dev *dev)
 static int __devinit nvec_keyboard_probe(struct nvec_device *pdev)
 {
 	int error;
+#if KEYBOARD_SCANNING_DISABLED_IN_SUSPEND
 	NvError nverr;
+#endif
 	struct nvec_keyboard *keyboard;
 	struct input_dev *input_dev;
 	int i;
@@ -366,12 +481,26 @@ static int __devinit nvec_keyboard_probe(struct nvec_device *pdev)
 		__set_bit(extcode_tab_us102[i], input_dev->keybit);
 	}
 
+//henry+  press power button time=1sec report sleep scancode
+	__set_bit(74, input_dev->keybit);
+	__set_bit(KEY_SLEEP, input_dev->keybit);//press power button <2sec for goto sleep
+	__set_bit(KEY_F23, input_dev->keybit); //press power button <2sec for turn on/off screen
+
+	nvec_input_dev=keyboard->input_dev;
+
+    /* Report lid switch scan code to OS */
+    __set_bit(KEY_OPEN, input_dev->keybit);
+    __set_bit(KEY_CLOSE, input_dev->keybit);
+
+	keyboard->hNvec = NULL;
+#if KEYBOARD_SCANNING_DISABLED_IN_SUSPEND
 	/* get EC handle */
 	nverr = NvEcOpen(&keyboard->hNvec, 0 /* instance */);
 	if (nverr != NvError_Success) {
 		error = -ENODEV;
 		goto fail_input_register;
 	}
+#endif
 
 	error = input_register_device(keyboard->input_dev);
 	if (error)
@@ -385,8 +514,10 @@ fail_thread_create:
 	NvOdmKeyboardDeInit();
 fail_keyboard_init:
 fail:
+#if KEYBOARD_SCANNING_DISABLED_IN_SUSPEND
 	NvEcClose(keyboard->hNvec);
 	keyboard->hNvec = NULL;
+#endif
 	input_free_device(input_dev);
 	kfree(keyboard);
 
@@ -400,8 +531,10 @@ static void nvec_keyboard_remove(struct nvec_device *dev)
 
 	(void)kthread_stop(keyboard->task);
 	NvOdmKeyboardDeInit();
+#if KEYBOARD_SCANNING_DISABLED_IN_SUSPEND
 	NvEcClose(keyboard->hNvec);
 	keyboard->hNvec = NULL;
+#endif
 	keyboard->shutdown = 1;
 	input_free_device(input_dev);
 	kfree(keyboard);
@@ -501,6 +634,11 @@ static int nvec_keyboard_resume(struct nvec_device *pdev)
 	}
 #endif
 
+	/* fake key event to turn on display */
+	input_report_key(keyboard->input_dev, KEY_MENU, true);
+	input_report_key(keyboard->input_dev, KEY_MENU, false);
+    //paz00_set_lcd_output(1);  //Henry+ turn on display 2010.6.30  
+                                //2010.7.14 remove the code,for close lip driver don't turn off screen,so open lip don't trun on screen.
 	return 0;
 }
 
@@ -511,6 +649,27 @@ static struct nvec_driver nvec_keyboard_driver = {
 	.suspend	= nvec_keyboard_suspend,
 	.resume		= nvec_keyboard_resume,
 };
+
+//*********henry+ enter suspend,disable report data*******************
+
+static void nvec_keyboard_early_suspend(struct early_suspend *h)
+{
+	//pr_info("\tNV-KEYBOARD: stop report key code in early suspend --->>>\n");	
+	b_flag_keyboard_suspend=NV_TRUE;
+}
+
+static void nvec_keyboard_early_resume(struct early_suspend *h)
+{
+	//pr_info("\tNV-KEYBOARD: restart report key in early resume --->>>\n");
+	b_flag_keyboard_suspend=NV_FALSE;		
+	
+}
+
+static struct early_suspend nvec_keyboard_early_suspend_handler = {
+    .suspend = nvec_keyboard_early_suspend,
+    .resume = nvec_keyboard_early_resume,
+};
+//*********henry+ enter suspend,disable report data*******************
 
 static struct nvec_device nvec_keyboard_device = {
 	.name	= "nvec_keyboard",
@@ -536,11 +695,16 @@ static int __init nvec_keyboard_init(void)
 		return err;
 	}
 
+	//henry+ enter suspend,disable report data
+	register_early_suspend(&nvec_keyboard_early_suspend_handler);
+
 	return 0;
 }
 
 static void __exit nvec_keyboard_exit(void)
 {
+	//henry+ enter suspend,disable report data
+	unregister_early_suspend(&nvec_keyboard_early_suspend_handler);
 	nvec_unregister_device(&nvec_keyboard_device);
 	nvec_unregister_driver(&nvec_keyboard_driver);
 }

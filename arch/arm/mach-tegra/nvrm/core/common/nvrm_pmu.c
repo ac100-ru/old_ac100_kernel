@@ -115,6 +115,7 @@ static void PmuThread(void* args)
             NvOsMutexUnlock(pPmu->hMutex);
             continue;
         }
+
         NvOdmPmuInterruptHandler(pPmu->hOdmPmu);
         NvOsMutexUnlock(pPmu->hMutex);
 

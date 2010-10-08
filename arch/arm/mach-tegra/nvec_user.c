@@ -187,7 +187,7 @@ static struct miscdevice nvec_dev =
 	.minor	= MISC_DYNAMIC_MINOR,
 };
 
-static NvEcHandle s_NvEcHandle = NULL;
+//static NvEcHandle s_NvEcHandle = NULL; // for coldboot testing
 
 static int nvec_bus_probe(struct device *_dev)
 {
@@ -310,7 +310,7 @@ EXPORT_SYMBOL_GPL(nvec_unregister_device);
 static int __init nvec_init(void)
 {
 	int err = 0;
-	NvError status = NvSuccess;
+	//NvError status = NvSuccess;
 	NvU32 NumTypes = 1; // TODO: must have NvRtObjType_NvEc_Num instead;
 
 	err = device_register(&nvec_bus_dev);
@@ -333,6 +333,7 @@ static int __init nvec_init(void)
 		return -ENOMEM;
 	}
 
+#if 0
 	status = NvEcOpen(&s_NvEcHandle, 0);
 	if (status != NvError_Success) {
 		printk("nvec NvEcOpen returned 0x%x\n", status);
@@ -342,12 +343,13 @@ static int __init nvec_init(void)
 		device_unregister(&nvec_bus_dev);
 		return -EINVAL;
 	}
+#endif
 
 	err = misc_register(&nvec_dev);
 	if (err < 0) {
 		if (s_RtHandle) {
-			NvEcClose(s_NvEcHandle);
-			s_NvEcHandle = NULL;
+			//NvEcClose(s_NvEcHandle);
+			//s_NvEcHandle = NULL;
 			NvRtDestroy(s_RtHandle);
 			s_RtHandle = NULL;
 			bus_unregister(&nvec_bus_type);
@@ -361,8 +363,8 @@ static int __init nvec_init(void)
 
 static void __exit nvec_exit(void)
 {
-	NvEcClose(s_NvEcHandle);
-	s_NvEcHandle = NULL;
+	//NvEcClose(s_NvEcHandle);
+	//s_NvEcHandle = NULL;
 	misc_deregister( &nvec_dev );
 	NvRtDestroy(s_RtHandle);
 	s_RtHandle = NULL;

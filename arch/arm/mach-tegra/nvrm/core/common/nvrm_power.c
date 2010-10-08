@@ -64,7 +64,7 @@
 #endif
 
 // Active modules report on suspend entry : 0=disable, 1=enable
-#define NVRM_POWER_DEBUG_SUSPEND_ENTRY (1)
+#define NVRM_POWER_DEBUG_SUSPEND_ENTRY (0)
 
 /*****************************************************************************/
 

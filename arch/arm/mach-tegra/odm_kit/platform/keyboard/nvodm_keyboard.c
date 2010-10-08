@@ -42,7 +42,7 @@
 #define NVODM_ENABLE_PRINTF      0
 
 #if NVODM_ENABLE_PRINTF
-#define NVODM_PRINTF(x) NvOdmOsDebugPrintf x
+#define NVODM_PRINTF(x) NvOsDebugPrintf x
 #else
 #define NVODM_PRINTF(x)
 #endif
@@ -88,7 +88,7 @@ typedef struct NvOdmKbdContextRec
 	NvRmGpioInterruptHandle GpioIntrHandle;
 	NvU32 PinCount;
 } NvOdmKbdContext;
-NvOdmKbdContext *hOdm;
+static NvOdmKbdContext *hOdm;
 
 static void GpioInterruptHandler(void *args)
 {
@@ -122,7 +122,8 @@ NvBool NvOdmKeyboardInit(void)
     NvStatus = NvEcOpen(&s_NvEcHandle, 0 /* instance */);
     if (NvStatus != NvError_Success)
     {
-        goto fail;
+        NvOsDebugPrintf("===> NvOdmKeyboardInit: NvEcOpen failed!\n");
+		goto fail;
     }
 
     /* reset the EC to start the keyboard scanning */
@@ -132,16 +133,18 @@ NvBool NvOdmKeyboardInit(void)
     Request.NumPayloadBytes = 0;
 
     NvStatus = NvEcSendRequest(s_NvEcHandle, &Request, &Response, sizeof(Request), sizeof(Response));
+#if 0
     if (NvStatus != NvError_Success)
     {
         goto cleanup;
     }
-
+    
     /* check if command passed */
     if (Response.Status != NvEcStatus_Success)
     {
         goto cleanup;
     }
+#endif
 
 #if WAKE_FROM_KEYBOARD
 	hOdm = NvOdmOsAlloc(sizeof(NvOdmKbdContext));
@@ -153,11 +156,12 @@ NvBool NvOdmKeyboardInit(void)
 	hOdm->GpioPinInfo = NvOdmQueryGpioPinMap(NvOdmGpioPinGroup_WakeFromECKeyboard,
 					0,
 					&hOdm->PinCount);
-
-	NvRmGpioAcquirePinHandle(s_hGpioGlobal,
-		hOdm->GpioPinInfo->Port,
-		hOdm->GpioPinInfo->Pin,
-		&hOdm->hPin);
+        if (hOdm->GpioPinInfo && hOdm->PinCount) {
+            NvRmGpioAcquirePinHandle(s_hGpioGlobal,
+                hOdm->GpioPinInfo->Port,
+                hOdm->GpioPinInfo->Pin,
+                &hOdm->hPin);
+        }
 	if (!hOdm->hPin) {
 		goto cleanup;
 	}
@@ -180,6 +184,7 @@ NvBool NvOdmKeyboardInit(void)
 		goto cleanup;
 	}
 
+    #if 0
 	/* enable keyboard as wake up source */
 	Request.PacketType = NvEcPacketType_Request;
 	Request.RequestType = NvEcRequestResponseType_Keyboard;
@@ -201,6 +206,7 @@ NvBool NvOdmKeyboardInit(void)
 	if (Response.Status != NvEcStatus_Success) {
 		goto cleanup;
 	}
+    #endif
 
         /* enable key reporting on wake up */
 	Request.PacketType = NvEcPacketType_Request;
@@ -215,6 +221,7 @@ NvBool NvOdmKeyboardInit(void)
 		&Response,
 		sizeof(Request),
 		sizeof(Response));
+#if 0
 	if (NvStatus != NvError_Success) {
 		goto cleanup;
         }
@@ -222,6 +229,7 @@ NvBool NvOdmKeyboardInit(void)
 	if (Response.Status != NvEcStatus_Success) {
 		goto cleanup;
 	}
+#endif
 #endif
 
     /* create semaphore which can be used to send scan codes to the clients */
@@ -250,18 +258,23 @@ NvBool NvOdmKeyboardInit(void)
 
 cleanup:
 #if WAKE_FROM_KEYBOARD
-	NvRmGpioInterruptUnregister(s_hGpioGlobal, s_hRmGlobal, hOdm->GpioIntrHandle);
-	hOdm->GpioIntrHandle = NULL;
-	NvRmGpioReleasePinHandles(s_hGpioGlobal, &hOdm->hPin, hOdm->PinCount);
-	NvOdmOsFree(hOdm);
-	hOdm = NULL;
+    if (hOdm) {
+	    NvRmGpioInterruptUnregister(s_hGpioGlobal, s_hRmGlobal, hOdm->GpioIntrHandle);
+	    hOdm->GpioIntrHandle = NULL;
+		if (hOdm->hPin)
+	        NvRmGpioReleasePinHandles(s_hGpioGlobal, &hOdm->hPin, hOdm->PinCount);
+	    NvOdmOsFree(hOdm);
+	    hOdm = NULL;
+	}
 #endif
-    (void)NvEcUnregisterForEvents(s_hEcEventRegistration);
-    s_hEcEventRegistration = NULL;
-
-    NvOdmOsSemaphoreDestroy(s_hKbcKeyScanRecvSema);
-    s_hKbcKeyScanRecvSema = NULL;
-
+	if (s_hEcEventRegistration != NULL) {
+        (void)NvEcUnregisterForEvents(s_hEcEventRegistration);
+        s_hEcEventRegistration = NULL;
+    }
+    if (s_hKbcKeyScanRecvSema != NULL) {
+        NvOdmOsSemaphoreDestroy(s_hKbcKeyScanRecvSema);
+        s_hKbcKeyScanRecvSema = NULL;
+    }
     NvEcClose(s_NvEcHandle);
 fail:
     s_NvEcHandle = NULL;
@@ -276,12 +289,15 @@ void NvOdmKeyboardDeInit(void)
     NvEcResponse Response = {0};
 
 #if WAKE_FROM_KEYBOARD
-	NvRmGpioInterruptUnregister(s_hGpioGlobal, s_hRmGlobal, hOdm->GpioIntrHandle);
-	hOdm->GpioIntrHandle = NULL;
-	NvRmGpioReleasePinHandles(s_hGpioGlobal, &hOdm->hPin, hOdm->PinCount);
-	hOdm->PinCount = 0;
-	NvOdmOsFree(hOdm);
-	hOdm = NULL;
+    if (hOdm) {
+	    NvRmGpioInterruptUnregister(s_hGpioGlobal, s_hRmGlobal, hOdm->GpioIntrHandle);
+	    hOdm->GpioIntrHandle = NULL;
+		if (hOdm->hPin)
+	        NvRmGpioReleasePinHandles(s_hGpioGlobal, &hOdm->hPin, hOdm->PinCount);
+	    hOdm->PinCount = 0;
+	    NvOdmOsFree(hOdm);
+	    hOdm = NULL;
+	}
 #endif
 
     /* stop the keyboard scanning */
@@ -320,12 +336,23 @@ NvBool NvOdmKeyboardGetKeyData(NvU32 *pKeyScanCode, NvU8 *pScanCodeFlags, NvU32 
     NvError NvStatus = NvError_Success;
     NvU32 OutCode, OutCodeBytes, i;
     NvU8 ScanCodeFlags;
+	static NvBool powerbtn_pressed = NV_FALSE;
+
 
     if (!pKeyScanCode || !pScanCodeFlags || s_KeyboardDeinit)
     {
         return NV_FALSE;
     }
 
+    //for power button workaround
+    if (powerbtn_pressed) {
+		powerbtn_pressed = NV_FALSE;
+        *pScanCodeFlags = NV_ODM_SCAN_CODE_FLAG_BREAK;
+        *pKeyScanCode = 0xE05E;
+		NvOdmOsWaitUS(100000);
+        return NV_TRUE;
+	}
+    
     if (Timeout != 0)
     {
         /* Use the timeout value */
@@ -337,7 +364,7 @@ NvBool NvOdmKeyboardGetKeyData(NvU32 *pKeyScanCode, NvU8 *pScanCodeFlags, NvU32 
         /* wait till we receive a scan code from the EC */
         NvOdmOsSemaphoreWait(s_hKbcKeyScanRecvSema);
     }
-
+    
     // stop scanning
     if (s_KeyboardDeinit)
         return NV_FALSE;
@@ -345,6 +372,7 @@ NvBool NvOdmKeyboardGetKeyData(NvU32 *pKeyScanCode, NvU8 *pScanCodeFlags, NvU32 
     if (s_hEcEventRegistration)
     {
         NvStatus = NvEcGetEvent(s_hEcEventRegistration, &KbdEvent, sizeof(NvEcEvent));
+
         if (NvStatus != NvError_Success)
         {
             NV_ASSERT(!"Could not receive scan code");
@@ -356,17 +384,21 @@ NvBool NvOdmKeyboardGetKeyData(NvU32 *pKeyScanCode, NvU8 *pScanCodeFlags, NvU32 
             return NV_FALSE;
         }
 
+        //for power button workaround
+		if (KbdEvent.Payload[0] == 0xE0 && KbdEvent.Payload[1] == 0x5E) 
+			powerbtn_pressed = NV_TRUE;
+
         // Pack scan code bytes from payload buffer into 32-bit dword
         OutCode = (NvU32)KbdEvent.Payload[0];
         OutCodeBytes = 1;
         ScanCodeFlags = 0;
 
         if (KbdEvent.NumPayloadBytes == 1)
-            NVODM_PRINTF(("EC Payload = 0x%x", KbdEvent.Payload[0]));
+            NVODM_PRINTF(("EC Payload = 0x%x\n", KbdEvent.Payload[0]));
         else
         {
             for (i = 0; i < KbdEvent.NumPayloadBytes; i++)
-                NVODM_PRINTF(("EC Payload = 0x%x", KbdEvent.Payload[i]));
+                NVODM_PRINTF(("EC Payload = 0x%x\n", KbdEvent.Payload[i]));
         }
 
         for (i = 1; i < KbdEvent.NumPayloadBytes; i++)
@@ -418,6 +450,10 @@ NvBool NvOdmKeyboardGetKeyData(NvU32 *pKeyScanCode, NvU8 *pScanCodeFlags, NvU32 
         {
             switch (OutCodeBytes)
             {
+                //for power button workaround
+				case 4:
+				    if (powerbtn_pressed) OutCode = 0xE05E;
+					else                  return NV_FALSE;
                 case 2:
                 case 1:
                     ScanCodeFlags = (OutCode & ((NvU32)SC1_BREAK_MASK)) ?

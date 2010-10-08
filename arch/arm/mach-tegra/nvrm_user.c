@@ -49,6 +49,14 @@
 #include "nvreftrack.h"
 #include "mach/timex.h"
 
+
+#define WAKE_LOCK 1
+#ifdef WAKE_LOCK
+#include <linux/wakelock.h>
+struct wake_lock rm_wake_lock;
+#endif
+
+
 pid_t s_nvrm_daemon_pid = 0;
 
 NvError NvRm_Dispatch(void *InBuffer,
@@ -692,6 +700,9 @@ int tegra_pm_notifier(struct notifier_block *nb,
 		notify_daemon(STRING_PM_SUSPEND_PREPARE);
 	}
 	else if (event == PM_POST_SUSPEND) {
+	        #if WAKE_LOCK
+	        wake_lock_timeout(&rm_wake_lock, 5*HZ );
+	        #endif
 		notify_daemon(STRING_PM_POST_SUSPEND);
 #ifndef CONFIG_HAS_EARLYSUSPEND
 		notify_daemon(STRING_PM_DISPLAY_ON);
@@ -780,11 +791,19 @@ static int __init nvrm_init(void)
 	// Register NvRm platform driver.
 	ret = platform_driver_register(&nvrm_driver);
 
+	#if WAKE_LOCK
+	//wake_lock_init(&rm_wake_lock, WAKE_LOCK_SUSPEND, "tegra_rm_wakelock_suspend");
+	wake_lock_init(&rm_wake_lock, WAKE_LOCK_IDLE, "tegra_rm_wakelock_suspend");
+	#endif
+
 	return ret;
 }
 
 static void __exit nvrm_deinit(void)
 {
+    #if WAKE_LOCK
+    wake_lock_destroy(&rm_wake_lock);
+    #endif
     printk(KERN_INFO "%s called\n", __func__);
     platform_driver_unregister(&nvrm_driver);
 }

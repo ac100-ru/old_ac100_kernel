@@ -30,7 +30,6 @@
  *
  */
 
-
 #include "nvodm_tmon_adt7461.h"
 #include "tmon_hal.h"
 
@@ -405,6 +404,81 @@ static void Adt7461FreePrivData(ADT7461PrivData* pPrivData)
 
 /*****************************************************************************/
 
+void Adt7461Reinit(NvOdmTmonDeviceHandle hTmon)
+{
+    NvU8 Data;
+    NvBool ExtRange;
+    const ADT7461RegisterInfo* pReg = NULL;
+    ADT7461PrivData* pPrivData = hTmon->pPrivate;
+
+    pReg = &pPrivData->pDeviceInfo->Config;
+    Adt7461ReadReg(pPrivData, pReg, &Data);
+    if ((Data & ADT7461ConfigBits_ExtendedRange) !=
+        (ADT7461_INITIAL_CONFIG & ADT7461ConfigBits_ExtendedRange))
+    {
+        // Only switch from standard to extended range is supported
+        NV_ASSERT((Data & ADT7461ConfigBits_ExtendedRange) == 0);
+        Data |= ADT7461ConfigBits_Standby;
+        Adt7461WriteReg(pPrivData, pReg, Data);
+    }
+    Data = ADT7461_INITIAL_CONFIG | ADT7461ConfigBits_Standby;
+    Adt7461WriteReg(pPrivData, pReg, Data);
+    pPrivData->ShadowConfig = Data;
+    ExtRange = ((Data & ADT7461ConfigBits_ExtendedRange) != 0);
+
+    // Program shutdown comparators settings
+    Data = ADT7461_T_VALUE_TO_DATA(
+        ExtRange, ADT7461_ODM_LOCAL_COMPARATOR_LIMIT_VALUE);
+    pReg = &pPrivData->pDeviceInfo->Channels[
+        ADT7461ChannelID_Local].ComparatorLimit;
+    Adt7461WriteReg(pPrivData, pReg, Data);
+
+    Data = ADT7461_T_VALUE_TO_DATA(
+        ExtRange, ADT7461_ODM_REMOTE_COMPARATOR_LIMIT_VALUE);
+    pReg = &pPrivData->pDeviceInfo->Channels[
+        ADT7461ChannelID_Remote].ComparatorLimit;
+    Adt7461WriteReg(pPrivData, pReg, Data);
+
+    // Set interrupt limits to the range boundaries to prevent out of limit
+    // interrupt
+    Data = ADT7461_T_VALUE_TO_DATA(
+        ExtRange, ADT7461_T_RANGE_LIMIT_HIGH(ExtRange)); 
+    pReg = &pPrivData->pDeviceInfo->Channels[
+        ADT7461ChannelID_Local].IntrLimitHigh;
+    Adt7461WriteReg(pPrivData, pReg, Data);
+    pReg = &pPrivData->pDeviceInfo->Channels[
+        ADT7461ChannelID_Remote].IntrLimitHigh;
+    Adt7461WriteReg(pPrivData, pReg, Data);
+
+    Data = ADT7461_T_VALUE_TO_DATA(
+            ExtRange, ADT7461_T_RANGE_LIMIT_LOW(ExtRange));
+    pReg = &pPrivData->pDeviceInfo->Channels[
+        ADT7461ChannelID_Local].IntrLimitLow;
+    Adt7461WriteReg(pPrivData, pReg, Data);
+    pReg = &pPrivData->pDeviceInfo->Channels[
+        ADT7461ChannelID_Remote].IntrLimitLow;
+    Adt7461WriteReg(pPrivData, pReg, Data);
+
+    // Set initial rate
+    Data = ADT7461_INITIAL_RATE_SETTING;  
+    pReg = &pPrivData->pDeviceInfo->Rate;
+    Adt7461WriteReg(pPrivData, pReg, Data);
+    pPrivData->ShadowRate = Data;
+
+    // Set remote channel offset (8-bit 2's complement value for any range)
+    Data = ((NvU8)ADT7461_ODM_REMOTE_OFFSET_VALUE);
+    pReg = &pPrivData->pDeviceInfo->Channels[
+        ADT7461ChannelID_Remote].Toffset;
+    Adt7461WriteReg(pPrivData, pReg, Data);
+
+    // Read ADT7461 status and ARA (clear pending Alert interrupt, if any)
+    pReg = &pPrivData->pDeviceInfo->Status;
+    Adt7461ReadReg(pPrivData, pReg, &Data);
+    Adt7461ReadAra(pPrivData);
+}
+
+/*****************************************************************************/
+
 NvBool Adt7461Init(NvOdmTmonDeviceHandle hTmon)
 {
     NvU8 Data;
@@ -582,6 +656,7 @@ NvBool Adt7461Init(NvOdmTmonDeviceHandle hTmon)
     // TODO: check open remote circuit error
 
     Adt7461ReadAra(pPrivData);
+
     return NV_TRUE;
 
 fail:
@@ -614,7 +689,7 @@ NvBool Adt7461Run(NvOdmTmonDeviceHandle hTmon, NvOdmTmonZoneID ZoneId)
     NV_ASSERT(hTmon && hTmon->pPrivate);
     pPrivData = hTmon->pPrivate;
     IsRunning = (pPrivData->ShadowConfig & ADT7461ConfigBits_Standby) == 0;
-
+    
     if (!IsRunning)
     {
         Data = pPrivData->ShadowConfig & (~ADT7461ConfigBits_Standby);
@@ -636,7 +711,7 @@ NvBool Adt7461Stop(NvOdmTmonDeviceHandle hTmon, NvOdmTmonZoneID ZoneId)
     pPrivData = hTmon->pPrivate;
     IsRunning = (pPrivData->ShadowConfig & ADT7461ConfigBits_Standby) == 0;
 
-    if (ADT7461_ODM_STANDBY_ENABLED &&
+	if (ADT7461_ODM_STANDBY_ENABLED &&
         IsRunning && (pPrivData->RunRefCount == 1))
     {
         Data = pPrivData->ShadowConfig | ADT7461ConfigBits_Standby;

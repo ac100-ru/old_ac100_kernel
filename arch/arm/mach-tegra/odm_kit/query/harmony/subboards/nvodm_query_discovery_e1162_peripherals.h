@@ -436,7 +436,7 @@
 
 // Touch panel
 {
-    NV_ODM_GUID('p','a','n','j','i','t','_','0'),
+    NV_ODM_GUID('s','y','n','t','o','u','c','h'),
     s_TouchPanelAddresses,
     NV_ARRAY_SIZE(s_TouchPanelAddresses),
     NvOdmPeripheralClass_HCI

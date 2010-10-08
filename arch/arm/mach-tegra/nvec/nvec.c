@@ -38,13 +38,16 @@
 #include "nvec_transport.h"
 #include "nvec_private.h"
 
-
 #define DEBUG_NVEC 0
 #define DISP_MESSAGE(x) do { if (DEBUG_NVEC) { NvOsDebugPrintf x ; } } while (0)
 
 #define ENABLE_TIMEOUT              1
 #define ENABLE_FAKE_TIMEOUT_TEST    0
 #define ENABLE_POWER_MODES          1
+
+// dump EC request flow...
+#define REQUEST_LOG 0
+
 
 static  NvU32           s_refcount = 0;
 static  NvEcPrivState   g_ec = {0};     // init mutex to NULL
@@ -126,6 +129,10 @@ NvEcPrivDeinitHook( NvEcHandle hEc )
 /*
  * Send commands to EC just before suspend
  */
+
+extern NvU8 global_coldboot;
+extern void paz00_pm_power_off(void);
+
 static NvError
 NvEcPrivPowerSuspendHook(
     NvEcHandle hEc,
@@ -143,6 +150,15 @@ NvEcPrivPowerSuspendHook(
     switch (PowerState)
     {
         case NvEcPowerState_PowerDown:
+#if 1	// test restart function
+        printk("------ %s   PowerState1 = %d ------\n", __FUNCTION__, PowerState);
+        if (global_coldboot == 3)
+        {
+            global_coldboot = 1 ;
+	        // Robert 2010/04/08
+	        paz00_pm_power_off();
+        }
+#endif
             Subtype = ((NvEcRequestResponseSubtype) 
                           NvEcSleepSubtype_ApPowerDown);
             break;
@@ -151,6 +167,12 @@ NvEcPrivPowerSuspendHook(
                           NvEcSleepSubtype_ApSuspend);
             break;
         case NvEcPowerState_Restart:
+#if 1	// test restart function
+        printk("------ %s   PowerState2 = %d ------\n", __FUNCTION__, PowerState);
+        global_coldboot = 1;
+	    // Robert 2010/04/08
+	    paz00_pm_power_off();
+#endif
             Subtype = ((NvEcRequestResponseSubtype) 
                           NvEcSleepSubtype_ApRestart);
             break;
@@ -161,7 +183,7 @@ NvEcPrivPowerSuspendHook(
     }
     
     // disable global event reporting
-
+    // for suspend no need this command, said by EC Antonie
     DISP_MESSAGE(("NvEcPrivPowerSuspendHook: Disable Event Reporting\n"));
 
     req.PacketType = NvEcPacketType_Request;
@@ -171,10 +193,27 @@ NvEcPrivPowerSuspendHook(
     req.NumPayloadBytes = 1;
     req.Payload[0] = NVEC_SLEEP_GLOBAL_REPORT_ENABLE_0_ACTION_DISABLE;
 
-    NV_CHECK_ERROR( NvEcSendRequest(hEc, &req, &resp, sizeof(req), sizeof(resp)) );
+    // skip error check!
+    //NV_CHECK_ERROR( NvEcSendRequest(hEc, &req, &resp, sizeof(req), sizeof(resp)) );
+    //if ( resp.Status != NvEcStatus_Success )
+    //    return NvError_InvalidState;
+ 
+#if 0
+	//Robert 2010/04/26 --- configure wake request
+	DISP_MESSAGE(("NvEcPrivPowerSuspendHook: Enable keyboard event\n"));
+
+	req.PacketType = NvEcPacketType_Request;
+	req.RequestType = NvEcRequestResponseType_Keyboard;
+	req.RequestSubtype = 0x03;		//Sub-Command   Configure Wake
+	req.NumPayloadBytes = 2;
+	req.Payload[0] = 0x01;		//Enable wake for event
+	req.Payload[1] = 0x01;		//Any Key Press
+
+	NV_CHECK_ERROR( NvEcSendRequest(hEc, &req, &resp, sizeof(req), sizeof(resp)) );
     
-    if ( resp.Status != NvEcStatus_Success )
-        return NvError_InvalidState;
+	if ( resp.Status != NvEcStatus_Success )
+		return NvError_InvalidState;
+#endif
     
     // instruct EC to go to sleep
 
@@ -211,8 +250,8 @@ NvEcPrivPowerResumeHook( NvEcHandle hEc )
     // enable global event reporting
 
     DISP_MESSAGE(("NvEcPrivPowerResumeHook: Enabling Event Reporting\n"));
-
-    req.PacketType = NvEcPacketType_Request;
+    
+	req.PacketType = NvEcPacketType_Request;
     req.RequestType = NvEcRequestResponseType_Sleep;
     req.RequestSubtype = ((NvEcRequestResponseSubtype) 
                           NvEcSleepSubtype_GlobalConfigureEventReporting);
@@ -230,6 +269,7 @@ NvEcPrivPowerResumeHook( NvEcHandle hEc )
     return NvSuccess;
 }
 
+#if 0
 /*
  * Thread to send no-op commands to EC
  */
@@ -240,7 +280,7 @@ NvEcPrivPingThread(void *args)
 	NvEcRequest req;
 	NvEcResponse resp;
 	NvEcPrivState *ec = (NvEcPrivState *)args;
-	int timeout = 0;
+	//int timeout = 0;
 
 	set_freezable_with_signal();
 
@@ -273,6 +313,7 @@ NvEcPrivPingThread(void *args)
 	ec->IsEcActive = NV_FALSE;
 	}
 }
+#endif
 
 NvError
 NvEcOpen(NvEcHandle *phEc,
@@ -286,11 +327,34 @@ NvEcOpen(NvEcHandle *phEc,
 
     NV_ASSERT( phEc );
 
+    hEc = NvOsAlloc( sizeof(NvEc) );
+    if ( NULL == hEc )
+        return NvError_InsufficientMemory;
+    NvOsMemset(hEc, 0x00, sizeof(NvEc));
+    
+	hEc->ec = ec;
+    hEc->tag = NVEC_REQUESTOR_TAG_INVALID;
+    for ( i = 1; i < NVEC_MAX_REQUESTOR_TAG; i++ )
+    {
+        if ( !ec->tagAllocated[i] )
+        {
+            ec->tagAllocated[i] = NV_TRUE;
+            hEc->tag = i;
+            break;
+        }
+    }
+    if ( NVEC_REQUESTOR_TAG_INVALID == hEc->tag ) {
+        NvOsFree( hEc );
+        return NvError_InsufficientMemory; // run out of tag, clean it up!
+    }
+
     if ( NULL == ec->mutex )
     {
         e = NvOsMutexCreate(&mutex);
-        if (NvSuccess != e)
+        if (NvSuccess != e) {
+            NvOsFree( hEc );
             return e;
+		}
         if (0 != NvOsAtomicCompareExchange32((NvS32*)&ec->mutex, 0,
                                                         (NvS32)mutex) )
             NvOsMutexDestroy( mutex );
@@ -325,7 +389,7 @@ NvEcOpen(NvEcHandle *phEc,
     {
         ec->hEc = NvOsAlloc( sizeof(NvEc) );
         if ( NULL == ec->hEc )
-            goto clean;
+            goto fail;
         
         // reserve the zero tag for internal use by the nvec driver; this ensures
         // that the driver always has a requestor tag available and can therefore
@@ -334,16 +398,16 @@ NvEcOpen(NvEcHandle *phEc,
         ec->hEc->ec = ec;
         ec->hEc->tag = 0;
 
-        NV_CHECK_ERROR_CLEANUP(NvOsSemaphoreCreate(&ec->hPingSema, 0));
+        //NV_CHECK_ERROR_CLEANUP(NvOsSemaphoreCreate(&ec->hPingSema, 0));
 
         // perform startup operations before mutex is unlocked
         NV_CHECK_ERROR_CLEANUP( NvEcPrivInitHook(ec->hEc) );
 
         // start thread to send "pings" - no-op commands to keep EC "alive"
-        NV_CHECK_ERROR_CLEANUP(NvOsThreadCreate(
-            (NvOsThreadFunction)NvEcPrivPingThread, ec, &ec->hPingThread));
+        //NV_CHECK_ERROR_CLEANUP(NvOsThreadCreate(
+        //    (NvOsThreadFunction)NvEcPrivPingThread, ec, &ec->hPingThread));
     }
-
+/*
     hEc = NvOsAlloc( sizeof(NvEc) );
     if ( NULL == hEc )
         goto clean;
@@ -364,7 +428,7 @@ NvEcOpen(NvEcHandle *phEc,
     }
     if ( NVEC_REQUESTOR_TAG_INVALID == hEc->tag )
         goto clean;      // run out of tag, clean it up!
-
+*/
     *phEc = hEc;
     s_refcount++;
 
@@ -374,20 +438,24 @@ NvEcOpen(NvEcHandle *phEc,
 
     return NvSuccess;
 
+/*
 clean:
     NvOsFree( hEc );
     NvOsMutexUnlock( ec->mutex );
 
     return NvError_InsufficientMemory;
-
+*/
 fail:
+    if ( ec->mutex )
+        NvOsMutexUnlock( ec->mutex );
+
     if (!s_refcount)
     {
         ec->exitPingThread = NV_TRUE;
-        if (ec->hPingSema)
-            NvOsSemaphoreSignal( ec->hPingSema );
-        NvOsThreadJoin( ec->hPingThread );
-        NvOsSemaphoreDestroy(ec->hPingSema);
+        //if (ec->hPingSema)
+        //    NvOsSemaphoreSignal( ec->hPingSema );
+        //NvOsThreadJoin( ec->hPingThread );
+        //NvOsSemaphoreDestroy(ec->hPingSema);
         ec->exitThread = NV_TRUE;
         if (ec->sema)
             NvOsSemaphoreSignal( ec->sema );
@@ -403,7 +471,7 @@ fail:
         NvOsSemaphoreDestroy( ec->LowPowerExitSema );
         if ( ec->mutex )
         {
-            NvOsMutexUnlock( ec->mutex );
+            //NvOsMutexUnlock( ec->mutex );
             // Destroying of this mutex here is not safe, if another thread is
             // waiting on this mutex, it can cause issues.  We shold have
             // serialized Init/DeInit calls for creating and destroying this mutex.
@@ -412,6 +480,7 @@ fail:
             ec->mutex = NULL;
         }
     }
+    NvOsFree( hEc );
     return NvError_NotInitialized;
 }
 
@@ -439,9 +508,9 @@ NvEcClose(NvEcHandle hEc)
         NV_ASSERT( NULL == ec->requestBegin && NULL == ec->requestEnd );
         NV_ASSERT( NULL == ec->responseBegin && NULL == ec->responseEnd );
 
-        ec->exitPingThread = NV_TRUE;
-        NvOsSemaphoreSignal( ec->hPingSema );
-        NvOsThreadJoin( ec->hPingThread );
+        //ec->exitPingThread = NV_TRUE;
+        //NvOsSemaphoreSignal( ec->hPingSema );
+        //NvOsThreadJoin( ec->hPingThread );
         ec->exitThread = NV_TRUE;
         NvOsSemaphoreSignal( ec->sema );
         NvOsThreadJoin( ec->thread );
@@ -451,7 +520,7 @@ NvEcClose(NvEcHandle hEc)
         NvOsMutexDestroy( ec->responseMutex );
         NvOsMutexDestroy( ec->eventMutex );
         NvOsSemaphoreDestroy( ec->sema );
-        NvOsSemaphoreDestroy( ec->hPingSema );
+        //NvOsSemaphoreDestroy( ec->hPingSema );
         NvOsSemaphoreDestroy( ec->LowPowerEntrySema );
         NvOsSemaphoreDestroy( ec->LowPowerExitSema );
         destroy = NV_TRUE;
@@ -478,6 +547,24 @@ NvEcClose(NvEcHandle hEc)
 }
 
 #if ENABLE_TIMEOUT
+NvU32 NVEC_TIME_BASE( NvEcPrivState *ec, int idx )
+{
+    NvU32 t;
+    if (ec->lastTime < ec->timeoutBase[idx])
+        t = (NvU32)0xFFFFFFFF - ec->timeoutBase[idx] + ec->lastTime;
+    else
+        t = ec->lastTime - ec->timeoutBase[idx];
+    return t;
+}
+
+NvU32 NVEC_TIMEDIFF_WITH_BASE( NvEcPrivState *ec, int idx )
+{
+    NvU32 t;
+    t = ec->timeDiff + NVEC_TIME_BASE(ec, idx);
+    return t;
+} 
+//
+
 static NvU32
 NvEcPrivComputeTimeout( NvEcPrivState *ec, int idx )
 {
@@ -669,7 +756,12 @@ NvEcPrivFindAndDequeueResponse( NvEcPrivState    *ec,
                     t->status = NvError_Timeout;
                     SignalSema = NV_TRUE;
                     remove = NV_TRUE;
-                    DISP_MESSAGE(("Resp Timeout Respnode=0x%x", t));
+                    //DISP_MESSAGE(("Resp Timeout Respnode=0x%x", t));
+                    NvOsDebugPrintf("Resp Timeout Responde=0x%x, tag=%d\n", t, t->tag);
+                    NvOsDebugPrintf("\tresponse=0x%x, found=%d, reqcompleted=%d\n",
+					                response, found, t->requestNode->completed);
+					if (response)
+                        NvOsDebugPrintf("\tRequestorTag=%d\n", response->RequestorTag);
                 }
                 else
                 {
@@ -678,6 +770,7 @@ NvEcPrivFindAndDequeueResponse( NvEcPrivState    *ec,
                         t->timeout -=
                                 NVEC_TIMEDIFF_WITH_BASE(ec, NVEC_IDX_RESPONSE);
                             // update this response timeout w/ lastTime as base
+                    NvOsDebugPrintf("Resp Timeout = %d\n", t->timeout);
                 }
 #endif
             }
@@ -694,8 +787,10 @@ NvEcPrivFindAndDequeueResponse( NvEcPrivState    *ec,
                     t = p->next;
                 else
                     t = ec->responseBegin;
-                if (SignalSema == NV_TRUE)
+                if (SignalSema == NV_TRUE) {
+                    NvOsDebugPrintf("^");
                     NvOsSemaphoreSignal( temp->sema );
+				}
             }
             else
             {
@@ -712,10 +807,14 @@ NvEcPrivFindAndDequeueResponse( NvEcPrivState    *ec,
         DISP_MESSAGE(("\r\nec->timeout[NVEC_IDX_RESPONSE] is set to=%d",
             ec->timeout[NVEC_IDX_RESPONSE]));
     }
+	else {
+        NvOsDebugPrintf("\n*** NVEC: Can not be here! ***.\n");
+	}
 
     if (found == NV_FALSE)
-        NvOsDebugPrintf("\r\n***NVEC:Received Spurious Response from EC.");
-    NvOsMutexUnlock( ec->responseMutex );
+        NvOsDebugPrintf("***NVEC:Received Spurious Response from EC.\n");
+    
+	NvOsMutexUnlock( ec->responseMutex );
 }
 
 /*
@@ -731,31 +830,33 @@ NvEcPrivProcessTimeout( NvEcPrivState *ec )
         if ( NV_WAIT_INFINITE == ec->timeout[i] )
             continue;
 
-        if ( ec->timeout[i] > NVEC_TIMEDIFF_WITH_BASE(ec, i) )
-        {
-            // Update per-queue timeout value to save from traversing queue
-            ec->timeout[i] -= ec->timeDiff;
-            DISP_MESSAGE(("\r\nec->timeout[%d] is set to=%d", i, 
-                ec->timeout[i]));
-            continue;
-        }
-        else
-        {
+        //if ( ec->timeout[i] > NVEC_TIMEDIFF_WITH_BASE(ec, i) )
+        //{
+        //    // Update per-queue timeout value to save from traversing queue
+        //    ec->timeout[i] -= ec->timeDiff;
+        //    DISP_MESSAGE(("\r\nec->timeout[%d] is set to=%d", i, 
+        //        ec->timeout[i]));
+        //    continue;
+        //}
+        //else
+        //{
             // found timeout packet type
             switch( i )
             {
                 case NVEC_IDX_REQUEST:
+                    NvOsDebugPrintf(" REQUEST!\n");
                     NvEcPrivFindAndDequeueRequest( ec, NULL, NvSuccess,
                         NV_FALSE );
                     break;
                 case NVEC_IDX_RESPONSE:
+                    NvOsDebugPrintf(" RESPONSE!\n");
                     NvEcPrivFindAndDequeueResponse( ec, NULL, NULL );
                     break;
                 case NVEC_IDX_EVENT:
                     // nothing to do for now!
                     break;
             }
-        }
+        //}
     }
 }
 
@@ -1042,6 +1143,7 @@ NvEcPrivThread( void * args )
         if ( !timeout || (wait == NvError_Timeout) )
         {
             // timeout case
+            NvOsDebugPrintf(">>> NVEC: TIMEOUT, to=%d,", timeout);
             NvEcPrivProcessTimeout( ec );
         }
         
@@ -1057,6 +1159,9 @@ NvEcPrivThread( void * args )
         if ( tStatus & (NVEC_TRANSPORT_STATUS_SEND_COMPLETE |
                          NVEC_TRANSPORT_STATUS_SEND_ERROR) )
         {
+#if REQUEST_LOG
+	        NvOsDebugPrintf("-"); //check request
+#endif
             NvEcPrivProcessPostSendRequest( ec,
                 (tStatus & NVEC_TRANSPORT_STATUS_SEND_COMPLETE) ?
                     NvSuccess : NvError_I2cWriteFailed );
@@ -1065,6 +1170,9 @@ NvEcPrivThread( void * args )
         if ( tStatus & (NVEC_TRANSPORT_STATUS_RESPONSE_RECEIVE_ERROR |
                     NVEC_TRANSPORT_STATUS_RESPONSE_RECEIVE_COMPLETE) )
         {
+#if REQUEST_LOG
+	        NvOsDebugPrintf("+"); //check request
+#endif
             e = (tStatus & NVEC_TRANSPORT_STATUS_RESPONSE_RECEIVE_COMPLETE) ?
                     NvSuccess : NvError_I2cReadFailed;
             e = NvEcPrivProcessReceiveResponse( ec, e );
@@ -1079,20 +1187,21 @@ NvEcPrivThread( void * args )
                 // return ignored.  Could be spurious event.
         }
 
-	if ( tStatus & NVEC_TRANSPORT_STATUS_EVENT_PACKET_MAX_NACK ) {
-		// signal the ping thread to send a ping command since max
-		// number of nacks have been sent to the EC
-		if (ec->hPingSema) {
-			NvOsSemaphoreSignal(ec->hPingSema);
-		}
-	}
+	//if ( tStatus & NVEC_TRANSPORT_STATUS_EVENT_PACKET_MAX_NACK ) {
+	//	// signal the ping thread to send a ping command since max
+	//	// number of nacks have been sent to the EC
+	//	if (ec->hPingSema) {
+	//		NvOsSemaphoreSignal(ec->hPingSema);
+	//	}
+	//}
 
         // send request whenever possible 
         if ( (ec->timeout[NVEC_IDX_REQUEST] == NV_WAIT_INFINITE) && 
+             (ec->timeout[NVEC_IDX_RESPONSE] == NV_WAIT_INFINITE) &&
              (ec->EnterLowPowerState == NV_FALSE) )
             NvEcPrivProcessSendRequest( ec );
     #if ENABLE_TIMEOUT
-        timeout = NvEcPrivUpdateActualTimeout( ec ); 
+        timeout = NvEcPrivUpdateActualTimeout( ec );
     #endif
         
         if (ec->EnterLowPowerState)
@@ -1145,6 +1254,23 @@ NvEcPrivThreadCreate(NvEcPrivState *ec)
     // FIXME: handle thread create failure
 }
 
+//********henry+ EC will not response any EC command after power down request is received************
+static int iflag_poweroff=0;
+static int iflag_suspend=0;
+
+//********henry+ EC will disable battery command after select disable battery********************************
+static int iflag_disabel_battery=0;
+void NvEcSetBatteryReqeustFlag(int ival)
+{
+    //NvOsDebugPrintf("Henry: Set battery request flag=%i! \n",ival);
+    iflag_disabel_battery=ival;
+}
+
+int NvEcGetBatteryReqeustFlag(void)
+{
+    return  iflag_disabel_battery;
+}
+//************************************************************************************************
 
 NvError
 NvEcSendRequest(
@@ -1155,20 +1281,81 @@ NvEcSendRequest(
     NvU32 ResponseSize)
 {
     NvEcPrivState       *ec;
-    NvError             e = NvSuccess;
+    NvError             e = NvSuccess-1;
     NvEcRequestNode     *requestNode = NULL;
     NvEcResponseNode    *responseNode = NULL;
     NvOsSemaphoreHandle requestSema = NULL;
     NvOsSemaphoreHandle responseSema = NULL;
-    
+    static NvBool       powerdown = NV_FALSE;
+    int i;
+
     NV_ASSERT( pRequest );
     NV_ASSERT( hEc );
+
     if ( (RequestSize > sizeof(NvEcRequest)) || 
          (ResponseSize > sizeof(NvEcResponse)) )
         return NvError_InvalidSize;
-    
-    ec = hEc->ec;
-    requestNode = NvOsAlloc(sizeof(NvEcRequestNode));
+
+	if (powerdown == NV_TRUE)
+        return NvError_InvalidState;
+
+//********henry+ EC will not response any EC command after power down request is received********
+    if(iflag_poweroff==1){
+        //NvOsDebugPrintf("Henry: power off, pass EC request! \n");
+	return NvSuccess;
+     }
+//***********************************************************************************************
+
+//***Henry+ suspend, driver filter Ec command*********************************************
+#if 1
+    if(iflag_suspend==1){           
+	if((pRequest->RequestSubtype == ((NvEcRequestResponseSubtype) NvEcSleepSubtype_GlobalConfigureEventReporting)) &&
+	  (pRequest->RequestType == NvEcRequestResponseType_Sleep) &&
+          (pRequest->PacketType == NvEcPacketType_Request)){
+		iflag_suspend=0;  //clear suspend flag
+		//NvOsDebugPrintf("Henry: suspend, reveive resume command, send to EC!!\n");
+	   }
+	 else
+          {
+            //NvOsDebugPrintf("Henry: suspend, bypass EC request! \n");
+	    return NvSuccess;
+          }
+    }
+#endif
+//******************************************************************************************
+
+
+//********henry+ disable battery command after select disable battery, 2010.8.5 add bypass more command when EC FW update
+if (iflag_disabel_battery==1 
+	&& pRequest->RequestType == NvEcRequestResponseType_Battery
+        && pRequest->RequestType == NvEcRequestResponseType_System
+        && pRequest->RequestType == NvEcRequestResponseType_Gpio
+        && pRequest->RequestType == NvEcRequestResponseType_Sleep
+        && pRequest->RequestType == NvEcRequestResponseType_Keyboard
+        && pRequest->RequestType == NvEcRequestResponseType_AuxDevice){
+	//NvOsDebugPrintf("Henry: disable Battery command request! \n");
+	//return NvSuccess-1;
+	return NvSuccess; //2010.6.29 fix EC TimeOut
+}
+//***********************************************************************************************
+
+	ec = hEc->ec;
+	NvOsMutexLock( ec->mutex ); 
+	
+	// is power down request?
+	if (pRequest->RequestSubtype == NvEcSleepSubtype_ApPowerDown &&
+		pRequest->RequestType == NvEcRequestResponseType_Sleep)
+        powerdown = NV_TRUE;
+	
+#if REQUEST_LOG
+    NvOsDebugPrintf("\tEC_Req: { %02x %02x", 
+        pRequest->RequestType, pRequest->RequestSubtype);
+    for (i = 0; i < pRequest->NumPayloadBytes; i++)
+        NvOsDebugPrintf(" %02x", pRequest->Payload[i]);
+    NvOsDebugPrintf(" }, ");
+#endif
+
+	requestNode = NvOsAlloc(sizeof(NvEcRequestNode));
     if ( NULL == requestNode )
     {
         e = NvError_InsufficientMemory;
@@ -1188,7 +1375,7 @@ NvEcSendRequest(
     }
 
     ec->IsEcActive = NV_TRUE;
-
+ 
     // request end-queue.  Timeout set to infinite until request sent.
     NvOsMemset( requestNode, 0, sizeof(NvEcRequestNode) );
     pRequest->RequestorTag = hEc->tag;      // assigned tag here
@@ -1201,11 +1388,12 @@ NvEcSendRequest(
     requestNode->completed = NV_FALSE;
     requestNode->size = RequestSize;
     
+/*
     NvOsMutexLock( ec->requestMutex );
     NVEC_ENQ( ec->request, requestNode );
     DISP_MESSAGE(("\r\nSendReq ec->requestBegin=0x%x", ec->requestBegin));
     NvOsMutexUnlock( ec->requestMutex );
-    
+*/    
     // response en-queue.  Timeout set to infinite until request completes.
     if ( pResponse )
     {
@@ -1217,16 +1405,24 @@ NvEcSendRequest(
         responseNode->tag = hEc->tag;
         DISP_MESSAGE(("NvEcSendRequest:responseNode->tag=0x%x\n", responseNode->tag));
         responseNode->size = ResponseSize;
-        NvOsMutexLock( ec->responseMutex );
+		NvOsMutexLock( ec->responseMutex );
         NVEC_ENQ( ec->response, responseNode );
         DISP_MESSAGE(("\r\nSendReq ec->responseBegin=0x%x", ec->responseBegin));
         NvOsMutexUnlock( ec->responseMutex );
     }
 
-    NvOsMutexLock( ec->mutex );
+    NvOsMutexLock( ec->requestMutex );
+    NVEC_ENQ( ec->request, requestNode );
+    DISP_MESSAGE(("\r\nSendReq ec->requestBegin=0x%x", ec->requestBegin));
+    NvOsMutexUnlock( ec->requestMutex );
+#if REQUEST_LOG
+	NvOsDebugPrintf(">"); //check request
+#endif
+
+	//NvOsMutexLock( ec->mutex );
     if ( !ec->thread )
         NvEcPrivThreadCreate( ec );
-    NvOsMutexUnlock( ec->mutex );
+    //NvOsMutexUnlock( ec->mutex );
 
     // Trigger EcPrivThread
     NvOsSemaphoreSignal( ec->sema );
@@ -1235,6 +1431,9 @@ NvEcSendRequest(
     // Wait on Request returns
     NvOsSemaphoreWait( requestSema );
     DISP_MESSAGE(("\r\nSendReq Out of req sema"));
+#if REQUEST_LOG
+	NvOsDebugPrintf("<"); //check request
+#endif
 
     e = requestNode->status;
     if ( NvSuccess != e )
@@ -1253,19 +1452,60 @@ NvEcSendRequest(
     {
         // Wait on Response returns
         NvOsSemaphoreWait( responseSema );
+#if REQUEST_LOG
+	    NvOsDebugPrintf(">"); //check request
+#endif
         DISP_MESSAGE(("\r\nSendReq Out of resp sema"));
         NV_CHECK_ERROR_CLEANUP( responseNode->status );
         NvOsMemcpy(pResponse, &responseNode->response, ResponseSize);
     }
     // if successful, nodes should be de-queue already but not freed yet
 
+//*************henry+ EC will not response any EC command after power down request is received****************
+   if((pRequest->RequestSubtype == ((NvEcRequestResponseSubtype) NvEcSleepSubtype_ApPowerDown)) &&
+      (pRequest->RequestType == NvEcRequestResponseType_Sleep) &&
+      (pRequest->PacketType == NvEcPacketType_Request)){
+      //NvOsDebugPrintf("Henry:power off success!\n");	
+      iflag_poweroff=1;
+    }
+//************************************************************************************************************
+
+//***Henry+ suspend, driver filter Ec command*********************************************
+#if 1
+   if((pRequest->RequestSubtype == ((NvEcRequestResponseSubtype) NvEcSleepSubtype_ApSuspend)) &&
+      (pRequest->RequestType == NvEcRequestResponseType_Sleep) &&
+	(pRequest->PacketType == NvEcPacketType_Request) ){
+      //NvOsDebugPrintf("Henry:EC receive suspend command success!\n");	
+      iflag_suspend=1;
+    }   
+#endif
+/*    
+  if((pRequest->PacketType == NvEcPacketType_Request) &&
+           (pRequest->RequestType == NvEcRequestResponseType_Sleep) &&
+           (pRequest->RequestSubtype == ((NvEcRequestResponseSubtype) NvEcSleepSubtype_GlobalConfigureEventReporting))){
+		NvOsDebugPrintf("Henry:EC receive resume command success! \n");
+		iflag_suspend=0;
+	   }
+*/
+//******************************************************************************************
+
 fail:
-    NvOsSemaphoreDestroy( requestSema );
-    NvOsSemaphoreDestroy( responseSema );
-    DISP_MESSAGE(("\r\nSendReq Freeing requestNode=0x%x, responseNode=0x%x", 
-        requestNode, responseNode));
-    NvOsFree( requestNode );
-    NvOsFree( responseNode );
+	if (requestSema != NULL)
+        NvOsSemaphoreDestroy( requestSema );
+    if (responseSema != NULL)
+        NvOsSemaphoreDestroy( responseSema );
+    //DISP_MESSAGE(("\r\nSendReq Freeing requestNode=0x%x, responseNode=0x%x", 
+    //    requestNode, responseNode));
+    if (requestNode != NULL)
+        NvOsFree( requestNode );
+    if (responseNode != NULL)
+        NvOsFree( responseNode );
+
+#if REQUEST_LOG
+	NvOsDebugPrintf(" %s\n", ((e==NvSuccess)?"Ok":"Fail")); //check request
+#endif
+	NvOsMutexUnlock( ec->mutex );
+    
     return e;
 }
 
@@ -1518,11 +1758,14 @@ NvError NvEcPowerSuspend(
 {
     NvError e = NvSuccess;
     NvEcPrivState   *ec = &g_ec;
+    NvBool bTmp;
 
     NvOsMutexLock(ec->mutex);
+    bTmp = ec->powerState;
+    NvOsMutexUnlock(ec->mutex);
     
     // Call transport's power off only if it's in ON state
-    if (ec->powerState == NV_TRUE)
+    if (/*ec->powerState*/bTmp == NV_TRUE)
     {
         // Perform pre-suspend EC operations
         NV_CHECK_ERROR_CLEANUP( NvEcPrivPowerSuspendHook(ec->hEc, PowerState) );
@@ -1533,11 +1776,13 @@ NvError NvEcPowerSuspend(
         // Wait till priv thread is ready for power suspend.
         NvOsSemaphoreWait(ec->LowPowerEntrySema);
         e = NvEcTransportPowerSuspend(ec->transport);
+        NvOsMutexLock(ec->mutex);
         ec->powerState = NV_FALSE;
+        NvOsMutexUnlock(ec->mutex);
     }
 
 fail:
-    NvOsMutexUnlock(ec->mutex);
+    //NvOsMutexUnlock(ec->mutex);
     return e;
 }
 
@@ -1545,15 +1790,22 @@ NvError NvEcPowerResume(void)
 {
     NvError e = NvSuccess;
     NvEcPrivState   *ec = &g_ec;
-    
-    NvOsMutexLock(ec->mutex);
+    NvBool bTmp;
 
+    NvOsDebugPrintf("===> NVEC: Resume ***.\n");
+    NvOsMutexLock(ec->mutex);
+    bTmp = ec->powerState;
+    NvOsMutexUnlock(ec->mutex);
+    
     // Call transport's power on if it's OFF state
-    if (ec->powerState == NV_FALSE)
+    if (/*ec->powerState*/bTmp == NV_FALSE)
     {
         NV_CHECK_ERROR_CLEANUP( NvEcTransportPowerResume(ec->transport) );
 
+        NvOsMutexLock(ec->mutex);
         ec->powerState = NV_TRUE;
+        NvOsMutexUnlock(ec->mutex);
+
         ec->EnterLowPowerState = NV_FALSE;
         // Signal priv thread to get out of power suspend.
         NvOsSemaphoreSignal(ec->LowPowerExitSema);
@@ -1562,7 +1814,7 @@ NvError NvEcPowerResume(void)
     }
 
 fail:
-    NvOsMutexUnlock(ec->mutex);
+//    NvOsMutexUnlock(ec->mutex);
     return e;
 }
 

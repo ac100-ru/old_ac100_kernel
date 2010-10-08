@@ -657,7 +657,8 @@ __ATTR(_name, 0400, show_##_name, NULL)
 static struct freq_attr _name = \
 __ATTR(_name, 0644, show_##_name, store_##_name)
 
-define_one_ro0400(cpuinfo_cur_freq);
+//define_one_ro0400(cpuinfo_cur_freq);
+define_one_ro(cpuinfo_cur_freq);	//Robert
 define_one_ro(cpuinfo_min_freq);
 define_one_ro(cpuinfo_max_freq);
 define_one_ro(scaling_available_governors);

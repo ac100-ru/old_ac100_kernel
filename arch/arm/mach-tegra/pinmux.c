@@ -640,7 +640,7 @@ static int __init tegra_pinmux_init_tristate_refcount(void)
 
 	return 0;
 }
-late_initcall(tegra_pinmux_init_tristate_refcount);
+//late_initcall(tegra_pinmux_init_tristate_refcount); //nvidia--, RTC wakeup patch!
 
 #ifdef	CONFIG_DEBUG_FS
 

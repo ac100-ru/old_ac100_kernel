@@ -190,6 +190,8 @@ static int pm_noirq_op(struct device *dev, struct dev_pm_ops *ops,
 		if (ops->suspend_noirq) {
 			error = ops->suspend_noirq(dev);
 			suspend_report_result(ops->suspend_noirq, error);
+			if (error)
+				printk(KERN_ERR "\t device:%s fialed!\n", dev->driver->name);
 		}
 		break;
 	case PM_EVENT_RESUME:
@@ -267,7 +269,7 @@ static void pm_dev_dbg(struct device *dev, pm_message_t state, char *info)
 static void pm_dev_err(struct device *dev, pm_message_t state, char *info,
 			int error)
 {
-	printk(KERN_ERR "PM: Device %s failed to %s%s: error %d\n",
+	printk(KERN_ERR "PM: Device %s failed to %s[%s]: error %d\n",
 		kobject_name(&dev->kobj), pm_verb(state.event), info, error);
 }
 
@@ -421,7 +423,7 @@ static void dpm_drv_timeout(unsigned long data)
 static void dpm_drv_wdset(struct device *dev)
 {
 	dpm_drv_wd.data = (unsigned long) dev;
-	mod_timer(&dpm_drv_wd, jiffies + (HZ * 3));
+	mod_timer(&dpm_drv_wd, jiffies + (HZ * 5)); //extend the suspend timeout, from 3 to 5
 }
 
 /**
@@ -594,6 +596,7 @@ static int suspend_device_noirq(struct device *dev, pm_message_t state)
 		error = dev->bus->suspend_late(dev, state);
 		suspend_report_result(dev->bus->suspend_late, error);
 	}
+
 	return error;
 }
 
@@ -615,7 +618,8 @@ int device_power_down(pm_message_t state)
 		error = suspend_device_noirq(dev, state);
 		if (error) {
 			pm_dev_err(dev, state, " late", error);
-			break;
+			//break; //force to suspend
+			error = 0;
 		}
 		dev->power.status = DPM_OFF_IRQ;
 	}

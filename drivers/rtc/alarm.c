@@ -349,7 +349,6 @@ int alarm_suspend(struct platform_device *pdev, pm_message_t state)
 		if (alarm_enabled & ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP_MASK)
 			hrtimer_cancel(&alarm_timer[
 					ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP]);
-
 		rtc_read_time(alarm_rtc_dev, &rtc_current_rtc_time);
 		rtc_current_timespec.tv_nsec = 0;
 		rtc_tm_to_time(&rtc_current_rtc_time,
@@ -380,7 +379,8 @@ int alarm_suspend(struct platform_device *pdev, pm_message_t state)
 			"rtc alarm set at %ld, now %ld, rtc delta %ld.%09ld\n",
 			rtc_alarm_time, rtc_current_time,
 			rtc_delta.tv_sec, rtc_delta.tv_nsec);
-		if (rtc_current_time + 1 >= rtc_alarm_time) {
+		//if (rtc_current_time + 1 >= rtc_alarm_time) {
+		if ((rtc_alarm_time - rtc_current_time) <= 4) {
 			ANDROID_ALARM_DPRINTF(ANDROID_ALARM_PRINT_INFO,
 					      "alarm about to go off\n");
 			memset(&rtc_alarm, 0, sizeof(rtc_alarm));
@@ -462,8 +462,8 @@ static int rtc_alarm_add_device(struct device *dev,
 	alarm_rtc_dev = rtc;
 	mutex_unlock(&alarm_setrtc_mutex);
 
-	ANDROID_ALARM_DPRINTF(ANDROID_ALARM_PRINT_INFO, "alarm: parent %p\n",
-			      alarm_platform_dev->dev.power.pm_parent);
+	//ANDROID_ALARM_DPRINTF(ANDROID_ALARM_PRINT_INFO, "alarm: parent %p\n",
+	//		      alarm_platform_dev->dev.power.pm_parent);
 	return 0;
 
 err3:

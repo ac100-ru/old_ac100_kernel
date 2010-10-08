@@ -70,6 +70,9 @@ GetPmuInstance(NvOdmPmuDeviceHandle hDevice)
             Pmu.pfnInterruptHandler = Tps6586xInterruptHandler;
             Pmu.pfnReadRtc = Tps6586xReadRtc;
             Pmu.pfnWriteRtc = Tps6586xWriteRtc;
+
+            Pmu.pfnCheckAlarmIntEnabled = Tps6586xCheckAlarmIntEnabled;
+            Pmu.pfnEnableAlarmInt       = Tps6585xEnableAlarmInt;
             Pmu.pfnReadAlarm = Tps6586xReadAlarm;
             Pmu.pfnWriteAlarm = Tps6586xWriteAlarm;
             Pmu.pfnIsRtcInitialized = Tps6586xIsRtcInitialized;
@@ -324,6 +327,25 @@ void NvOdmPmuInterruptHandler(NvOdmPmuDeviceHandle hDevice)
         pmu->pfnInterruptHandler(pmu);
 }
 
+//Simon@NV
+NvBool NvOdmPmuCheckAlarmIntEnabled( NvOdmPmuDeviceHandle  hDevice)
+{
+    NvOdmPmuDevice *pmu = GetPmuInstance(hDevice);
+
+    if (pmu && pmu->pfnCheckAlarmIntEnabled)
+        return pmu->pfnCheckAlarmIntEnabled(pmu);
+    return NV_FALSE;
+}
+
+NvBool NvodmPmuPmuEnableAlarmInt(NvOdmPmuDeviceHandle hDevice, NvBool Enable)
+{
+    NvOdmPmuDevice *pmu = GetPmuInstance(hDevice);
+
+    if (pmu && pmu->pfnEnableAlarmInt)
+        return pmu->pfnEnableAlarmInt(pmu, Enable);
+    return NV_FALSE;
+}
+
 NvBool NvOdmPmuReadRtc(
     NvOdmPmuDeviceHandle  hDevice,
     NvU32 *Count)
@@ -344,6 +366,28 @@ NvBool NvOdmPmuWriteRtc(
 
     if (pmu && pmu->pfnWriteRtc)
         return pmu->pfnWriteRtc(pmu, Count);
+    return NV_FALSE;
+}
+
+NvBool NvOdmPmuReadAlarm(
+    NvOdmPmuDeviceHandle  hDevice,
+    NvU32 *Count)
+{
+    NvOdmPmuDevice *pmu = GetPmuInstance(hDevice);
+
+    if (pmu && pmu->pfnReadAlarm)
+        return pmu->pfnReadAlarm(pmu, Count);
+    return NV_FALSE;
+}
+
+NvBool NvOdmPmuWriteAlarm(
+    NvOdmPmuDeviceHandle  hDevice,
+    NvU32 Count)
+{
+    NvOdmPmuDevice *pmu = GetPmuInstance(hDevice);
+
+    if (pmu && pmu->pfnWriteAlarm)
+        return pmu->pfnWriteAlarm(pmu, Count);
     return NV_FALSE;
 }
 

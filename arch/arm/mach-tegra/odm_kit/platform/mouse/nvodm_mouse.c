@@ -44,7 +44,7 @@
 #endif
 
 // wake from mouse disabled for now
-#define WAKE_FROM_MOUSE 1
+#define WAKE_FROM_MOUSE 0
 
 /**
  * streaming data from mouse can be compressed if (uncompressed) packet size is
@@ -54,7 +54,7 @@
 
 #define ENABLE_COMPRESSION 1
 
-#define ECI_MOUSE_DISABLE_SUPPORTED 1
+#define ECI_MOUSE_DISABLE_SUPPORTED 0
 
 #define MAX_PAYLOAD_BYTES 32
 
@@ -67,13 +67,85 @@
 #define EEPROM_ID_E1206      0x0C06
 /** Implementation for the NvOdm Mouse */
 
+
+NvBool
+NvOdmMouseReset(NvOdmMouseDeviceHandle hDevice)
+{
+    NvError err = NvError_Success;
+    NvEcRequest Request = {0};
+    NvEcResponse Response = {0};
+    NvU32 count = 0, MousePort = 0, i = 0;
+    NvBool ret = NV_FALSE;
+    NvOdmMouseDevice *hMouseDev = (NvOdmMouseDevice *)hDevice;
+
+    MousePort = MOUSE_PS2_PORT_ID_0;
+    count = CMD_MAX_RETRIES + 1;
+    while ((ret==NV_FALSE) && (count--))
+    {
+        // fill up request structure
+        Request.PacketType = NvEcPacketType_Request;
+        Request.RequestType = NvEcRequestResponseType_AuxDevice;
+        Request.RequestSubtype = 
+            ((NvEcRequestResponseSubtype) 
+             (NV_DRF_NUM(NVEC,SUBTYPE,AUX_PORT_ID, MousePort))) |
+             ((NvEcRequestResponseSubtype)NvEcAuxDeviceSubtype_SendCommand);
+        Request.NumPayloadBytes = 2;
+        Request.Payload[0] = 0xFF; // set the reset command
+        Request.Payload[1] = 3;
+
+        // Request to EC
+        err = NvEcSendRequest(hMouseDev->hEc, &Request, 
+	              &Response, sizeof(Request), sizeof(Response));
+        if (NvSuccess != err)
+        {
+            //NVODMMOUSE_PRINTF(("NvEcSendRequest failed !!"));
+            NvOsDebugPrintf("NvEcSendRequest failed !!\n");
+            NvOsWaitUS(100000);
+			continue;
+        }
+
+        // mouse not found
+        if (NvEcStatus_Success != Response.Status)
+        {
+            //NVODMMOUSE_PRINTF(("EC response failed !!"));
+            NvOsDebugPrintf("EC response failed !!\n");
+            //if (MousePort != MOUSE_PS2_PORT_ID_1)
+            //{
+            //    count = CMD_MAX_RETRIES + 1;
+            //    MousePort = MOUSE_PS2_PORT_ID_1;
+            //}
+            NvOsWaitUS(100000);
+            continue;
+        }
+
+        if (Response.NumPayloadBytes != 3)
+            continue;
+
+        // success
+        if (Response.Payload[0] == 0xFA)
+        {
+			ret = NV_TRUE; // at lease one Mouse found!
+            hMouseDev->ValidMousePorts[i] = MousePort;
+            //if (MousePort != MOUSE_PS2_PORT_ID_1)
+            //{
+            //    count = CMD_MAX_RETRIES + 1;
+            //    MousePort = MOUSE_PS2_PORT_ID_1;
+            //    i++;
+            //    continue;
+            //}
+        }
+	}
+    
+	return ret;
+}
+
 NvBool
 NvOdmMouseDeviceOpen(
     NvOdmMouseDeviceHandle *hDevice)
 {
     NvOdmMouseDevice *hMouseDev = NULL;
     NvBool ret = NV_FALSE;
-    NvU32 InstanceId = 0, count = 0, MousePort = 0, i = 0;
+    NvU32 InstanceId = 0, count = 0, i = 0;
 #if WAKE_FROM_MOUSE
     NvError err = NvError_Success;
     NvEcRequest Request = {0};
@@ -149,62 +221,12 @@ NvOdmMouseDeviceOpen(
     }
     NvOdmOsMemset(hMouseDev->pEvent, 0, sizeof(NvEcEvent));
 
-    MousePort = MOUSE_PS2_PORT_ID_0;
-    count = CMD_MAX_RETRIES + 1; i = 0;
-    while (count--)
-    {
-        // fill up request structure
-        Request.PacketType = NvEcPacketType_Request;
-        Request.RequestType = NvEcRequestResponseType_AuxDevice;
-        Request.RequestSubtype = 
-            ((NvEcRequestResponseSubtype) 
-             (NV_DRF_NUM(NVEC,SUBTYPE,AUX_PORT_ID,MousePort))) |
-            ((NvEcRequestResponseSubtype) 
-             NvEcAuxDeviceSubtype_SendCommand);
-        Request.NumPayloadBytes = 2;
-        Request.Payload[0] = 0xFF; // set the reset command
-        Request.Payload[1] = 3;
-
-        // Request to EC
-        err = NvEcSendRequest(hMouseDev->hEc, &Request, &Response, sizeof(Request),
-                        sizeof(Response));
-
-        if (NvSuccess != err)
-        {
-            NVODMMOUSE_PRINTF(("NvEcSendRequest failed !!"));
-            break;
-        }
-
-        // mouse not found
-        if (NvEcStatus_Success != Response.Status)
-        {
-            NVODMMOUSE_PRINTF(("EC response failed !!"));
-            if (MousePort != MOUSE_PS2_PORT_ID_1)
-            {
-                count = CMD_MAX_RETRIES + 1;
-                MousePort = MOUSE_PS2_PORT_ID_1;
-                continue;
-            }
-            break;
-        }
-
-        if (Response.NumPayloadBytes != 3)
-            continue;
-
-        // success
-        if (Response.Payload[0] == 0xFA)
-        {
-            hMouseDev->ValidMousePorts[i] = MousePort;
-            if (MousePort != MOUSE_PS2_PORT_ID_1)
-            {
-                count = CMD_MAX_RETRIES + 1;
-                MousePort = MOUSE_PS2_PORT_ID_1;
-                i++;
-                continue;
-            }
-            break;
-        }
-    }
+    if (!NvOdmMouseReset((NvOdmMouseDeviceHandle)hMouseDev))
+	{   
+	    ret = NV_FALSE;
+		NVODMMOUSE_PRINTF(("Reset mouse device failure!"));
+		goto fail_safe;
+	}
 
 #if WAKE_FROM_MOUSE
     i = 0;
@@ -258,7 +280,8 @@ NvOdmMouseDeviceClose(
     if (hDevice)
     {
         // close channel to the EC
-        NvEcClose(hDevice->hEc);
+        if (hDevice->hEc != NULL)
+            NvEcClose(hDevice->hEc);
         hDevice->hEc = NULL;
         // Free the request/response structure objects
         NvOdmOsFree(hDevice->pRequest);

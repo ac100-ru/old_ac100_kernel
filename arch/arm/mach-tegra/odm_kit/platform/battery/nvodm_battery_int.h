@@ -66,14 +66,14 @@ extern "C"
 #define BATTERY_EXTRA_INFO    0
 
 /* Enable to wakeup the AP from suspend */
-#define NVODM_WAKEUP_FROM_BATTERY_EVENT 1
-#define NVODM_WAKEUP_FROM_AC_EVENT      1
+#define NVODM_WAKEUP_FROM_BATTERY_EVENT 0
+#define NVODM_WAKEUP_FROM_AC_EVENT      0
 
 /* Enable the Low Battery GPIO Interrupt */
-#define NVODM_LOWBATTERY_GPIO_INT       1
+#define NVODM_LOWBATTERY_GPIO_INT       0
 
 /* Enable low capacity alarm wakeup */
-#define NVODM_BATTERY_LOW_CAPACITY_ALARM 1
+#define NVODM_BATTERY_LOW_CAPACITY_ALARM 0
 /****************************************************************************/
 
 #define NVODM_BATTERY_NUM_BATTERY_SLOTS_MASK 0x0F

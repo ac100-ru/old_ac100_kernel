@@ -65,6 +65,8 @@ typedef NvBool (*pfnPmuWriteRtc)(NvOdmPmuDeviceHandle, NvU32);
 typedef NvBool (*pfnPmuIsRtcInitialized)(NvOdmPmuDeviceHandle);
 typedef NvBool (*pfnPmuReadAlarm)(NvOdmPmuDeviceHandle, NvU32*);
 typedef NvBool (*pfnPmuWriteAlarm)(NvOdmPmuDeviceHandle, NvU32);
+typedef NvBool (*pfnPmuCheckAlarmIntEnabled)(NvOdmPmuDeviceHandle  hDevice);
+typedef NvBool (*pfnPmuEnableAlarmInt)(NvOdmPmuDeviceHandle hDevice, NvBool Enable);
 
 typedef struct NvOdmPmuDeviceRec
 { 
@@ -80,6 +82,8 @@ typedef struct NvOdmPmuDeviceRec
     pfnPmuGetBatteryChemistry    pfnGetBatteryChemistry;
     pfnPmuSetChargingCurrent     pfnSetChargingCurrent;
     pfnPmuInterruptHandler       pfnInterruptHandler;
+    pfnPmuCheckAlarmIntEnabled          pfnCheckAlarmIntEnabled;
+    pfnPmuEnableAlarmInt                pfnEnableAlarmInt;
     pfnPmuReadRtc                pfnReadRtc;
     pfnPmuWriteRtc               pfnWriteRtc;
     pfnPmuReadAlarm              pfnReadAlarm;

@@ -175,11 +175,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
 
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             625, 25, 2700, 1200 
-#else
-            900, 25, 1200, 1200 
-#endif
         },
     },
 
@@ -195,11 +191,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
         TPS6586x_RFF_INVALID,
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             625, 25, 2700, 1000
-#else
-            1800, 0, 1800, 1800 
-#endif
         },
     },
 
@@ -215,11 +207,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
         TPS6586x_RFF_INVALID,
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             3000, 50, 4550, 3700
-#else
-            3000, 50, 4550, 3250  // fixme
-#endif
         },
     },
 
@@ -236,11 +224,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
    
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             1250, 25, 3350, 3300
-#else
-            2800, 0, 2800, 2800
-#endif
         },
     },
 
@@ -256,11 +240,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
         TPS6586x_RFF_INVALID,
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             725, 25, 1500, 1100
-#else
-            1200, 0, 1200, 1200
-#endif
         },
     },
 
@@ -268,11 +248,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
     {
         TPS6586xPmuSupply_LDO2,
         
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
         {TPS6586x_R2F_LDO2BV1, 0, 5, 0},
-#else
-        {TPS6586x_R29_LDO2AV1, 0, 5, 0},
-#endif
         {TPS6586x_R10_SUPPLYENA, 2, 2, TPS6586x_R11_SUPPLYENB},
         TPS6586xPmuVoltageGetVLDO2,
         TPS6586xPmuVoltageSetVLDO2,
@@ -281,11 +257,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
    
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             725, 25, 1500, 1200 
-#else
-            900, 25, 1200, 1200 
-#endif
         },
     },
 
@@ -302,11 +274,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
 
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             1250, 25, 3350, 3300
-#else
-            1800, 0, 1800, 1800
-#endif
         },
     },
 
@@ -323,11 +291,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
 
         {
             NV_FALSE, 
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             1700, 25, 2000, 1800
-#else
-            1800, 0, 1800, 1800
-#endif
         },
     },        
 
@@ -344,11 +308,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
 
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             1250, 25, 3350, 2850
-#else
-            2800, 0, 2800, 2800
-#endif
         }, 
     },
 
@@ -365,11 +325,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
 
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             1250, 25, 3350, 2850
-#else
-            3300, 0, 3300, 3300
-#endif
         }, 
     },
 
@@ -386,11 +342,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
 
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             1250, 25, 3350, 3300
-#else
-            2800, 0, 2800, 2800
-#endif
         },
     },
 
@@ -407,11 +359,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
 
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             1250, 25, 3350, 1800
-#else
-            2800, 0, 2800, 2800
-#endif
         },
     },
 
@@ -428,11 +376,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
 
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             1250, 25, 3350, 2850
-#else
-            2500, 0, 2500, 2500,
-#endif
         },
     },
 
@@ -449,11 +393,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
 
         {
             NV_FALSE,
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             1250, 25, 3350, 3300
-#else
-            2500, 0, 2500, 2500
-#endif
         },
     },
 
@@ -592,7 +532,7 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
             25000, 0, 25000, 0
         },
     },
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
+
     {
         TPS6586xPmuSupply_SoC,
 
@@ -681,7 +621,6 @@ static const TPS6586xPmuSupplyInfo tps6586xSupplyInfoTable[] =
         TPS6586x_RFF_INVALID,
         {NV_FALSE,0,3300,3300,3300},
     }
-#endif
 };
 
 static NvU32 TPS6586xPmuVoltageGetSM0(const NvU32 bits)
@@ -695,11 +634,7 @@ static NvU32 TPS6586xPmuVoltageGetSM1(const NvU32 bits)
 {
     NV_ASSERT(bits <= 0x1F);
 
-#if defined (CONFIG_TEGRA_ODM_HARMONY)
     return (725 + bits * 25);
-#else
-    return (1450 + bits * 50);
-#endif
 }
 
 static NvU32 TPS6586xPmuVoltageGetSM2(const NvU32 bits)
@@ -751,17 +686,10 @@ static NvU32 TPS6586xPmuVoltageSetSM0(const NvU32 millivolts)
 
 static NvU32 TPS6586xPmuVoltageSetSM1(const NvU32 millivolts)
 {
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
     if (millivolts < 725)
         return 0;
     else
         return MIN((millivolts - 725) / 25, 0x1f);
-#else
-    if (millivolts < 1450)
-        return 0;
-    else
-        return MIN((millivolts - 1450) / 50, 0x1f);
-#endif
 }
 
 static NvU32 TPS6586xPmuVoltageSetSM2(const NvU32 millivolts)
@@ -817,7 +745,6 @@ Tps6586xGetCapabilities(
     *pCapabilities = tps6586xSupplyInfoTable[vddRail].cap;
 }
 
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
 static NvBool g_ExternalSupplyEnabled[TPS6586x_EXTERNAL_SUPPLY_NUM] = { 0 };
 
 static NvBool
@@ -833,7 +760,6 @@ Tps6586xGetExternalSupply(
 
     return NV_TRUE;
 }
-#endif
 
 static NvBool
 Tps6586xReadVoltageReg(
@@ -844,7 +770,6 @@ Tps6586xReadVoltageReg(
     const TPS6586xPmuSupplyInfo *pSupplyInfo = &tps6586xSupplyInfoTable[vddRail];
     NvU32 data = 0;
 
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
     // External supplies are fixed.
     if ((vddRail == Ext_TPS62290PmuSupply_BUCK)      ||
         (vddRail == Ext_TPS72012PmuSupply_LDO)       ||
@@ -860,7 +785,6 @@ Tps6586xReadVoltageReg(
         else
             return NV_TRUE;
     }
-#endif
 
     if (pSupplyInfo->supplyRegInfo.addr == TPS6586x_RFF_INVALID) 
     {
@@ -898,7 +822,6 @@ Tps6586xSupplyCtrl(
 }
 #endif
 
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
 #define NVODM_PORT(x) ((x) - 'a')
 
 static NvBool
@@ -1058,16 +981,17 @@ Tps6586xSetExternalSupply(
         // FIXME:  This should be driven by supply info table.
         switch (vddRail)
         {
+#if 0
         case Ext_TPS2051BPmuSupply_VDDIO_VID:
             GpioPort = NVODM_PORT('t');
             GpioPin  = 2;
             break;
-
+#endif
         case Ext_SWITCHPmuSupply_VDDIO_SD:
-            GpioPort = NVODM_PORT('t');
-            GpioPin  = 3;
+            GpioPort = NVODM_PORT('v');
+            GpioPin  = 1;
             break;
-
+#if 0
         case Ext_SWITCHPmuSupply_VDDIO_SDMMC:
             GpioPort = NVODM_PORT('i');
             GpioPin  = 6;
@@ -1077,7 +1001,7 @@ Tps6586xSetExternalSupply(
             GpioPort = NVODM_PORT('w');
             GpioPin  = 0;
             break;
-
+#endif
         case Ext_SWITCHPmuSupply_VDD_PNL:
             GpioPort = NVODM_PORT('c');
             GpioPin  = 6;
@@ -1144,7 +1068,6 @@ Tps6586xSetExternalSupply(
     }
     return NV_TRUE;
 }
-#endif
 
 static NvBool 
 Tps6586xWriteVoltageReg(
@@ -1157,13 +1080,9 @@ Tps6586xWriteVoltageReg(
     //const TPS6586xPmuSupplyInfo* pSupplyInputInfo = &tps6586xSupplyInfoTable[pSupplyInfo->supplyInput];
     NvBool status = NV_FALSE;
     NvU32  settleTime = 0;
-#if !defined(CONFIG_TEGRA_ODM_HARMONY)
-    NvU32  volChange = 0;
-#endif
 
     NV_ASSERT(pSupplyInfo->supply == (TPS6586xPmuSupply)vddRail);
 
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
     if ((vddRail != Ext_TPS62290PmuSupply_BUCK)      &&
         (vddRail != Ext_TPS72012PmuSupply_LDO)       &&
         (vddRail != Ext_TPS74201PmuSupply_LDO)       &&
@@ -1172,17 +1091,12 @@ Tps6586xWriteVoltageReg(
         (vddRail != Ext_SWITCHPmuSupply_VDDIO_SDMMC) &&
         (vddRail != Ext_SWITCHPmuSupply_VDD_BL)      &&
         (vddRail != Ext_SWITCHPmuSupply_VDD_PNL))
-#endif
     {
         if (pSupplyInfo->ctrlRegInfo.addr == TPS6586x_RFF_INVALID)
         {
             NVODMPMU_PRINTF(("TPS:The required ctrl register address is INVALID...\n"));
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             return NV_TRUE;
             //return NV_FALSE;
-#else
-            return NV_FALSE;
-#endif
         }
     }
 
@@ -1193,7 +1107,6 @@ Tps6586xWriteVoltageReg(
         // check if the supply can be turned off
         //NV_ASSERT(hDevice->supplyRefCntTable[vddRail]);
 
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
         // Disable external supplies
         if ((vddRail == Ext_TPS62290PmuSupply_BUCK)      ||
             (vddRail == Ext_TPS72012PmuSupply_LDO)       ||
@@ -1206,33 +1119,27 @@ Tps6586xWriteVoltageReg(
         {
             status = Tps6586xSetExternalSupply(hDevice, vddRail, NV_FALSE);
         }
-        else
-#endif
-        if (((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->supplyRefCntTable[vddRail] == 1)
+        else if (((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->supplyRefCntTable[vddRail] == 1)
         {
             /* Disable */
             NvOdmServicesPmuSetSocRailPowerState(
                 ((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->hOdmPmuSevice, pSupplyInfo->supply, NV_FALSE); 
             Tps6586xI2cRead8(hDevice, pSupplyInfo->ctrlRegInfo.addr, &data);
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             if (vddRail == TPS6586xPmuSupply_SoC)
             {
                 // SOC Super power rail don't hold the sleep bit
                 data |= (((1<<pSupplyInfo->ctrlRegInfo.bits)-1)<<pSupplyInfo->ctrlRegInfo.start);
             }
             else
-#endif
             {
                 data &= ~(((1<<pSupplyInfo->ctrlRegInfo.bits)-1)<<pSupplyInfo->ctrlRegInfo.start);
             }
             status = Tps6586xI2cWrite8(hDevice, pSupplyInfo->ctrlRegInfo.addr, data);
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             if (vddRail == TPS6586xPmuSupply_SoC)
             {
                 // Wait 10 secs for PMU to shutdown
                 NvOdmOsWaitUS(100000000);
             }
-#endif
 
             if (status && (pSupplyInfo->ctrlRegInfo.flag != TPS6586x_RFF_INVALID))
             {
@@ -1246,56 +1153,17 @@ Tps6586xWriteVoltageReg(
 
             /* Reset to voltage to 0th */
             MilliVolts = 0;
-            
-#if !defined(CONFIG_TEGRA_ODM_HARMONY)
-            // Calcuate this voltage change
-            volChange = ((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->curVoltageTable[vddRail];
-
-            ((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->curVoltageTable[vddRail] = 0;
-            
-            // DCD0/DCD1/DCD2
-            if ((vddRail == TPS6586xPmuSupply_DCD0) ||
-                (vddRail == TPS6586xPmuSupply_DCD1) ||
-                (vddRail == TPS6586xPmuSupply_DCD2))
-            {
-                // delay = Tstart(210) + Voltage change/Kramp
-                settleTime = T_START_TIME + volChange/K_RAMP;
-            }
-            else if ((vddRail == TPS6586xPmuSupply_LDO2) ||
-                     (vddRail == TPS6586xPmuSupply_LDO4))
-            {
-                // Voltage change/Kramp
-                settleTime = volChange/K_RAMP;
-            }
-            else
-            {
-                settleTime = 0;
-            }
-#endif
         }
 
         if (((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->supplyRefCntTable[vddRail] != 0)
         {
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             if(--((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->supplyRefCntTable[vddRail] != 0)
             {
                 if (pSettleMicroSeconds)
                     *pSettleMicroSeconds = 0;
                 return NV_TRUE;
             }
-#else
-            --((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->supplyRefCntTable[vddRail];
-#endif
         }
-
-#if !defined(CONFIG_TEGRA_ODM_HARMONY)        
-        if (pSettleMicroSeconds != NULL)
-            *pSettleMicroSeconds = settleTime;
-        else
-            NvOdmOsWaitUS(settleTime);
-            
-        return NV_TRUE;
-#endif
     }
     else
     {    
@@ -1304,7 +1172,6 @@ Tps6586xWriteVoltageReg(
         if (((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->supplyRefCntTable[vddRail]++ == 0)
         {
             // Enable external supplies
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
             if ((vddRail == Ext_TPS62290PmuSupply_BUCK)      ||
                 (vddRail == Ext_TPS72012PmuSupply_LDO)       ||
                 (vddRail == Ext_TPS74201PmuSupply_LDO)       ||
@@ -1317,28 +1184,17 @@ Tps6586xWriteVoltageReg(
                 status = Tps6586xSetExternalSupply(hDevice, vddRail, NV_TRUE);
             }
             else
-#endif
             {
-#if !defined(CONFIG_TEGRA_ODM_HARMONY)
-                NvOdmServicesPmuSetSocRailPowerState(
-                    ((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->hOdmPmuSevice, pSupplyInfo->supply, NV_TRUE); 
-#endif
                 status = Tps6586xI2cRead8(hDevice, pSupplyInfo->ctrlRegInfo.addr, &data);
                 if (status && ((data >> pSupplyInfo->ctrlRegInfo.start) & 0x1) == 0)
                 {
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
                     /* Enable */
                     NvOdmServicesPmuSetSocRailPowerState(
                         ((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->hOdmPmuSevice,
                         pSupplyInfo->supply, NV_TRUE);
-#endif
                     data |= (((1<<pSupplyInfo->ctrlRegInfo.bits)-1)<<pSupplyInfo->ctrlRegInfo.start);
                     if (NV_FALSE == Tps6586xI2cWrite8(hDevice, pSupplyInfo->ctrlRegInfo.addr, data))
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
                         return NV_TRUE;
-#else
-                        return NV_FALSE;
-#endif
                 }
             }
         }
@@ -1358,34 +1214,16 @@ Tps6586xWriteVoltageReg(
 
     if (pSupplyInfo->supplyRegInfo.addr == TPS6586x_RFF_INVALID) 
     {
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
         return NV_TRUE;
-#else
-        return NV_FALSE;
-#endif
     }
     else
     {
         const int bits = pSupplyInfo->setVoltage ? pSupplyInfo->setVoltage(MilliVolts) : MilliVolts;
         NvU32 data = 0;
 
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
         status = Tps6586xI2cRead8(hDevice, pSupplyInfo->supplyRegInfo.addr, &data);
         if (NV_FALSE == status)
             NVODMPMU_PRINTF(("TPS:Writing to PMU I2C fails 1... supplyaddress: %d\n", pSupplyInfo->supplyRegInfo.addr));
-#else
-        if ((vddRail == TPS6586xPmuSupply_DCD0) ||
-            (vddRail == TPS6586xPmuSupply_DCD1) ||
-            (vddRail == TPS6586xPmuSupply_LDO4) ||
-            (vddRail == TPS6586xPmuSupply_LDO2))
-        {
-            status = NV_TRUE;
-        }
-        else
-        {
-            status = Tps6586xI2cRead8(hDevice, pSupplyInfo->supplyRegInfo.addr, &data);
-        }
-#endif
 
         if (status) 
         {
@@ -1425,36 +1263,7 @@ Tps6586xWriteVoltageReg(
                 status = Tps6586xI2cWrite8(hDevice, TPS6586x_R20_VCC1, data);
             }
             
-#if !defined(CONFIG_TEGRA_ODM_HARMONY)
-            // Calcuate this voltage change
-            if (((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->curVoltageTable[vddRail] < MilliVolts)
-                volChange = MilliVolts - ((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->curVoltageTable[vddRail];
-            else
-                volChange = ((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->curVoltageTable[vddRail] - MilliVolts;
-            
-            ((NvOdmPmuDeviceTPS *)(hDevice->pPrivate))->curVoltageTable[vddRail] = MilliVolts;
-            
-            // DCD0/DCD1/DCD2
-            if ((vddRail == TPS6586xPmuSupply_DCD0) ||
-                (vddRail == TPS6586xPmuSupply_DCD1) ||
-                (vddRail == TPS6586xPmuSupply_DCD2))
-            {
-                // delay = Tstart(210) + Voltage change/Kramp
-                settleTime = T_START_TIME + volChange/K_RAMP;
-            }
-            else if ((vddRail == TPS6586xPmuSupply_LDO2) ||
-                     (vddRail == TPS6586xPmuSupply_LDO4))
-            {
-                // Voltage change/Kramp
-                settleTime = volChange/K_RAMP;
-            }
-            else
-            {
-                settleTime = 0;
-            }
-#else
             settleTime = 250;
-#endif
             
             if (pSettleMicroSeconds)
                 *pSettleMicroSeconds = settleTime;
@@ -1466,21 +1275,13 @@ Tps6586xWriteVoltageReg(
 
     if (pSupplyInfo->supplyRegInfo.addr == TPS6586x_RFF_INVALID) 
     {
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
         return NV_TRUE;
-#else
-        return NV_FALSE;
-#endif
     }
 
     if (pSettleMicroSeconds)
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
         *pSettleMicroSeconds = 250;
     else
         NvOdmOsWaitUS(250);
-#else
-        *pSettleMicroSeconds = 0;
-#endif
  
     return NV_TRUE;
 }
@@ -1530,12 +1331,8 @@ Tps6586xSetVoltage(
     else
     {
         NVODMPMU_PRINTF(("The required voltage is not supported..\n"));
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
         return NV_TRUE;
         //return NV_FALSE;
-#else
-        return NV_FALSE;
-#endif
     }
 
     return NV_TRUE;
@@ -1607,13 +1404,11 @@ NvBool Tps6586xSetup(NvOdmPmuDeviceHandle hDevice)
         }
         hPmu->DeviceAddr = I2cAddress;
         hPmu->hOdmPmuSevice = NvOdmServicesPmuOpen();
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
         //if (NV_FALSE == Tps6586xWriteVoltageReg(hDevice, TPS6586xPmuSupply_LDO5, 3300, NULL))
         if (NV_FALSE == Tps6586xWriteVoltageReg(hDevice, TPS6586xPmuSupply_LDO5, 2850, NULL))
             NVODMPMU_PRINTF(("TPS: Fail to set the NVDDIO_NAND to 2.85V\n"));
         else
             NVODMPMU_PRINTF(("TPS: set the NVDDIO_NAND to 2.85V\n"));
-#endif
     }   
     else
     {
@@ -1640,24 +1435,8 @@ NvBool Tps6586xSetup(NvOdmPmuDeviceHandle hDevice)
     }
 #endif
 
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
     /* Initialize the refcont of the rails which are ON by default */
     hPmu->supplyRefCntTable[TPS6586xPmuSupply_SoC] = 1;
-#endif
-
-#if !defined(CONFIG_TEGRA_ODM_HARMONY)
-    // If your project doesn't use this GPIO, please delete them!
-    // Enable GPIO3 to HIGH
-    // Set GPIO Configure to output
-    data = 0x10;
-    if (!Tps6586xI2cWrite8(hDevice, TPS6586x_R5D_GPIOSET1, data))
-        return NV_FALSE;
-        
-    // Set GPIO to HI, NON-Inverting
-    data = 0x04;
-    if (!Tps6586xI2cWrite8(hDevice, TPS6586x_R5E_GPIOSET2, data))
-        return NV_FALSE;
-#endif
 
     //NvOdmOsMemset(&s_tps6586x, 0, sizeof(s_tps6586x));
     //s_tps6586x.pmuPresented = NV_TRUE;
@@ -1702,9 +1481,7 @@ OPEN_FAILED:
 
 void Tps6586xRelease(NvOdmPmuDeviceHandle hDevice)
 {
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
     NvU32 i;
-#endif
     if (hDevice != NULL && hPmu->hOdmI2C)
     {
         NvOdmServicesPmuClose(hPmu->hOdmPmuSevice);
@@ -1714,15 +1491,12 @@ void Tps6586xRelease(NvOdmPmuDeviceHandle hDevice)
         NvOdmOsFree(hPmu);
         hPmu = NULL;
 
-#if defined(CONFIG_TEGRA_ODM_HARMONY)
-
         // Release & Close the GPIOs
         for (i=0; i<(TPS6586x_EXTERNAL_SUPPLY_AP_GPIO_NUM); i++)
         {
             NvOdmGpioReleasePinHandle(hPmu->hGpio, hPmu->hPin[i]);
         }
         NvOdmGpioClose(hPmu->hGpio);
-#endif
     }    
 }
 
@@ -2019,6 +1793,17 @@ void Tps6586xInterruptHandler( NvOdmPmuDeviceHandle  hDevice)
     Tps6586xInterruptHandler_int(hDevice, &pmuStatus);
 }
 
+//Simon@NV
+NvBool Tps6586xCheckAlarmIntEnabled( NvOdmPmuDeviceHandle  hDevice)
+{
+	return (Tps6586xRtcIsAlarmIntEnabled(hDevice));
+}
+
+NvBool Tps6585xEnableAlarmInt( NvOdmPmuDeviceHandle hDevice, NvBool Enable)
+{
+	return (Tps6586xRtcAlarmIntEnable(hDevice, Enable));
+}
+
 NvBool Tps6586xReadRtc( NvOdmPmuDeviceHandle  hDevice, NvU32 *Count)
 {
     *Count = 0;
@@ -2028,6 +1813,17 @@ NvBool Tps6586xReadRtc( NvOdmPmuDeviceHandle  hDevice, NvU32 *Count)
 NvBool Tps6586xWriteRtc( NvOdmPmuDeviceHandle  hDevice, NvU32 Count)
 {
     return (Tps6586xRtcCountWrite(hDevice, Count));
+}
+
+NvBool Tps6586xReadAlarm( NvOdmPmuDeviceHandle  hDevice, NvU32 *Count)
+{
+    *Count = 0;
+    return (Tps6586xRtcAlarmCountRead(hDevice, Count));
+}
+
+NvBool Tps6586xWriteAlarm( NvOdmPmuDeviceHandle  hDevice, NvU32 Count)
+{
+    return (Tps6586xRtcAlarmCountWrite(hDevice, Count));
 }
 
 NvBool Tps6586xReadAlarm( NvOdmPmuDeviceHandle  hDevice, NvU32 *Count)
