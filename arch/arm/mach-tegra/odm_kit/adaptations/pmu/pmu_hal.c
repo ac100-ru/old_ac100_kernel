@@ -391,28 +391,6 @@ NvBool NvOdmPmuWriteAlarm(
     return NV_FALSE;
 }
 
-NvBool NvOdmPmuReadAlarm(
-    NvOdmPmuDeviceHandle  hDevice,
-    NvU32 *Count)
-{
-    NvOdmPmuDevice *pmu = GetPmuInstance(hDevice);
-
-    if (pmu && pmu->pfnReadAlarm)
-        return pmu->pfnReadAlarm(pmu, Count);
-    return NV_FALSE;
-}
-
-NvBool NvOdmPmuWriteAlarm(
-    NvOdmPmuDeviceHandle  hDevice,
-    NvU32 Count)
-{
-    NvOdmPmuDevice *pmu = GetPmuInstance(hDevice);
-
-    if (pmu && pmu->pfnWriteAlarm)
-        return pmu->pfnWriteAlarm(pmu, Count);
-    return NV_FALSE;
-}
-
 NvBool
 NvOdmPmuIsRtcInitialized(NvOdmPmuDeviceHandle hDevice)
 {

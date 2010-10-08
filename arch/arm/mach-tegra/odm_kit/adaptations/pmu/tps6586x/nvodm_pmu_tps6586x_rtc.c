@@ -274,29 +274,32 @@ Tps6586xRtcAlarmCountWrite(
 NvBool
 Tps6586xRtcIsAlarmIntEnabled(NvOdmPmuDeviceHandle hDevice)
 {
-    NvU32 Counter;
-    NvU32 ReadBuffer[3];
+	NvU32   data = 0;
+	NvBool  alarm1_enabled = NV_FALSE;
+	NvBool  alarm2_enabled = NV_FALSE;
+	//Check Alarm 2
+	if (!Tps6586xI2cRead8(hDevice, TPS6586x_RB3_INT_MASK4, &data))
+	{
+		printk("[NV DEBUG(%s)] rtc register TPS6586x_RB3_INT_MASK4  get Invalid data\n ", __FUNCTION__);
+		return NV_FALSE;
+	}
+	if(data & (1 << 2)){
+		alarm2_enabled = NV_TRUE;
+	}
 
-    if ( rtc_alarm_active ) {
+	//reset data
+	data = 0;
 
-        if ( ALARM1_used ) {
-            Tps6586xI2cRead8(hDevice, TPS6586x_RC3_RTC_ALARM1_LO, 	&ReadBuffer[2]);
-            Tps6586xI2cRead8(hDevice, TPS6586x_RC2_RTC_ALARM1_MID, 	&ReadBuffer[1]);
-            Tps6586xI2cRead8(hDevice, TPS6586x_RC1_RTC_ALARM1_HI, 	&ReadBuffer[0]);
-            Counter = (ReadBuffer[0] << 16) + (ReadBuffer[1] << 8) + ReadBuffer[2];
-            *Count = Counter >> 10;
-        } else {
-            Tps6586xI2cRead8(hDevice, TPS6586x_RC5_RTC_ALARM2_LO, 	&ReadBuffer[1]);
-            Tps6586xI2cRead8(hDevice, TPS6586x_RC4_RTC_ALARM2_HI, 	&ReadBuffer[0]);
-            Counter = (ReadBuffer[0]<<8) + ReadBuffer[1];
-            *Count = Counter << 2;
-        }
+	//Check Alarm 1
+	if (!Tps6586xI2cRead8(hDevice, TPS6586x_RB4_INT_MASK5, &data))
+	{
+		printk("[NV DEBUG(%s)] rtc register TPS6586x_RB4_INT_MASK5 get Invalid data\n ",__FUNCTION__);
+		return NV_FALSE;
+	}
+	if(data & (1 << 5))
+		alarm1_enabled = NV_TRUE;
 
-        return NV_TRUE;
-
-    } else {
-        return NV_FALSE;
-    }
+	return (alarm1_enabled & alarm2_enabled);
 }
 
 /* Enables / Disables the RTC alarm interrupt */

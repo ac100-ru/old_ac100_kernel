@@ -410,20 +410,11 @@ static int tegra_sdhci_resume(struct platform_device *pdev)
 
 	t_sdhci = platform_get_drvdata(pdev);
 
-	/* enable clock to sdio controller */
-	ret = tegra_sdhci_set_controller_clk(t_sdhci, NV_TRUE);
-
-	if (ret)
-		pr_err("tegra_sdhci_resume:tegra_sdhci_set_clock failed with error %d\n", ret);
-
-
 	if(t_sdhci->sdhost->card_type) {
 		t_sdhci->sdhost->card_present = tegra_sdhci_detect(t_sdhci);
 		sdhci_card_detect_callback(t_sdhci->sdhost);
 	}	
 	ret = sdhci_resume_host(t_sdhci->sdhost);
-	if (ret)
-		pr_err("sdhci_resume_host failed with error %d\n", ret);
 
 	return ret;
 }
