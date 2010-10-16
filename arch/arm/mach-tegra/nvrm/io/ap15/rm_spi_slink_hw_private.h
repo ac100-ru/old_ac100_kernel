@@ -285,16 +285,8 @@ typedef struct
         NvBool IsApbDmaBasedTransfer,
         NvBool IsOnlyUseSWCS);
 
-    /**
-     * Set the CS setup and hold time.
-     */
-    void
-    (* HwSetCsSetupHoldTime)(
-        SerialHwRegisters *pHwRegs,
-        NvU32 CsSetupTimeInClocks,
-        NvU32 CsHoldTimeInClocks);
 
-    /**
+     /**
      * Set the packet length.
      */
     void

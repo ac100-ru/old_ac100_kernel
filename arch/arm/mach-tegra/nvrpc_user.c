@@ -38,7 +38,7 @@
             ((size) > sizeof((stackbuf)) ? kzalloc((size),(gfp)) : (stackbuf))
 #define nvrpc_stack_kfree(stackbuf, buf) \
             do { \
-                if ((buf) && (buf)!=(void *)(stackbuf)) \
+                if ((buf) && (buf)!=(stackbuf)) \
                 kfree(buf); \
             } while (0);
 

@@ -7,7 +7,6 @@
 
 #ifndef __ASSEMBLY__
 extern void mcount(void);
-extern void __gnu_mcount_nc(void);
 #endif
 
 #endif

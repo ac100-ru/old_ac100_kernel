@@ -457,30 +457,6 @@ NvOdmPmuWriteRtc(
  *
  * @param hDevice A handle to the PMU.
  * @param Count A pointer to where to return the current counter in sec.
- * @return NV_TRUE if successful, or NV_FALSE otherwise.
- */
-NvBool
-NvOdmPmuReadAlarm(
-    NvOdmPmuDeviceHandle hDevice,
-    NvU32* Count);
-
-/**
- * Updates alarm count value.
- *
- * @param hDevice A handle to the PMU.
- * @param Count data with which to update the current counter in sec.
- * @return NV_TRUE if successful, or NV_FALSE otherwise.
- */
-NvBool
-NvOdmPmuWriteAlarm(
-    NvOdmPmuDeviceHandle hDevice,
-    NvU32 Count);
-
-/**
- * Gets the alarm count in seconds of the current external RTC (in PMU).
- *
- * @param hDevice A handle to the PMU.
- * @param Count A pointer to where to return the current counter in sec.
  * @return NV_TRUE if successful, or NV_FALSE otherwise. 
  */
 NvBool

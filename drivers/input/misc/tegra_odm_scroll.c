@@ -44,6 +44,7 @@ static int scroll_thread(void *pdata)
 
 	/* FIXME add a terminating condition */ 
 	while(1) {
+		NvU32 value = 0;
 		NvOdmOsSemaphoreWait(scroll->sem);
 
 		Events = NvOdmScrollWheelGetEvent(scroll->odm_dev);

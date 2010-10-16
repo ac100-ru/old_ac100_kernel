@@ -67,7 +67,7 @@ static int tegra_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		return -1;
 
 	if (!NvOdmPmuWriteRtc(hPmu, (NvU32)now)) {
-		printk("NvOdmPmuWriteRtc failed\n");
+		pr_debug("NvOdmPmuWriteRtc failed\n");
 		return -1;
 	}
 	return 0;
@@ -81,7 +81,7 @@ static int tegra_rtc_ioctl(struct device *dev, unsigned int cmd, unsigned long a
 	NvU32 count = 0;
 
 	switch (cmd) {
-	case RTC_ALM_READ:
+	case RTC_ALM_READ:	
 		NvOdmPmuReadAlarm(hPmu, &count);
 		wkalrm.time.tm_hour 	= count / 3600;
 		wkalrm.time.tm_min 	= (count - (wkalrm.time.tm_hour * 3600)) / 60;
@@ -105,7 +105,7 @@ static int tegra_rtc_ioctl(struct device *dev, unsigned int cmd, unsigned long a
 
 static int tegra_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
 {
-
+	
 	struct rtc_time *time = &wkalrm->time;
 
 	NvU32 alarm_sec = 0;
@@ -124,9 +124,25 @@ static int tegra_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
 	struct rtc_time now_time;
 
 	pr_debug("wkalrm->enabled = %d\n", wkalrm->enabled);
+        //Simon@NV
 	if (wkalrm->enabled == 0)
+        {
+#if (1)
+                //check if alarm interrupt enalbed, if so, disable it.
+                if(NvOdmPmuCheckAlarmIntEnabled(hPmu))
+                   if(!NvodmPmuPmuEnableAlarmInt(hPmu, NV_FALSE))
+			printk("Disable Alarm interrupt failed out!\n");
 		return 0;
-
+        }else{
+                //check if alarm interrupt disabled, if so, enable it
+                if(!NvOdmPmuCheckAlarmIntEnabled(hPmu))
+                    if(!NvodmPmuPmuEnableAlarmInt(hPmu, NV_TRUE))
+			printk("Enable Alarm interrupt failed out!\n");
+#else
+		return 0;
+#endif
+        }
+	
 	if (!NvOdmPmuReadRtc(hPmu, &now)) {
 		pr_debug("NvOdmPmuReadRtc failed\n");
 		return -1;
@@ -134,22 +150,24 @@ static int tegra_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
 
 	rtc_time_to_tm(now, &now_time);
 	pr_debug( "read  now_time %02d:%02d:%02d %02d/%02d/%04d\n",
-		now_time.tm_hour, now_time.tm_min, now_time.tm_sec,
+		now_time.tm_hour, now_time.tm_min, now_time.tm_sec, 
 		now_time.tm_mon + 1, now_time.tm_mday, now_time.tm_year + 1900);
 
-	pr_debug("write alarm_time %02d:%02d:%02d %02d/%02d/%04d\n",
+	pr_debug("write alarm_time %02d:%02d:%02d %02d/%02d/%04d\n", 
 		time->tm_hour, time->tm_min, time->tm_sec,
-		time->tm_mon+1, time->tm_mday, time->tm_yday+1900);
+		time->tm_mon+1, time->tm_mday, time->tm_year+1900);
 
-	alarm_sec = (NvU32)mktime(now_time.tm_year + 1900, time->tm_mon+1, time->tm_mday,
+	alarm_sec = (NvU32)mktime(now_time.tm_year + 1900, time->tm_mon+1, time->tm_mday, 
 				time->tm_hour, time->tm_min, time->tm_sec);
-	if (alarm_sec < now)
-		alarm_sec = (NvU32)mktime(now_time.tm_year + 1901, time->tm_mon+1, time->tm_mday,
+	if (alarm_sec < now) 
+		alarm_sec = (NvU32)mktime(now_time.tm_year + 1901, time->tm_mon+1, time->tm_mday, 
 				time->tm_hour, time->tm_min, time->tm_sec);
 
 	pr_debug("alarm_sec = %u\n", alarm_sec);
 
-	NvOdmPmuWriteAlarm(hPmu, alarm_sec-now);
+//	if (alarm_sec > now)
+	if ((alarm_sec - now) > 4)
+		NvOdmPmuWriteAlarm(hPmu, alarm_sec-now);
 
 	return 0;
 }

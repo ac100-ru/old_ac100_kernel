@@ -202,11 +202,6 @@ static NvU32 s_StarveOnRefCounts[NvRmDfsClockId_Num];
 // Heads of busy hint lists for DFS clock domain
 static BusyHintReq s_BusyReqHeads[NvRmDfsClockId_Num];
 
-// Busy requests pool
-#define NVRM_BUSYREQ_POOL_SIZE (24)
-static BusyHintReq s_BusyReqPool[NVRM_BUSYREQ_POOL_SIZE];
-static BusyHintReq* s_pFreeBusyReqPool[NVRM_BUSYREQ_POOL_SIZE];
-static NvU32 s_FreeBusyReqPoolSize = 0;
 
 /*****************************************************************************/
 
@@ -240,12 +235,6 @@ RecordPowerCycle(NvRmDeviceHandle hRmDeviceHandle, NvU32 PowerGroup);
  */
 static void
 ReportRmPowerState(NvRmDeviceHandle hRmDeviceHandle);
-
-/*
- * Manages busy request pool
- */
-static BusyHintReq* BusyReqAlloc(void);
-static void BusyReqFree(BusyHintReq* pBusyHintReq);
 
 /*
  * Cancels busy hints reported by the specified client for
@@ -380,10 +369,11 @@ static void CancelPowerRequests(
 /*****************************************************************************/
 NvError NvRmPrivPowerInit(NvRmDeviceHandle hRmDeviceHandle)
 {
-    NvU32 i;
     NvError e;
 
     NV_ASSERT(hRmDeviceHandle);
+
+    // TODO: expand after clock API is completed
 
     // Initialize registry
     s_PowerRegistry.pPowerClients = NULL;
@@ -397,12 +387,6 @@ NvError NvRmPrivPowerInit(NvRmDeviceHandle hRmDeviceHandle)
     NvOsMemset(s_BusyReqHeads, 0, sizeof(s_BusyReqHeads));
     NvOsMemset(s_StarveOnRefCounts, 0, sizeof(s_StarveOnRefCounts));
     NvOsMemset(s_PowerOnRefCounts, 0, sizeof(s_PowerOnRefCounts));
-
-    // Initialize busy requests pool
-    NvOsMemset(s_BusyReqPool, 0, sizeof(s_BusyReqPool));
-    for (i = 0; i < NVRM_BUSYREQ_POOL_SIZE; i++)
-        s_pFreeBusyReqPool[i] = &s_BusyReqPool[i];
-    s_FreeBusyReqPoolSize = NVRM_BUSYREQ_POOL_SIZE;
 
     // Create the RM registry mutex and initialize RM/OAL interface
     s_hPowerClientMutex = NULL;
@@ -437,7 +421,7 @@ void NvRmPrivPowerDeinit(NvRmDeviceHandle hRmDeviceHandle)
         {
             BusyHintReq* pBusyHintReq = s_BusyReqHeads[i].pNext;
             s_BusyReqHeads[i].pNext = pBusyHintReq->pNext;
-            BusyReqFree(pBusyHintReq);
+            NvOsFree(pBusyHintReq);
         }
     }
     // Free RM power registry memory
@@ -1173,29 +1157,6 @@ NvRmPowerStarvationHint (
 
 /*****************************************************************************/
 
-static BusyHintReq* BusyReqAlloc(void)
-{
-    if (s_FreeBusyReqPoolSize != 0)
-        return s_pFreeBusyReqPool[--s_FreeBusyReqPoolSize];
-    else
-    {
-        NV_ASSERT(!"Busy pool size is too small");
-        return NvOsAlloc(sizeof(BusyHintReq));
-    }
-}
-
-static void BusyReqFree(BusyHintReq* pBusyHintReq)
-{
-    if ((pBusyHintReq >= &s_BusyReqPool[0]) &&
-        (pBusyHintReq < &s_BusyReqPool[NVRM_BUSYREQ_POOL_SIZE]))
-    {
-        NV_ASSERT(s_FreeBusyReqPoolSize < NVRM_BUSYREQ_POOL_SIZE);
-        s_pFreeBusyReqPool[s_FreeBusyReqPoolSize++] = pBusyHintReq;
-        return;
-    }
-    NvOsFree(pBusyHintReq);
-}
-
 static void CancelBusyHints(NvRmDfsClockId ClockId, NvU32 ClientId)
 {
     BusyHintReq* pBusyHintReq = NULL;
@@ -1216,7 +1177,7 @@ static void CancelBusyHints(NvRmDfsClockId ClockId, NvU32 ClientId)
         if ((pBusyHintNext != NULL) && (pBusyHintNext->ClientId == ClientId))
         {
             pBusyHintReq->pNext = pBusyHintNext->pNext;
-            BusyReqFree(pBusyHintNext);
+            NvOsFree(pBusyHintNext);
             continue;
         }
         pBusyHintReq = pBusyHintNext;
@@ -1244,7 +1205,7 @@ static void PurgeBusyHints(NvRmDfsClockId ClockId, NvU32 msec)
              (pBusyHintNext->IntervalMs < (msec - pBusyHintNext->StartTimeMs)) )
         {
             pBusyHintReq->pNext = pBusyHintNext->pNext;
-            BusyReqFree(pBusyHintNext);
+            NvOsFree(pBusyHintNext);
             continue;
         }
         pBusyHintReq = pBusyHintNext;
@@ -1317,7 +1278,7 @@ RecordBusyHints(
                     (pInsert->pNext->BoostKHz < BoostKHz))
                 {
                     // Allocate and initialize new boost hint record
-                    pBusyHintReq = BusyReqAlloc();
+                    pBusyHintReq = NvOsAlloc(sizeof(BusyHintReq));
                     if (pBusyHintReq == NULL)
                     {
                         return NvError_InsufficientMemory;
@@ -1404,7 +1365,7 @@ void NvRmPrivDfsGetBusyHint(
         }
         p = pBusyHintReq;
         pBusyHintReq = pBusyHintReq->pNext;
-        BusyReqFree(p);
+        NvOsFree(p);
     }
     if (pBusyHintReq)
     {

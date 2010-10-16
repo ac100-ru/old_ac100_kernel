@@ -143,10 +143,12 @@ static int tegra_ehci_hub_control (
 			if (!(temp & (PORT_CONNECT | PORT_CSC | PORT_PE | PORT_PEC))
 				&& ehci->host_reinited) {
 				/* indicate hcd flags, that hardware is not accessable now */
-				clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
+                                clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 				tegra_ehci_power_down(hcd);
 				ehci->transceiver->state = OTG_STATE_UNDEFINED;
 				ehci->host_reinited = 0;
+				/* indicate hcd flags, that hardware is not accessable now */
+				//clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 			}
 		}
 	}
@@ -616,6 +618,8 @@ static int tegra_ehci_probe(struct platform_device *pdev)
 			clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 			tegra_ehci_power_down(hcd);
 			ehci->host_reinited = 0;
+			/* indicate hcd flags, that hardware is not accessable now in host mode*/
+			// clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 		} else {
 			dev_err(&pdev->dev, "Cannot get OTG transceiver\n");
 			e = -ENODEV;

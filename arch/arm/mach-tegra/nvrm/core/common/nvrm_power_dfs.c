@@ -288,9 +288,6 @@ do\
 
 /*****************************************************************************/
 
-// LP2 entry policy
-NvRmLp2Policy g_Lp2Policy = NVRM_DEFAULT_LP2POLICY;
-
 // DFS object
 static NvRmDfs s_Dfs;
 
@@ -1213,23 +1210,19 @@ DfsGetTargetFrequencies(
 
         /*
          * Determine if low corner is hit in this domain - clear hit indicator
-         * if new target domain frequency is above low limit (with hysteresis).
-         * For platform with dedicated CPU partition adjust low corner threshold
-         * when no starvation is detected: if target frequency is limited by
-         * activity, include activity margin in the threshold; otherwise set
-         * low corner at busy hint level per LP2 policy
+         * if new target domain frequency is above low limit (with hysteresis)
+         * For platform with dedicated CPU partition do not include activity
+         * margin when there is no busy or starvation requirements
          */
         if (NvRmPrivIsCpuRailDedicated(pDfs->hRm) &&
-            (!pDomainSampler->RtStarveBoostKHz) &&
-            (!pDomainSampler->NrtStarveBoostKHz))
+            (DomainBusyKHz <= LowCornerDomainKHz) &&
+            ((*pDomainKHz) == pDomainSampler->BumpedAverageKHz))
         {
-            if ((*pDomainKHz) == pDomainSampler->BumpedAverageKHz)
-                LowCornerDomainKHz +=
-                    (LowCornerDomainKHz >> pDomainParam->RelAdjustBits);
-            else if (g_Lp2Policy != NvRmLp2Policy_EnterInLowCorner)
-                LowCornerDomainKHz = NV_MAX(DomainBusyKHz, LowCornerDomainKHz);
+            // Multiplying threshold has the same effect as dividing target
+            // to reduce margin
+            LowCornerDomainKHz +=
+                (LowCornerDomainKHz >> pDomainParam->RelAdjustBits);
         }
-
         if ( ((*pDomainKHz) > 
               (LowCornerDomainKHz + pDomainParam->NrtStarveParam.BoostStepKHz))
              || (((*pDomainKHz) > LowCornerDomainKHz) && (!pDfs->LowCornerHit))

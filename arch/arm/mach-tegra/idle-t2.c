@@ -322,15 +322,8 @@ void mach_tegra_idle(void)
 #endif
 
 	if (!s_pFlowCtrl || num_online_cpus()>1 || !s_hRmGlobal ||
-		(g_Lp2Policy == NvRmLp2Policy_Disabled))
+	    !(NvRmPrivGetDfsFlags(s_hRmGlobal) & NvRmDfsStatusFlags_Pause))
 		lp2_ok = false;
-
-	if (lp2_ok && (g_Lp2Policy == NvRmLp2Policy_EnterInLowCorner)) {
-		bool dfs_paused = NvRmPrivGetDfsFlags(s_hRmGlobal) &
-			NvRmDfsStatusFlags_Pause;
-		if (!dfs_paused)
-			lp2_ok = false;
-	}
 
 	if (lp2_ok) {
 		struct tick_sched *ts =

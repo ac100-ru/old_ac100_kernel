@@ -1445,7 +1445,8 @@ NvError NvOsBootArgGet(NvU32 key, void *arg, NvU32 size)
     }
     else
     {
-        switch (key) {
+        switch (key)
+        {
         case NvBootArgKey_ChipShmoo:
             src = &s_BootArgs.ChipShmooArgs;
             size_src = sizeof(NvBootArgsChipShmoo);
@@ -1477,19 +1478,10 @@ NvError NvOsBootArgGet(NvU32 key, void *arg, NvU32 size)
         }
     }
 
-    if( !arg || !src )
-    {
+    if (!arg || !src || (size_src!=size))
         return NvError_BadParameter;
-    }
 
-    /* don't copy too much if the size has changed (gotten bigger in new
-     * binaries.
-     */
-    NvOsMemcpy(arg, src, NV_MIN( size, size_src) );
-    if( size > size_src )
-    {
-        NvOsMemset( (NvU8 *)src + size_src, 0, size - size_src );
-    }
+    NvOsMemcpy(arg, src, size_src);
     return NvSuccess;
 }
 

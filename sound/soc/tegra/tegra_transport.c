@@ -40,7 +40,7 @@
 static AlsaTransport* atrans = 0;
 
 
-static NvAudioFxMixerHandle tegra_transport_mixer_open(void)
+static NvAudioFxMixerHandle tegra_transport_mixer_open()
 {
 	NvError status = NvSuccess;
 	NvAudioFxMixerHandle hMixer = 0;
@@ -649,8 +649,8 @@ void tegra_audiofx_destroyfx(struct tegra_audio_data *audio_context)
 		snd_printk(KERN_ERR "audiofx_create_object failed!");     \
 	}
 
-#define audiofx_path_connect(path_object, sink_object)                     \
-	connection.hSource = (NvAudioFxHandle)path_object,                     \
+#define audiofx_path_connect(path_object, sink_object)                         \
+	connection.hSource = path_object,                                      \
 	connection.SourcePin = NvAudioFxSourcePin;                             \
 	connection.SinkPin = NvAudioFxSinkPin;                                 \
 	connection.hSink = (NvAudioFxHandle)sink_object;                       \
@@ -687,7 +687,7 @@ NvError tegra_audiofx_create_output(NvRmDeviceHandle hRmDevice,
 	audiofx_path_connect(pPath->Convert, pPath->Resize);
 	audiofx_path_connect(pPath->Resize, pPath->Volume);
 
-	connection.hSource = (NvAudioFxHandle)(pPath->Volume);
+	connection.hSource = pPath->Volume;
 	connection.SourcePin = NvAudioFxSourcePin;
 	connection.hSink = 0;
 	connection.SinkPin = NvAudioFxSinkPin;
@@ -769,7 +769,7 @@ NvError tegra_audiofx_create_input(NvRmDeviceHandle hRmDevice,
 	audiofx_create_object(pInput->Convert,NvAudioFxConvertId);
 
 	/* Wire 1 */
-	connection.hSource = (NvAudioFxHandle)(pInput->Stream);
+	connection.hSource = pInput->Stream;
 	connection.SourcePin = NvAudioFxSourcePin;
 	connection.hSink = (NvAudioFxHandle)pInput->Resize;
 	connection.SinkPin = NvAudioFxCopySinkPin;
