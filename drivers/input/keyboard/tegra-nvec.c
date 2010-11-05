@@ -62,7 +62,7 @@ static NvBool   b_flag_keyboard_suspend = NV_FALSE;
  */
 NvU32 code_tab_102us[EC_TOTAL_CODES] = {
 	KEY_GRAVE,	// 0x00
-	KEY_BACK,
+	KEY_ESC,
 	KEY_1,
 	KEY_2,
 	KEY_3,
@@ -278,7 +278,7 @@ NvU32 extcode_tab_us102[EC_EXT_TOTAL_CODES] = {
 	0,
 	KEY_LEFTMETA,	//VK_LWIN
 	0,		//VK_RWIN
-	KEY_BACK,	//VK_APPS
+	KEY_ESC,	//VK_APPS
 	KEY_KPMINUS, //for power button workaround
 	0, 
 	0,
