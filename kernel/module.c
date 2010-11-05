@@ -1984,9 +1984,12 @@ static noinline struct module *load_module(void __user *umod,
 	} else if (!same_magic(modmagic, vermagic, versindex)) {
 		printk(KERN_ERR "%s: version magic '%s' should be '%s'\n",
 		       mod->name, modmagic, vermagic);
-		printk(KERN_ERR "But don't worry, I'll be nice with you :)\n");
-		//err = -ENOEXEC;
-		//goto free_hdr;
+		if(strcmp(mod->name, "nvrm_gpu")==0) {
+			printk(KERN_ERR "nvrm_gpu... Loading allowed but warning.\n");
+		} else {
+			err=-ENOEXEC;
+			goto free_hdr;
+		}
 	}
 
 	staging = get_modinfo(sechdrs, infoindex, "staging");
