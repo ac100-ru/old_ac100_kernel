@@ -654,6 +654,7 @@ static struct nvec_driver nvec_keyboard_driver = {
 
 //*********henry+ enter suspend,disable report data*******************
 
+#ifdef CONFIG_WAKELOCK
 static void nvec_keyboard_early_suspend(struct early_suspend *h)
 {
 	//pr_info("\tNV-KEYBOARD: stop report key code in early suspend --->>>\n");	
@@ -671,6 +672,7 @@ static struct early_suspend nvec_keyboard_early_suspend_handler = {
     .suspend = nvec_keyboard_early_suspend,
     .resume = nvec_keyboard_early_resume,
 };
+#endif
 //*********henry+ enter suspend,disable report data*******************
 
 static struct nvec_device nvec_keyboard_device = {
@@ -698,7 +700,9 @@ static int __init nvec_keyboard_init(void)
 	}
 
 	//henry+ enter suspend,disable report data
+#ifdef CONFIG_WAKELOCK
 	register_early_suspend(&nvec_keyboard_early_suspend_handler);
+#endif
 
 	return 0;
 }
@@ -706,7 +710,10 @@ static int __init nvec_keyboard_init(void)
 static void __exit nvec_keyboard_exit(void)
 {
 	//henry+ enter suspend,disable report data
+	
+#ifdef CONFIG_WAKELOCK
 	unregister_early_suspend(&nvec_keyboard_early_suspend_handler);
+#endif
 	nvec_unregister_device(&nvec_keyboard_device);
 	nvec_unregister_driver(&nvec_keyboard_driver);
 }

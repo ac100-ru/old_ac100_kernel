@@ -651,11 +651,13 @@ static int __devinit nvec_mouse_probe(struct nvec_device *pdev)
 		goto fail_input_register;
 	}
     
+#ifdef CONFIG_WAKELOCK
 	mouse->early_suspend.suspend = nvec_mouse_early_suspend;
 	//for reducing resume time! don't set the early suspend level!
 	//mouse->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB; 
 	mouse->early_suspend.resume = nvec_mouse_late_resume; 
 	register_early_suspend(&mouse->early_suspend);
+#endif
 
 	mouse->previousState = 0;
     
