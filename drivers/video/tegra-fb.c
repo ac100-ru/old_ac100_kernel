@@ -110,7 +110,7 @@ static struct fb_ops tegra_fb_ops = {
 	.fb_fillrect	= tegra_fb_fillrect,
 	.fb_copyarea	= tegra_fb_copyarea,
 	.fb_imageblit	= tegra_fb_imageblit,
-	.fb_cursor	= tegra_fb_cursor,
+	.fb_cursor	= NULL,
 	.fb_sync	= tegra_fb_sync,
 };
 
