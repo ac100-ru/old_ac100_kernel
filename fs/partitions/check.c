@@ -32,6 +32,7 @@
 #include "sgi.h"
 #include "sun.h"
 #include "ibm.h"
+#include "cmdline.h"
 #include "ultrix.h"
 #include "efi.h"
 #include "karma.h"
@@ -103,6 +104,9 @@ static int (*check_part[])(struct parsed_partitions *, struct block_device *) = 
 #endif
 #ifdef CONFIG_IBM_PARTITION
 	ibm_partition,
+#endif
+#ifdef CONFIG_CMDLINE_PARTITION
+	cmdline_partition,
 #endif
 #ifdef CONFIG_KARMA_PARTITION
 	karma_partition,
