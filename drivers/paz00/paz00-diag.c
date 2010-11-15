@@ -795,23 +795,22 @@ extern void set_wlan_led(unsigned mode);
 
 static int proc_write_wifi3g(struct file *file, const char *buffer, unsigned long count, void *data)
 {
+	unsigned long procfs_buffer_size = 0;
 	NvU8 command;
 
-	if(copy_from_user(&command, buffer, 1))
-	{
+	procfs_buffer_size = count;
+	if (procfs_buffer_size > PROCFS_MAX_SIZE)
+		procfs_buffer_size = PROCFS_MAX_SIZE;
+
+	if (copy_from_user(&command, buffer, 1))
 		return -EFAULT;
-	}
 
-	if( command == '1' )
-	{
-		set_wlan_led( 1 );
-	}
+	if (command == '1')
+		set_wlan_led(1);
 	else
-	{
-		set_wlan_led( 0 );
-	}
+		set_wlan_led(0);
 
-	return 0;
+	return procfs_buffer_size;
 }
 #endif
 
