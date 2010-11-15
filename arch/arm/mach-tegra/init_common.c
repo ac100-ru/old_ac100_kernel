@@ -828,8 +828,10 @@ static void __init tegra_register_sdio_int(const char *driver_name)
         NvU64 start, length;
         NvU32 sector_size;
         boot_id = 3;
-        tegra_get_partition_info_by_name("mbr", &start, &length, &sector_size);
-        pdata.StartOffset = start * (NvU64)sector_size;
+        if (!tegra_get_partition_info_by_name("mbr", &start, &length, &sector_size))
+            pdata.StartOffset = start * (NvU64)sector_size;
+        else
+            pdata.StartOffset = 0;
         platdev = platform_device_alloc(driver_name, boot_id);
         if (!platdev) {
             pr_err("unable to allocate device memory for SDIO boot device\n");
