@@ -779,14 +779,19 @@ static int proc_write_lback(struct file *file, const char *buffer, unsigned long
 
 static int proc_write_led(struct file *file, const char *buffer, unsigned long count, void *data)
 {
-        int len;
-        NvU8 command;
+	unsigned long procfs_buffer_size = 0;
+	NvU8 command;
 
-        if(copy_from_user(&command, buffer, 1)) {
-                return -EFAULT;
-        }
-        paz00_led_set_led( command );
-        return len;
+	procfs_buffer_size = count;
+	if (procfs_buffer_size > PROCFS_MAX_SIZE)
+		procfs_buffer_size = PROCFS_MAX_SIZE;
+
+	if (copy_from_user(&command, buffer, 1))
+	        return -EFAULT;
+
+	paz00_led_set_led(command);
+
+	return procfs_buffer_size;
 }
 
 
