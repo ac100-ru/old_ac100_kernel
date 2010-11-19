@@ -1552,7 +1552,7 @@ unsigned short int gCheckSum = 0;
 unsigned char gPanelID[16] = {0};
 
 static NvU32
-GetDeviceEDID()
+GetDeviceEDID(void)
 {
     NvU8 i;
     NvU8 data;
