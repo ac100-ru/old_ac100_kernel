@@ -29,7 +29,7 @@ static NvBool s_ec_eventDeinit = NV_FALSE;
 static int usb_current_status = 0;//set no USB over current as default status
 
 
-static NvU8 ac_event_value=0; 
+static NvU8 ac_event_value=0;
 static NvU8 lid_event_value = 0;
 static NvU8 usb_event_value=0;
 
@@ -56,7 +56,7 @@ NvBool ec_odm_event_register(void)
     NvEcResponse Response = {0};
 
     s_ec_event_sema = NvOdmOsSemaphoreCreate(0);
-    
+
     /* register for system events */
     NvStatus = NvEcRegisterForEvents(
                     s_NvEcHandle,       // nvec handle
@@ -66,7 +66,7 @@ NvBool ec_odm_event_register(void)
                     EventTypes, //
                     1,          // currently buffer only 1 packet from ECI at a time
                     sizeof(NvEcEvent));
-    
+
 
     /* success */
     return NV_TRUE;
@@ -93,34 +93,34 @@ extern void report_AC_change(void);
 extern NvU32 get_systemevent_status(void);
 static int lid_switch(int event_value)
 {
-    //printk("lid switch\n");   
-    if (event_value == 0x00) {    
+    //printk("lid switch\n");
+    if (event_value == 0x00) {
         if (lid_switch_function_flag == CONTROL_LCD) {
 	   //modify by henry 2010.7.7, open lip need turn on lcd or wakeup system
 	   // paz00_set_lcd_output(1);  2010.7.14  remove turn on/off screen,report scancode let's android turn on/off screen
-           
+
             nvec_keyboard_report_key(KEY_OPEN, 2);
             nvec_keyboard_report_key(KEY_OPEN, 0);
-        } else   
-	{	//modify by henry 2010.7.7, open lip need turn on lcd or wakeup system   	  
+        } else
+	{	//modify by henry 2010.7.7, open lip need turn on lcd or wakeup system
 	    // paz00_set_lcd_output(1); 2010.7.14  remove turn on/off screen,report scancode let's android turn on/off screen
 	        nvec_keyboard_report_key(KEY_OPEN, 2);
-            nvec_keyboard_report_key(KEY_OPEN, 0);	    
+            nvec_keyboard_report_key(KEY_OPEN, 0);
 	}
-	
-        
+
+
     } else if (event_value == 0x02) {
-        if (lid_switch_function_flag == CONTROL_LCD) { 
+        if (lid_switch_function_flag == CONTROL_LCD) {
             //paz00_set_lcd_output(0);    2010.7.14  remove turn on/off screen,report scancode let's android turn on/off screen
-        
+
             nvec_keyboard_report_key(KEY_CLOSE, 2);
             nvec_keyboard_report_key(KEY_CLOSE, 0);
         } else if (lid_switch_function_flag == CONTROL_SUSPEND) {
             nvec_keyboard_report_key(KEY_SLEEP, 2);
-	        nvec_keyboard_report_key(KEY_SLEEP, 0); 
+	        nvec_keyboard_report_key(KEY_SLEEP, 0);
         }
     }
-	
+
    return 0;
 }
 
@@ -172,13 +172,13 @@ static int power_button_fun(void)
 			nvec_keyboard_report_key(KEY_OPEN, 2);
 			nvec_keyboard_report_key(KEY_OPEN, 0);
 	    }
-	    else{			
+	    else{
 	        nvec_keyboard_report_key(KEY_SLEEP, 2);
 	        nvec_keyboard_report_key(KEY_SLEEP, 0);
 	    }
-    }  
+    }
     return 0;
-} 
+}
 
 NvBool get_ec_odm_event_data()
 {
@@ -189,32 +189,32 @@ NvBool get_ec_odm_event_data()
     NvStatus = NvEcGetEvent(s_ec_event_registration, &ec_event_packet, sizeof(NvEcEvent));
 
    //henry+2010.7.27 add AC enent handle,modify judge event type rule
-    if ( (ec_event_packet.Payload[2] & 0x80) == 0x80 ) {	
+    if ( (ec_event_packet.Payload[2] & 0x80) == 0x80 ) {
         power_button_fun();
     } else if ( (ec_event_packet.Payload[2] & 0x02) != lid_event_value ) {
 	lid_event_value = ec_event_packet.Payload[2] & 0x02;
-        lid_switch(lid_event_value); 
-    } else if ( (ec_event_packet.Payload[0] & 0x01) !=ac_event_value ) {	
+        lid_switch(lid_event_value);
+    } else if ( (ec_event_packet.Payload[0] & 0x01) !=ac_event_value ) {
 	ac_event_value=ec_event_packet.Payload[0] & 0x01;
-        report_AC_change();   
-    } else if ( (ec_event_packet.Payload[2] & 0x40) != usb_event_value ) {	
+        report_AC_change();
+    } else if ( (ec_event_packet.Payload[2] & 0x40) != usb_event_value ) {
 	usb_event_value=ec_event_packet.Payload[2] & 0x40;
-        usb_current_update(usb_event_value);         
+        usb_current_update(usb_event_value);
     } else {
         pr_info("Err:system event,don't be here\n");
 	//usb_event_value=ec_event_packet.Payload[2] & 0x40;
-        //usb_current_update(usb_event_value); 
+        //usb_current_update(usb_event_value);
 
 	//lid_event_value = (ec_event_packet.Payload[2] & 0x02);
-        //lid_switch(lid_event_value);  
+        //lid_switch(lid_event_value);
 
 	//ac_event_value=ec_event_packet.Payload[0] & 0x01;
-        //report_AC_change(); 
-	
+        //report_AC_change();
+
    }
 
 
-    return NV_TRUE;   
+    return NV_TRUE;
 }
 
 static int ec_odm_event_recv(void *arg)
@@ -227,7 +227,7 @@ static int ec_odm_event_recv(void *arg)
 	while (1) {
 
 		get_ec_odm_event_data();
-		
+
 	}
 
 	return 0;
@@ -262,12 +262,12 @@ static int __devinit ec_odm_event_probe(struct nvec_device *pdev)
 	int i;
 //henry+2010.7.27  add system event current status begin******
 	NvU32 sys_event_status;
-	sys_event_status=get_systemevent_status();	
-        if(sys_event_status>0){	
-		ac_event_value = (NvU8) (sys_event_status & 0x01);	
+	sys_event_status=get_systemevent_status();
+        if(sys_event_status>0){
+		ac_event_value = (NvU8) (sys_event_status & 0x01);
 		lid_event_value = (NvU8)((sys_event_status >>16) & 0x02);
-                usb_event_value = (NvU8)((sys_event_status >>16) & 0x40);   
-	        //pr_info("henry>>ac_event_value=0x%x,lid_event_value=0x%x,usb_event_value=0x%x\n",ac_event_value,lid_event_value,usb_event_value);         
+                usb_event_value = (NvU8)((sys_event_status >>16) & 0x40);
+	        //pr_info("henry>>ac_event_value=0x%x,lid_event_value=0x%x,usb_event_value=0x%x\n",ac_event_value,lid_event_value,usb_event_value);
 	}
 //henry+2010.7.27 add system event current status end******
 
@@ -338,7 +338,7 @@ static int ec_odm_event_remove(struct nvec_device *dev)
 
 static int ec_odm_event_suspend(struct nvec_device *pdev, pm_message_t state)
 {
-    //pr_info("henry>>%s\n",__FUNCTION__);         
+    //pr_info("henry>>%s\n",__FUNCTION__);
     return 0;
 }
 
@@ -350,22 +350,22 @@ static int ec_odm_event_resume(struct nvec_device *pdev)
         NvU8 usb_status;
 	//pr_info("henry>>%s\n",__FUNCTION__);
 
-	sys_event_status=get_systemevent_status();	        
-	ac_status = (NvU8) (sys_event_status & 0x01);	
+	sys_event_status=get_systemevent_status();
+	ac_status = (NvU8) (sys_event_status & 0x01);
         if(ac_event_value!=ac_status){
 	   ac_event_value=ac_status;
-	   report_AC_change();  
+	   report_AC_change();
 	}
 
 	lid_event_value = (NvU8)((sys_event_status >>16) & 0x02);
 
-        usb_status=(NvU8)((sys_event_status >>16) & 0x40); 
+        usb_status=(NvU8)((sys_event_status >>16) & 0x40);
         if(usb_event_value!=usb_status){
 	   usb_event_value=usb_status;
            usb_current_update(usb_event_value);
 	}
-          
-	//pr_info("henry>>ac_event_value=0x%x,lid_event_value=0x%x,usb_event_value=0x%x\n",ac_event_value,lid_event_value,usb_event_value);         	
+
+	//pr_info("henry>>ac_event_value=0x%x,lid_event_value=0x%x,usb_event_value=0x%x\n",ac_event_value,lid_event_value,usb_event_value);
 //henry+2010.7.30 add system event current status end******
 
     return 0;
@@ -411,7 +411,7 @@ static int __init ec_odm_event_init(void)
     if(usb_current_file == NULL) {
         goto err_use_current_file;
     }
-    
+
     usb_current_file->read_proc = read_usb_current;
 
 	return 0;
