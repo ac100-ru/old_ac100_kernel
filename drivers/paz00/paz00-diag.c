@@ -823,23 +823,22 @@ int gTestSuspendFlag = 0;
 
 static int proc_write_suspend(struct file *file, const char *buffer, unsigned long count, void *data)
 {
+	unsigned long procfs_buffer_size = 0;
 	NvU8 command;
 
-	if(copy_from_user(&command, buffer, 1))
-	{
+	procfs_buffer_size = count;
+	if (procfs_buffer_size > PROCFS_MAX_SIZE)
+		procfs_buffer_size = PROCFS_MAX_SIZE;
+
+	if (copy_from_user(&command, buffer, 1))
 		return -EFAULT;
-	}
 
-	if( command == '1' )
-	{
+	if (command == '1')
 		gTestSuspendFlag = 1;
-	}
 	else
-	{
 		gTestSuspendFlag = 0;
-	}
 
-	return 0;
+	return procfs_buffer_size;
 }
 
 static NvU8 paz00_diag_write_ec_uuid_offset( NvU8 Uuid_Offset, NvU8 Uuid_Value )
