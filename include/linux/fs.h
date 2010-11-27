@@ -97,6 +97,8 @@ struct inodes_stat_t {
 #define READ_META	(READ | (1 << BIO_RW_META))
 #define WRITE_SYNC	(WRITE | (1 << BIO_RW_SYNCIO) | (1 << BIO_RW_UNPLUG))
 #define SWRITE_SYNC	(SWRITE | (1 << BIO_RW_SYNCIO) | (1 << BIO_RW_UNPLUG))
+#define WRITE_SYNC_PLUG         (WRITE | (1 << BIO_RW_SYNCIO))
+
 #define WRITE_BARRIER	(WRITE | (1 << BIO_RW_BARRIER))
 #define DISCARD_NOBARRIER (1 << BIO_RW_DISCARD)
 #define DISCARD_BARRIER ((1 << BIO_RW_DISCARD) | (1 << BIO_RW_BARRIER))
@@ -646,6 +648,9 @@ static inline int mapping_writably_mapped(struct address_space *mapping)
 #define i_size_ordered_init(inode) do { } while (0)
 #endif
 
+struct posix_acl;
+#define ACL_NOT_CACHED ((void *)(-1))
+
 struct inode {
 	struct hlist_node	i_hash;
 	struct list_head	i_list;
@@ -709,6 +714,10 @@ struct inode {
 	atomic_t		i_writecount;
 #ifdef CONFIG_SECURITY
 	void			*i_security;
+#endif
+#ifdef CONFIG_FS_POSIX_ACL
+	struct posix_acl	*i_acl;
+	struct posix_acl	*i_default_acl;
 #endif
 	void			*i_private; /* fs or device private pointer */
 };
@@ -2013,10 +2022,15 @@ static inline int xip_truncate_page(struct address_space *mapping, loff_t from)
 #endif
 
 #ifdef CONFIG_BLOCK
+struct bio;
+typedef void (dio_submit_t)(int rw, struct bio *bio, struct inode *inode,
+			    loff_t file_offset);
+void dio_end_io(struct bio *bio, int error);
+
 ssize_t __blockdev_direct_IO(int rw, struct kiocb *iocb, struct inode *inode,
 	struct block_device *bdev, const struct iovec *iov, loff_t offset,
 	unsigned long nr_segs, get_block_t get_block, dio_iodone_t end_io,
-	int lock_type);
+	dio_submit_t submit_io,	int lock_type);
 
 enum {
 	DIO_LOCKING = 1, /* need locking between buffered and direct access */
@@ -2030,7 +2044,7 @@ static inline ssize_t blockdev_direct_IO(int rw, struct kiocb *iocb,
 	dio_iodone_t end_io)
 {
 	return __blockdev_direct_IO(rw, iocb, inode, bdev, iov, offset,
-				nr_segs, get_block, end_io, DIO_LOCKING);
+				nr_segs, get_block, end_io, NULL, DIO_LOCKING);
 }
 
 static inline ssize_t blockdev_direct_IO_no_locking(int rw, struct kiocb *iocb,
@@ -2039,7 +2053,7 @@ static inline ssize_t blockdev_direct_IO_no_locking(int rw, struct kiocb *iocb,
 	dio_iodone_t end_io)
 {
 	return __blockdev_direct_IO(rw, iocb, inode, bdev, iov, offset,
-				nr_segs, get_block, end_io, DIO_NO_LOCKING);
+				nr_segs, get_block, end_io, NULL, DIO_NO_LOCKING);
 }
 
 static inline ssize_t blockdev_direct_IO_own_locking(int rw, struct kiocb *iocb,
@@ -2048,7 +2062,7 @@ static inline ssize_t blockdev_direct_IO_own_locking(int rw, struct kiocb *iocb,
 	dio_iodone_t end_io)
 {
 	return __blockdev_direct_IO(rw, iocb, inode, bdev, iov, offset,
-				nr_segs, get_block, end_io, DIO_OWN_LOCKING);
+				nr_segs, get_block, end_io, NULL, DIO_OWN_LOCKING);
 }
 #endif
 
