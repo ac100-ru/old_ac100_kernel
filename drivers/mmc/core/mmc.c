@@ -135,7 +135,7 @@ static int mmc_decode_csd(struct mmc_card *card)
 	csd->structure = UNSTUFF_BITS(resp, 126, 2);
 	if (csd->structure == 0 ) {
 		printk(KERN_ERR "%s: unrecognised CSD structure version %d\n",
-			mmc_hostname(card->host), csd_struct);
+			mmc_hostname(card->host), csd->structure);
 		return -EINVAL;
 	}
 
@@ -245,7 +245,7 @@ static int mmc_read_ext_csd(struct mmc_card *card)
 	if (card->ext_csd.rev > 5) {
 		printk(KERN_ERR "%s: unrecognised EXT_CSD structure "
 			"version %d\n", mmc_hostname(card->host),
-			ext_csd_struct);
+			card->ext_csd.rev);
 		err = -EINVAL;
 		goto out;
 	}
