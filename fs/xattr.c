@@ -595,7 +595,7 @@ generic_getxattr(struct dentry *dentry, const char *name, void *buffer, size_t s
 	handler = xattr_resolve_name(inode->i_sb->s_xattr, &name);
 	if (!handler)
 		return -EOPNOTSUPP;
-	return handler->get(inode, name, buffer, size);
+	return handler->get(inode, name, buffer, size, handler->flags);
 }
 
 /*
@@ -641,7 +641,7 @@ generic_setxattr(struct dentry *dentry, const char *name, const void *value, siz
 	handler = xattr_resolve_name(inode->i_sb->s_xattr, &name);
 	if (!handler)
 		return -EOPNOTSUPP;
-	return handler->set(inode, name, value, size, flags);
+	return handler->set(inode, name, value, size, flags, handler->flags);
 }
 
 /*
@@ -657,7 +657,7 @@ generic_removexattr(struct dentry *dentry, const char *name)
 	handler = xattr_resolve_name(inode->i_sb->s_xattr, &name);
 	if (!handler)
 		return -EOPNOTSUPP;
-	return handler->set(inode, name, NULL, 0, XATTR_REPLACE);
+	return handler->set(inode, name, NULL, 0, XATTR_REPLACE, handler->flags);
 }
 
 EXPORT_SYMBOL(generic_getxattr);

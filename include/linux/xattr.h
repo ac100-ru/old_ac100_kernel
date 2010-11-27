@@ -38,12 +38,13 @@ struct dentry;
 
 struct xattr_handler {
 	char *prefix;
+	int flags; //private fs thing
 	size_t (*list)(struct inode *inode, char *list, size_t list_size,
 		       const char *name, size_t name_len);
 	int (*get)(struct inode *inode, const char *name, void *buffer,
-		   size_t size);
+		   size_t size, int a);
 	int (*set)(struct inode *inode, const char *name, const void *buffer,
-		   size_t size, int flags);
+		   size_t size, int flags, int a);
 };
 
 ssize_t xattr_getsecurity(struct inode *, const char *, void *, size_t);

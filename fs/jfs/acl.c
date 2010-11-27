@@ -62,17 +62,18 @@ static struct posix_acl *jfs_get_acl(struct inode *inode, int type)
 	}
 
 	if (size < 0) {
-		if (size == -ENODATA) {
-			*p_acl = NULL;
+		if (size == -ENODATA)
 			acl = NULL;
-		} else
+		else
 			acl = ERR_PTR(size);
 	} else {
 		acl = posix_acl_from_xattr(value, size);
-		if (!IS_ERR(acl))
-			*p_acl = posix_acl_dup(acl);
 	}
 	kfree(value);
+	if (!IS_ERR(acl)) {
+		set_cached_acl(inode, type, acl);
+		posix_acl_release(acl);
+	}
 	return acl;
 }
 
