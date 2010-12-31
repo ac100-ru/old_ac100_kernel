@@ -149,6 +149,9 @@ int tegra_fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 			return -EINVAL;
 		}
 
+		red>>=(16-var->red.length);
+		blue>>=(16-var->blue.length);
+		green>>=(16-var->green.length);
 		v = (red << var->red.offset) |
 			(green << var->green.offset) |
 			(blue << var->blue.offset);
