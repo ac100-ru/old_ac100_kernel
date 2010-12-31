@@ -288,5 +288,6 @@ endif
 
 source "fs/nls/Kconfig"
 source "fs/dlm/Kconfig"
+source "fs/nilfs2/Kconfig"
 
 endmenu

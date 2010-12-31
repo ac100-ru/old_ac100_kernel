@@ -127,3 +127,4 @@ obj-$(CONFIG_GFS2_FS)           += gfs2/
 
 # Patched by YAFFS
 obj-$(CONFIG_YAFFS_FS)		+= yaffs2/
+obj-$(CONFIG_NILFS2_FS)		+= nilfs2/
