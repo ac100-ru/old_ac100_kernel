@@ -1,5 +1,5 @@
 /*
- * sound/soc/tegra/tegra_soc_audio.c
+ * sound/soc/tegra/tegra_whistler.c
  *
  * ALSA SOC driver for NVIDIA Tegra SoCs
  *
@@ -20,7 +20,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#define NV_DEBUG 0
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -48,7 +47,7 @@ struct codec_setup_data {
 };
 
 extern struct snd_soc_codec_device soc_codec_dev_tegra_generic_codec;
-extern struct snd_soc_dai tegra_generic_codec_dai[];
+extern struct snd_soc_dai dit_stub_dai;
 
 static struct platform_device *tegra_snd_device;
 NvU64 codec_guid;
@@ -82,8 +81,8 @@ static int set_clock_source_on_codec(NvU64 codec_guid,int IsEnable)
 	return NV_TRUE;
 }
 
-static int tegra_hifi_hw_params(struct snd_pcm_substream *substream,
-				struct snd_pcm_hw_params *params)
+static int tegra_whistler_hifi_hw_params(struct snd_pcm_substream *substream,
+					struct snd_pcm_hw_params *params)
 {
 	/* Set codec DAI configuration */
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
@@ -98,11 +97,11 @@ static int tegra_hifi_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static struct snd_soc_ops tegra_hifi_ops = {
-	.hw_params = tegra_hifi_hw_params,
+static struct snd_soc_ops tegra_whistler_hifi_ops = {
+	.hw_params = tegra_whistler_hifi_hw_params,
 };
 
-static int tegra_codec_init(struct snd_soc_codec *codec)
+static int tegra_wm8753_init(struct snd_soc_codec *codec)
 {
 	return 0;
 }
@@ -110,34 +109,24 @@ static int tegra_codec_init(struct snd_soc_codec *codec)
 extern struct snd_soc_dai tegra_i2s_rpc_dai;
 extern struct snd_soc_platform tegra_soc_platform;
 
-static struct snd_soc_dai_link tegra_board_dai[] = {
-	{
-		.name = "tegra-generic-codec",
-		.stream_name = "tegra-codec-rpc",
-		.cpu_dai = &tegra_i2s_rpc_dai,
-		.codec_dai = &tegra_generic_codec_dai[I2S1],
-		.init = tegra_codec_init,
-		.ops = &tegra_hifi_ops,
-	},
-	{
-		.name = "tegra-bluetooth",
-		.stream_name = "tegra-codec-bluetooth",
-		.cpu_dai = &tegra_i2s_rpc_dai,
-		.codec_dai = &tegra_generic_codec_dai[I2S2],
-		.init = tegra_codec_init,
-		.ops = &tegra_hifi_ops,
-	}
+static struct snd_soc_dai_link tegra_whistler_dai = {
+	.name = "tegra-generic-codec",
+	.stream_name = "tegra-codec-rpc",
+	.cpu_dai = &tegra_i2s_rpc_dai,
+	.codec_dai = &dit_stub_dai,
+	.init = tegra_wm8753_init,
+	.ops = &tegra_whistler_hifi_ops,
 };
 
-static struct snd_soc_card tegra_board = {
+static struct snd_soc_card tegra_whistler = {
 	.name = "tegra",
 	.platform = &tegra_soc_platform,
-	.dai_link = tegra_board_dai,
-	.num_links = ARRAY_SIZE(tegra_board_dai),
+	.dai_link = &tegra_whistler_dai,
+	.num_links = 1,
 };
 
-static struct snd_soc_device tegra_board_snd_devdata = {
-	.card = &tegra_board,
+static struct snd_soc_device tegra_whistler_snd_devdata = {
+	.card = &tegra_whistler,
 	.codec_dev = &soc_codec_dev_tegra_generic_codec,
 };
 
@@ -148,8 +137,8 @@ static int __init tegra_soc_init(void)
 	if (!tegra_snd_device)
 		return -ENOMEM;
 
-	platform_set_drvdata(tegra_snd_device, &tegra_board_snd_devdata);
-	tegra_board_snd_devdata.dev = &tegra_snd_device->dev;
+	platform_set_drvdata(tegra_snd_device, &tegra_whistler_snd_devdata);
+	tegra_whistler_snd_devdata.dev = &tegra_snd_device->dev;
 
 	ret = platform_device_add(tegra_snd_device);
 	if (ret) {

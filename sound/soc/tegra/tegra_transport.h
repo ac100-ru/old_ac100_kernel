@@ -43,16 +43,13 @@
 #include "tegra_sndfx.h"
 
 
-#define I2S1	0
-#define I2S2	1
-
 #define INIT_TIMEOUT 5000
 #define PLAY_TIMEOUT 5000
 #define REC_TIMEOUT 5000
 #define WHISTLER_CODEC_ADDRESS 0x1a
 #define WHISTLER_CODEC_BUS 0
 #define NVALSA_BUFFER_COUNT 1
-#define TEGRA_DEFAULT_BUFFER_SIZE 4096
+#define TEGRA_DEFAULT_BUFFER_SIZE 8192
 #define NVALSA_INVALID_STATE -1
 #define TEGRA_SAMPLE_RATES (SNDRV_PCM_RATE_8000_48000)
 #define TEGRA_SAMPLE_FORMATS (SNDRV_PCM_FMTBIT_S8 | SNDRV_PCM_FMTBIT_U8 |\
@@ -393,11 +390,11 @@ struct pcm_runtime_data {
 	int timeout;
 	int state;
 	int stream;
+	int shutdown_thrd;
 	unsigned int audiofx_frames;
 	struct completion thread_comp;
 	wait_queue_head_t buf_wait;
 	struct semaphore buf_done_sem;
-	struct semaphore stop_done_sem;
 	StandardPath* stdoutpath;
 	StandardPath* stdinpath;
 	u64 cur_pos;
@@ -413,36 +410,21 @@ struct tegra_audio_data {
 	unsigned int mapped_buf_size;
 	NvAudioFxMixBufferHandle mixer_buffer[2];
 	NvRmMemHandle mem_handle[2];
-	NvAudioFxObjectHandle mvolume;
-	NvAudioFxObjectHandle mi2s1;
-	NvAudioFxObjectHandle i2s1_play_mix;
-	NvAudioFxObjectHandle i2s2_play_mix;
-	NvAudioFxObjectHandle i2s1_rec_split;
-	NvAudioFxObjectHandle i2s2_rec_split;
-	NvAudioFxObjectHandle mroute;
-	NvAudioFxIoDevice mi2s1_device_available;
-	NvAudioFxIoDevice mspdif_device_available;
-	int spdif_plugin;
-	int i2s1volume;
-	int device_id;
 	struct mutex lock;
 };
 
-int tegra_audiofx_init(struct tegra_audio_data* tegra_snd_cx);
+
 NvError tegra_audiofx_createfx(struct tegra_audio_data *audio_context);
 void tegra_audiofx_destroyfx(struct tegra_audio_data *audio_context);
 NvError tegra_audiofx_create_output(NvRmDeviceHandle,
 				    NvAudioFxMixerHandle,
-				    StandardPath*,
-				    NvAudioFxObjectHandle hSource);
+				    StandardPath*);
 NvError tegra_audiofx_destroy_output(StandardPath* pPath);
 NvError tegra_audiofx_create_input(NvRmDeviceHandle hRmDevice,
 				NvAudioFxMixerHandle hMixer,
 				StandardPath* pPath,
-				InputSelection InputSelect,
-				NvAudioFxObjectHandle hSource);
+				InputSelection InputSelect);
 NvError tegra_audiofx_destroy_input(StandardPath* pPath);
-NvError tegra_audiofx_route(struct tegra_audio_data* tegra_snd_cx);
 NvError tegra_transport_init(NvddkAudioFxFxnTable* FxTransportFxFxnTable);
 void tegra_transport_deinit(void);
 

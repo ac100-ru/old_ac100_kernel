@@ -28,135 +28,6 @@
 
 #include "tegra_transport.h"
 
-extern struct tegra_audio_data* tegra_snd_cx[];
-
-static int tegra_master_volume_info(struct snd_kcontrol *kcontrol,
-				    struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 2;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = NvAudioFxVolumeMax;
-	return 0;
-}
-
-static int tegra_master_volume_get(struct snd_kcontrol *kcontrol,
-				   struct snd_ctl_elem_value *ucontrol)
-{
-	int rval = NvAudioFxVolumeDefault;
-	int lval = NvAudioFxVolumeDefault;
-	struct tegra_audio_data *ptscx = tegra_snd_cx[I2S1];
-
-	if (ptscx) {
-		if (!tegra_audiofx_init(ptscx)) {
-			rval = ptscx->i2s1volume;
-			lval = ptscx->i2s1volume;
-		}
-	}
-	ucontrol->value.integer.value[0] = rval;
-	ucontrol->value.integer.value[1] = lval;
-	return 0;
-}
-
-static int tegra_master_volume_put(struct snd_kcontrol *kcontrol,
-				   struct snd_ctl_elem_value *ucontrol)
-{
-	int change = 0, val;
-	NvAudioFxVolumeDescriptor vd;
-	struct tegra_audio_data *ptscx = tegra_snd_cx[I2S1];
-
-	val = ucontrol->value.integer.value[0] & 0xffff;
-	vd.LeftVolume = val;
-	vd.RightVolume = val;
-	if(val) {
-		vd.Mute = 0;
-	}
-	else {
-		vd.Mute = 1;
-	}
-
-	if (ptscx) {
-		if (!tegra_audiofx_init(ptscx)) {
-			if(ptscx->i2s1volume != val) {
-				ptscx->i2s1volume = val;
-				ptscx->xrt_fxn.SetProperty(
-					ptscx->mvolume,
-					NvAudioFxVolumeProperty_Volume,
-					sizeof(NvAudioFxVolumeDescriptor),
-					&vd);
-				change = 1;
-			}
-		}
-	}
-
-	return change;
-}
-
-static struct snd_kcontrol_new tegra_codec_ctrl_volume =
-{
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.name = "Master Playback Volume",
-	.private_value = 0xffff,
-	.info = tegra_master_volume_info,
-	.get = tegra_master_volume_get,
-	.put = tegra_master_volume_put
-};
-
-static int tegra_master_route_info(struct snd_kcontrol *kcontrol,
-				   struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 1;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
-	return 0;
-}
-
-static int tegra_master_route_get(struct snd_kcontrol *kcontrol,
-				  struct snd_ctl_elem_value *ucontrol)
-{
-	struct tegra_audio_data *ptscx = tegra_snd_cx[I2S1];
-
-	ucontrol->value.integer.value[0] = 0;
-	if (ptscx) {
-		if (!tegra_audiofx_init(ptscx)) {
-			ucontrol->value.integer.value[0] =
-						ptscx->spdif_plugin;
-		}
-	}
-	return 0;
-}
-
-static int tegra_master_route_put(struct snd_kcontrol *kcontrol,
-				   struct snd_ctl_elem_value *ucontrol)
-{
-	int change = 0, val;
-	struct tegra_audio_data *ptscx = tegra_snd_cx[I2S1];
-
-	val = ucontrol->value.integer.value[0] & 0xffff;
-
-	if (ptscx) {
-		if (!tegra_audiofx_init(ptscx)) {
-			ptscx->spdif_plugin = val;
-			tegra_audiofx_route(ptscx);
-			change = 1;
-		}
-	}
-	return change;
-}
-
-static struct snd_kcontrol_new tegra_codec_ctrl_route =
-{
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.name = "SPDIF Playback Switch",
-	.private_value = 0xffff,
-	.info = tegra_master_route_info,
-	.get = tegra_master_route_get,
-	.put = tegra_master_route_put
-};
-
 static int tegra_generic_codec_hw_params(struct snd_pcm_substream *substream,
 				struct snd_pcm_hw_params *params,
 				struct snd_soc_dai *dai)
@@ -193,65 +64,41 @@ static int tegra_generic_codec_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 	return 0;
 }
 
-static struct snd_soc_dai_ops dit_stub_ops = {
-	.hw_params = tegra_generic_codec_hw_params,
-	.digital_mute = tegra_generic_codec_mute,
-	.set_fmt = tegra_generic_codec_set_dai_fmt,
-	.set_clkdiv = tegra_generic_codec_set_dai_clkdiv,
-	.set_pll = tegra_generic_codec_set_dai_pll,
-	.set_sysclk = tegra_generic_codec_set_dai_sysclk,
-};
-
-struct snd_soc_dai tegra_generic_codec_dai[] = {
-	{
-		.name = "tegra-codec-rpc",
-		.id = 0,
-		.playback = {
-			.stream_name    = "Playback",
-			.channels_min   = 1,
-			.channels_max   = 2,
-			.rates          = TEGRA_SAMPLE_RATES,
-			.formats        = TEGRA_SAMPLE_FORMATS,
-		},
-		.capture = {
-			.stream_name    = "Capture",
-			.channels_min   = 1,
-			.channels_max   = 2,
-			.rates          = TEGRA_SAMPLE_RATES,
-			.formats        = TEGRA_SAMPLE_FORMATS,
-		},
-		.ops = &dit_stub_ops,
+struct snd_soc_dai dit_stub_dai = {
+	.name = "tegra-codec-rpc",
+	.playback = {
+		.stream_name    = "Playback",
+		.channels_min   = 1,
+		.channels_max   = 2,
+		.rates          = TEGRA_SAMPLE_RATES,
+		.formats        = TEGRA_SAMPLE_FORMATS,
 	},
-	{
-		.name = "tegra-codec-bluetooth",
-		.id = 1,
-		.playback = {
-			.stream_name    = "Playback",
-			.channels_min   = 1,
-			.channels_max   = 2,
-			.rates          = TEGRA_SAMPLE_RATES,
-			.formats        = TEGRA_SAMPLE_FORMATS,
-		},
-		.capture = {
-			.stream_name    = "Capture",
-			.channels_min   = 1,
-			.channels_max   = 2,
-			.rates          = TEGRA_SAMPLE_RATES,
-			.formats        = TEGRA_SAMPLE_FORMATS,
-		},
-		.ops = &dit_stub_ops,
-	}
+	.capture = {
+		.stream_name    = "Capture",
+		.channels_min   = 1,
+		.channels_max   = 2,
+		.rates          = TEGRA_SAMPLE_RATES,
+		.formats        = TEGRA_SAMPLE_FORMATS,
+	},
+	.ops = {
+		.hw_params = tegra_generic_codec_hw_params,
+		.digital_mute = tegra_generic_codec_mute,
+		.set_fmt = tegra_generic_codec_set_dai_fmt,
+		.set_clkdiv = tegra_generic_codec_set_dai_clkdiv,
+		.set_pll = tegra_generic_codec_set_dai_pll,
+		.set_sysclk = tegra_generic_codec_set_dai_sysclk,
+	},
 };
-EXPORT_SYMBOL_GPL(tegra_generic_codec_dai);
+EXPORT_SYMBOL_GPL(dit_stub_dai);
 
 static int __init dit_modinit(void)
 {
-	return snd_soc_register_dais(tegra_generic_codec_dai, ARRAY_SIZE(tegra_generic_codec_dai));
+	return snd_soc_register_dai(&dit_stub_dai);
 }
 
 static void __exit dit_exit(void)
 {
-	snd_soc_unregister_dais(tegra_generic_codec_dai, ARRAY_SIZE(tegra_generic_codec_dai));
+	snd_soc_unregister_dai(&dit_stub_dai);
 }
 
 module_init(dit_modinit);
@@ -263,11 +110,6 @@ static int codec_soc_probe(struct platform_device *pdev)
 	struct snd_soc_codec *codec;
 	int ret = 0;
 
-#if 0
-	socdev->card->codec = kzalloc(sizeof(struct snd_soc_codec), GFP_KERNEL);
-	if (!socdev->card->codec)
-		return -ENOMEM;
-#endif
 	socdev->codec = kzalloc(sizeof(struct snd_soc_codec), GFP_KERNEL);
 	if (!socdev->codec)
 		return -ENOMEM;
@@ -277,13 +119,12 @@ static int codec_soc_probe(struct platform_device *pdev)
 
 	codec->name = "tegra-generic-codec";
 	codec->owner = THIS_MODULE;
-	codec->dai = tegra_generic_codec_dai;
-	codec->num_dai = ARRAY_SIZE(tegra_generic_codec_dai);
+	codec->dai = &dit_stub_dai;
+	codec->num_dai = 1;
 	codec->write = NULL;
 	codec->read = NULL;
 	INIT_LIST_HEAD(&codec->dapm_widgets);
 	INIT_LIST_HEAD(&codec->dapm_paths);
-
 	/* Register PCMs. */
 	ret = snd_soc_new_pcms(socdev, SNDRV_DEFAULT_IDX1, SNDRV_DEFAULT_STR1);
 	if (ret < 0) {
@@ -296,16 +137,8 @@ static int codec_soc_probe(struct platform_device *pdev)
 		printk(KERN_ERR "codec: failed to register card\n");
 		goto card_err;
 	}
-	/* Add volume control */
-	ret = snd_ctl_add(codec->card,
-			   snd_ctl_new1(&tegra_codec_ctrl_volume, codec));
-	if (ret < 0) {
-		printk(KERN_ERR "codec: failed to add control\n");
-		goto card_err;
-	}
-	/* Add route control */
-	return snd_ctl_add(codec->card,
-			   snd_ctl_new1(&tegra_codec_ctrl_route, codec));
+
+	return ret;
 
 card_err:
 	snd_soc_free_pcms(socdev);
@@ -324,7 +157,7 @@ static int codec_soc_remove(struct platform_device *pdev)
 		return 0;
 
 	snd_soc_free_pcms(socdev);
-	kfree(codec);
+	kfree(socdev->codec);
 
 	return 0;
 }
