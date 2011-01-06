@@ -198,6 +198,8 @@ static int nilfs_write_begin(struct file *file, struct address_space *mapping,
 	if (unlikely(err))
 		return err;
 
+	//Dirty or not ?
+	*pagep=NULL;
 	err = block_write_begin(file, mapping, pos, len, flags, pagep, NULL,
 				nilfs_get_block);
 	if (unlikely(err)) {
