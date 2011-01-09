@@ -370,6 +370,7 @@ void nilfs_free_inode(struct inode *inode)
 	struct super_block *sb = inode->i_sb;
 	struct nilfs_sb_info *sbi = NILFS_SB(sb);
 
+	clear_inode(inode);
 	/* XXX: check error code? Is there any thing I can do? */
 	(void) nilfs_ifile_delete_inode(sbi->s_ifile, inode->i_ino);
 	atomic_dec(&sbi->s_inodes_count);
@@ -629,22 +630,6 @@ void nilfs_truncate(struct inode *inode)
 	   But truncate has no return value. */
 }
 
-static void nilfs_clear_inode(struct inode *inode)
-{
-	struct nilfs_inode_info *ii = NILFS_I(inode);
-
-	/*
-	 * Free resources allocated in nilfs_read_inode(), here.
-	 */
-	BUG_ON(!list_empty(&ii->i_dirty));
-	brelse(ii->i_bh);
-	ii->i_bh = NULL;
-
-	if (test_bit(NILFS_I_BMAP, &ii->i_state))
-		nilfs_bmap_clear(ii->i_bmap);
-
-	nilfs_btnode_cache_clear(&ii->i_btnode_cache);
-}
 
 static void end_writeback(struct inode *inode)
 {
@@ -688,11 +673,10 @@ void nilfs_evict_inode(struct inode *inode)
 	struct super_block *sb = inode->i_sb;
 	struct nilfs_inode_info *ii = NILFS_I(inode);
 
-	if (inode->i_nlink || unlikely(is_bad_inode(inode))) {
+	if (unlikely(is_bad_inode(inode))) {
 		if (inode->i_data.nrpages)
 			truncate_inode_pages(&inode->i_data, 0);
-		end_writeback(inode);
-		nilfs_clear_inode(inode);
+		clear_inode(inode);
 		return;
 	}
 	nilfs_transaction_begin(sb, &ti, 0); /* never fails */
@@ -702,8 +686,6 @@ void nilfs_evict_inode(struct inode *inode)
 
 	nilfs_truncate_bmap(ii, 0);
 	nilfs_mark_inode_dirty(inode);
-	end_writeback(inode);
-	nilfs_clear_inode(inode);
 	nilfs_free_inode(inode);
 	/* nilfs_free_inode() marks inode buffer dirty */
 	if (IS_SYNC(inode))

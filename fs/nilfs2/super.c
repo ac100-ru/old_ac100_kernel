@@ -528,6 +528,23 @@ static int nilfs_show_options(struct seq_file *seq, struct vfsmount *vfs)
 	return 0;
 }
 
+static void nilfs_clear_inode(struct inode *inode)
+{
+	struct nilfs_inode_info *ii = NILFS_I(inode);
+
+	/*
+	 * Free resources allocated in nilfs_read_inode(), here.
+	 */
+	BUG_ON(!list_empty(&ii->i_dirty));
+	brelse(ii->i_bh);
+	ii->i_bh = NULL;
+
+	if (test_bit(NILFS_I_BMAP, &ii->i_state))
+		nilfs_bmap_clear(ii->i_bmap);
+
+	nilfs_btnode_cache_clear(&ii->i_btnode_cache);
+}
+
 static const struct super_operations nilfs_sops = {
 	.alloc_inode    = nilfs_alloc_inode,
 	.destroy_inode  = nilfs_destroy_inode,
@@ -544,6 +561,7 @@ static const struct super_operations nilfs_sops = {
 	/* .unlockfs */
 	.statfs         = nilfs_statfs,
 	.remount_fs     = nilfs_remount,
+	.clear_inode	= nilfs_clear_inode,
 	/* .umount_begin */
 	.show_options = nilfs_show_options
 };
