@@ -78,7 +78,9 @@ static int tegra_rtc_ioctl(struct device *dev, unsigned int cmd, unsigned long a
 {
 	void __user *argp = (void __user *)arg;
 	struct rtc_wkalrm	wkalrm;
-	NvU32 count = 0;
+	NvU32 count = 0, nv_now;
+	struct rtc_time tm;
+	unsigned long int now;
 
 	switch (cmd) {
 	case RTC_ALM_READ:	
@@ -95,6 +97,31 @@ static int tegra_rtc_ioctl(struct device *dev, unsigned int cmd, unsigned long a
 			return -EFAULT;
 		count = wkalrm.time.tm_hour * 3600 + wkalrm.time.tm_min * 60 + wkalrm.time.tm_sec;
 		NvOdmPmuWriteAlarm(hPmu, count);
+		break;
+	case RTC_RD_TIME:
+		if (!NvOdmPmuReadRtc(hPmu, &nv_now)) {
+			pr_debug("NvOdmPmuReadRtc failed\n");
+			return -EFAULT;
+		}
+
+		rtc_time_to_tm(nv_now, &tm);
+
+		if( copy_to_user(argp, &tm, sizeof(struct rtc_time)) )
+			return -EFAULT;
+
+		break;
+	case RTC_SET_TIME:
+		if( copy_from_user(&tm, argp, sizeof(struct rtc_time)) )
+			return -EFAULT;
+
+		if( rtc_tm_to_time(&tm, &now) != 0 )
+			return -EFAULT;
+
+		if (!NvOdmPmuWriteRtc(hPmu, (NvU32)now)) {
+			pr_debug("NvOdmPmuWriteRtc failed\n");
+			return -EFAULT;
+		}
+
 		break;
 	default:
 		return -EINVAL;
