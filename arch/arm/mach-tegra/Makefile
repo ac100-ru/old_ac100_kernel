@@ -77,3 +77,6 @@ obj-$(CONFIG_TEGRA_NVEC_USER)		+= nvec_user.o
 obj-$(CONFIG_TEGRA_PCI)				+= pci.o
 obj-$(CONFIG_TEGRA_PCI)				+= pci-enum.o
 
+# AES
+obj-$(CONFIG_TEGRA_AES_USER)		+= nvaes_user.o
+
