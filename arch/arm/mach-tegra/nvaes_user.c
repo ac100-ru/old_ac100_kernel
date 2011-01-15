@@ -209,7 +209,6 @@ static int __init nvaes_user_init(void)
         goto fail;
     }
 
-    printk(KERN_INFO "Loading nvaes.ko SUCCESS.\n");
     return 0;
 
 fail:
