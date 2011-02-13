@@ -1,0 +1,54 @@
+#!/bin/bash
+
+if ! [ -f /tmp/backlight ];then
+	echo 255 > /tmp/backlight
+fi
+
+cur_back=$(cat /tmp/backlight)
+case $cur_back in
+	255)
+		echo 212 > /tmp/backlight
+		;;
+	212)
+		echo 165 > /tmp/backlight
+		;;
+	165)
+		echo 145 > /tmp/backlight
+		;;
+	145)
+		echo 104 > /tmp/backlight
+		;;
+	104)
+		echo 93 > /tmp/backlight
+		;;
+	93)
+		echo 80 > /tmp/backlight
+		;;
+	80)
+		echo 69 > /tmp/backlight
+		;;
+	69)
+		echo 55 > /tmp/backlight
+		;;
+	55)
+		echo 42 > /tmp/backlight
+		;;
+	42)
+		echo 30 > /tmp/backlight
+		;;
+	30)
+		echo 20 > /tmp/backlight
+		;;
+	20)
+		echo 12 > /tmp/backlight
+		;;
+	12)
+		echo 9 > /tmp/backlight
+		;;
+	9)
+		echo 3 > /tmp/backlight
+		;;
+esac
+
+cur_back=$(cat /tmp/backlight)
+apply_backlight $cur_back
