@@ -107,22 +107,48 @@ int main(int argc, char **argv, char **envp) {
 		printf("Usage: %s [+|-|]xx\n", argv[0]);
 	}
 
-	unsigned short cur_volume;
-	//For SPK
-	cur_volume=read_i2c(0x02)&0xff;
-	//Not muted
-	if(!(cur_volume&0x80)) {
-		cur_volume=apply(cur_volume, argv[1]);
+	if(argv[1][0]=='m') {
+		//Toggle muting
+		unsigned short cur_volume;
+		cur_volume=read_i2c(0x02)&0xff;
+		if(cur_volume&0x80)
+			cur_volume&=~0x80;
+		else
+			cur_volume|=0x80;
+		cur_volume|=0x40;
 		cur_volume=cur_volume<<8 | cur_volume;
 		write_i2c(0x02, cur_volume);
-	}
-
-	//For HP
-	cur_volume=read_i2c(0x04)&0xff;
-	//Not muted
-	if(!(cur_volume&0x80)) {
-		cur_volume=apply(cur_volume, argv[1]);
+		
+		
+		cur_volume=read_i2c(0x04)&0xff;
+		if(cur_volume&0x80)
+			cur_volume&=~0x80;
+		else
+			cur_volume|=0x80;
+		//Cross zero detection
+		cur_volume|=0x40;
 		cur_volume=cur_volume<<8 | cur_volume;
 		write_i2c(0x04, cur_volume);
+	} else {
+		unsigned short cur_volume;
+		//For SPK
+		cur_volume=read_i2c(0x02)&0xff;
+		//Not muted
+		if(!(cur_volume&0x80)) {
+			cur_volume=apply(cur_volume&0x1f, argv[1]);
+			cur_volume|=0x40;
+			cur_volume=cur_volume<<8 | cur_volume;
+			write_i2c(0x02, cur_volume);
+		}
+
+		//For HP
+		cur_volume=read_i2c(0x04)&0xff;
+		//Not muted
+		if(!(cur_volume&0x80)) {
+			cur_volume=apply(cur_volume&0x1f, argv[1]);
+			cur_volume|=0x40;
+			cur_volume=cur_volume<<8 | cur_volume;
+			write_i2c(0x04, cur_volume);
+		}
 	}
 }
