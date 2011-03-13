@@ -330,6 +330,7 @@ if (b_flag_keyboard_suspend==NV_TRUE && code!=KEY_OPEN) {
 
 //*********henry+ enter suspend,disable report data*******************
     input_report_key(nvec_input_dev, code, value); 
+    input_sync(nvec_input_dev);
     return 0;
 }
 
@@ -396,6 +397,7 @@ static int nvec_keyboard_recv(void *arg)
 		    //report make code and break code.
 			input_report_key(keyboard->input_dev, KEY_F9, 2);
 			input_report_key(keyboard->input_dev, KEY_F9, 0);			
+			input_sync(keyboard->input_dev);
 			continue;
 		}
 
@@ -407,6 +409,7 @@ static int nvec_keyboard_recv(void *arg)
 			code -= EC_FIRST_CODE;
 			code = code_tab_102us[code];
 			input_report_key(keyboard->input_dev, code, pressed);
+			input_sync(keyboard->input_dev);
 		}
 		else if ((code >= EC_EXT_CODE_FIRST) &&
 			(code <= EC_EXT_CODE_LAST)) {
@@ -414,6 +417,7 @@ static int nvec_keyboard_recv(void *arg)
 			code -= EC_EXT_CODE_FIRST;
 			code = extcode_tab_us102[code];
 			input_report_key(keyboard->input_dev, code, pressed);
+			input_sync(keyboard->input_dev);
 		}
 	}
 
@@ -639,6 +643,7 @@ static int nvec_keyboard_resume(struct nvec_device *pdev)
 	/* fake key event to turn on display */
 	input_report_key(keyboard->input_dev, KEY_MENU, true);
 	input_report_key(keyboard->input_dev, KEY_MENU, false);
+	input_sync(keyboard->input_dev);
     //paz00_set_lcd_output(1);  //Henry+ turn on display 2010.6.30  
                                 //2010.7.14 remove the code,for close lip driver don't turn off screen,so open lip don't trun on screen.
 	return 0;
