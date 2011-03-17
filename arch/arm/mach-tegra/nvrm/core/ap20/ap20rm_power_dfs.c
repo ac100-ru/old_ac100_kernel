@@ -56,6 +56,10 @@
 // TODO: Always Disable before check-in
 #define NVRM_TEST_PMREQUEST_UP_MODE (0)
 
+// Microsecond timer access
+static void* s_pTimerUs = NULL;
+extern void* NvRmPrivAp15GetTimerUsVirtAddr(NvRmDeviceHandle hRm);
+
 /*****************************************************************************/
 // EMC MODULE INTERFACES
 /*****************************************************************************/
@@ -68,6 +72,8 @@ void NvRmPrivAp20EmcParametersAdjust(NvRmDfs* pDfs)
     NvU32 RegValue = NV_REGR(pDfs->hRm,
         NvRmPrivModuleID_ExternalMemoryController, 0, EMC_FBIO_CFG5_0);
 
+    // Overwrite default EMC parameters and LP2 policy with SDRAM type specific
+    // settings
     switch (NV_DRF_VAL(EMC, FBIO_CFG5, DRAM_TYPE, RegValue))
     {
         case EMC_FBIO_CFG5_0_DRAM_TYPE_LPDDR2:
@@ -188,19 +194,6 @@ NvRmPrivAp20EmcMonitorsRead(
 
 /*****************************************************************************/
 
-// AP20 Thermal policy definitions
-
-#define NVRM_DTT_DEGREES_HIGH           (85L)
-#define NVRM_DTT_DEGREES_LOW            (60L)
-#define NVRM_DTT_DEGREES_HYSTERESIS     (5L)
-
-#define NVRM_DTT_VOLTAGE_THROTTLE_MV    (900UL)
-#define NVRM_DTT_CPU_DELTA_KHZ          (100000UL)
-
-#define NVRM_DTT_POLL_MS_SLOW           (2000UL)
-#define NVRM_DTT_POLL_MS_FAST           (1000UL)
-#define NVRM_DTT_POLL_MS_CRITICAL       (500UL)
-
 typedef enum
 {
     NvRmDttAp20PolicyRange_Unknown = 0,
@@ -249,7 +242,8 @@ NvRmPrivAp20DttPolicyUpdate(
         s_CpuThrottleMaxKHz = NV_MIN(
             NvRmPrivGetSocClockLimits(NvRmModuleID_Cpu)->MaxKHz, p[steps-1]);
         s_CpuThrottleMinKHz =
-            NvRmPrivGetSocClockLimits(NvRmModuleID_Cpu)->MaxKHz / 2;
+            NvRmPrivGetSocClockLimits(NvRmModuleID_Cpu)->MaxKHz /
+            NVRM_DTT_RATIO_MAX;
         NV_ASSERT(s_CpuThrottleMaxKHz > s_CpuThrottleMinKHz); 
         NV_ASSERT(s_CpuThrottleMinKHz > NVRM_DTT_CPU_DELTA_KHZ); 
 
@@ -379,6 +373,7 @@ NvRmPrivAp20GetPmRequest(
     static NvRmFreqKHz s_Cpu1OnMinKHz = 0, s_Cpu1OffMaxKHz = 0;
     static NvU32 s_Cpu1OnPendingCnt = 0, s_Cpu1OffPendingCnt = 0;
 
+    NvU32 t;
     NvRmPmRequest PmRequest = NvRmPmRequest_None;
     NvBool Cpu1Off =
         (0 != NV_DRF_VAL(CLK_RST_CONTROLLER, RST_CPU_CMPLX_SET, SET_CPURESET1,
@@ -402,27 +397,36 @@ NvRmPrivAp20GetPmRequest(
         NV_ASSERT(s_Cpu1OnMinKHz < s_Cpu1OffMaxKHz);
     }
 
+    // Timestamp
+    if (s_pTimerUs == NULL)
+        s_pTimerUs = NvRmPrivAp15GetTimerUsVirtAddr(hRmDevice);
+    t = NV_READ32(s_pTimerUs);
+
     /*
      * Request OS kernel to turn CPU1 Off if all of the following is true:
      * (a) CPU frequency is below OnMin threshold, 
-     * (b) Last request was CPU1 On request
-     * (c) CPU1 is actually On
+     * (b) CPU1 is actually On
      *
      * Request OS kernel to turn CPU1 On if all of the following is true:
      * (a) CPU frequency is above OffMax threshold 
-     * (b) Last request was CPU1 Off request
-     * (c) CPU1 is actually Off
+     * (b) CPU1 is actually Off
      */
     if (CpuLoadGaugeKHz < s_Cpu1OnMinKHz)
     {
         s_Cpu1OnPendingCnt = 0;
-        if (s_Cpu1OffPendingCnt < NVRM_CPU1_OFF_PENDING_CNT)
+        if ((s_Cpu1OffPendingCnt & 0x1) == 0)
         {
-            s_Cpu1OffPendingCnt++;
+            s_Cpu1OffPendingCnt = t | 0x1;  // Use LSb as a delay start flag
             return PmRequest;
         }
-        if ((s_LastPmRequest & NvRmPmRequest_CpuOnFlag) && (!Cpu1Off))
+        if ((t - s_Cpu1OffPendingCnt) < (NVRM_CPU1_OFF_PENDING_MS * 1000))
+            return PmRequest;
+
+        if (!Cpu1Off)
+        {
             s_LastPmRequest = PmRequest = (NvRmPmRequest_CpuOffFlag | 0x1);
+            s_Cpu1OffPendingCnt = 0;   // re-start delay after request
+        }
 #if NVRM_TEST_PMREQUEST_UP_MODE
         NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
             CLK_RST_CONTROLLER_RST_CPU_CMPLX_SET_0,
@@ -432,21 +436,30 @@ NvRmPrivAp20GetPmRequest(
     else if (CpuLoadGaugeKHz > s_Cpu1OffMaxKHz)
     {
         s_Cpu1OffPendingCnt = 0;
-        if (s_Cpu1OnPendingCnt < NVRM_CPU1_ON_PENDING_CNT)
+        if ((s_Cpu1OnPendingCnt & 0x1) == 0)
         {
-            s_Cpu1OnPendingCnt++;
+            s_Cpu1OnPendingCnt = t | 0x1;  // Use LSb as a delay start flag
             return PmRequest;
         }
-        if ((s_LastPmRequest & NvRmPmRequest_CpuOffFlag) && Cpu1Off)
+        if ((t - s_Cpu1OnPendingCnt) < (NVRM_CPU1_ON_PENDING_MS * 1000))
+            return PmRequest;
+
+        if (Cpu1Off)
         {
             s_LastPmRequest = PmRequest = (NvRmPmRequest_CpuOnFlag | 0x1);
             *pCpuKHz = NvRmPrivGetSocClockLimits(NvRmModuleID_Cpu)->MaxKHz;
+            s_Cpu1OnPendingCnt = 0;  // re-start delay after request
         }
 #if NVRM_TEST_PMREQUEST_UP_MODE
         NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
             CLK_RST_CONTROLLER_RST_CPU_CMPLX_CLR_0,
             CLK_RST_CONTROLLER_RST_CPU_CMPLX_CLR_0_CLR_CPURESET1_FIELD);
 #endif
+    }
+    else
+    {   // Re-start both delays inside hysteresis loop
+        s_Cpu1OnPendingCnt = 0;
+        s_Cpu1OffPendingCnt = 0;
     }
     return PmRequest;
 }

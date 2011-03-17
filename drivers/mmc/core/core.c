@@ -21,6 +21,7 @@
 #include <linux/leds.h>
 #include <linux/scatterlist.h>
 #include <linux/log2.h>
+#include <linux/regulator/consumer.h>
 #include <linux/wakelock.h>
 
 #include <linux/mmc/card.h>
@@ -64,7 +65,7 @@ static int mmc_schedule_delayed_work(struct delayed_work *work,
 static void mmc_flush_scheduled_work(void)
 {
 	flush_workqueue(workqueue);
-	wake_unlock(&mmc_delayed_work_wake_lock); //nvidia
+	wake_unlock(&mmc_delayed_work_wake_lock);
 }
 
 /**
@@ -301,6 +302,21 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 			data->timeout_clks = 0;
 		}
 	}
+	/*
+	 * Some cards need very high timeouts if driven in SPI mode.
+	 * The worst observed timeout was 900ms after writing a
+	 * continuous stream of data until the internal logic
+	 * overflowed.
+	 */
+	if (mmc_host_is_spi(card->host)) {
+		if (data->flags & MMC_DATA_WRITE) {
+			if (data->timeout_ns < 1000000000)
+				data->timeout_ns = 1000000000;	/* 1s */
+		} else {
+			if (data->timeout_ns < 100000000)
+				data->timeout_ns =  100000000;	/* 100ms */
+		}
+	}
 }
 EXPORT_SYMBOL(mmc_set_data_timeout);
 
@@ -449,16 +465,18 @@ int __mmc_claim_host(struct mmc_host *host, atomic_t *abort)
 	while (1) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		stop = abort ? atomic_read(abort) : 0;
-		if (stop || !host->claimed)
+		if (stop || !host->claimed || host->claimer == current)
 			break;
 		spin_unlock_irqrestore(&host->lock, flags);
 		schedule();
 		spin_lock_irqsave(&host->lock, flags);
 	}
 	set_current_state(TASK_RUNNING);
-	if (!stop)
+	if (!stop) {
 		host->claimed = 1;
-	else
+		host->claimer = current;
+		host->claim_cnt += 1;
+	} else
 		wake_up(&host->wq);
 	spin_unlock_irqrestore(&host->lock, flags);
 	remove_wait_queue(&host->wq, &wait);
@@ -469,29 +487,43 @@ int __mmc_claim_host(struct mmc_host *host, atomic_t *abort)
 
 EXPORT_SYMBOL(__mmc_claim_host);
 
-static int mmc_try_claim_host(struct mmc_host *host)
+/**
+ *	mmc_try_claim_host - try exclusively to claim a host
+ *	@host: mmc host to claim
+ *
+ *	Returns %1 if the host is claimed, %0 otherwise.
+ */
+int mmc_try_claim_host(struct mmc_host *host)
 {
 	int claimed_host = 0;
 	unsigned long flags;
 
 	spin_lock_irqsave(&host->lock, flags);
-	if (!host->claimed) {
+	if (!host->claimed || host->claimer == current) {
 		host->claimed = 1;
+		host->claimer = current;
+		host->claim_cnt += 1;
 		claimed_host = 1;
 	}
 	spin_unlock_irqrestore(&host->lock, flags);
 	return claimed_host;
 }
+EXPORT_SYMBOL(mmc_try_claim_host);
 
 static void mmc_do_release_host(struct mmc_host *host)
 {
 	unsigned long flags;
 
 	spin_lock_irqsave(&host->lock, flags);
-	host->claimed = 0;
-	spin_unlock_irqrestore(&host->lock, flags);
-
-	wake_up(&host->wq);
+	if (--host->claim_cnt) {
+		/* Release for nested claim */
+		spin_unlock_irqrestore(&host->lock, flags);
+	} else {
+		host->claimed = 0;
+		host->claimer = NULL;
+		spin_unlock_irqrestore(&host->lock, flags);
+		wake_up(&host->wq);
+	}
 }
 
 void mmc_host_deeper_disable(struct work_struct *work)
@@ -501,9 +533,12 @@ void mmc_host_deeper_disable(struct work_struct *work)
 
 	/* If the host is claimed then we do not want to disable it anymore */
 	if (!mmc_try_claim_host(host))
-		return;
+		goto out;
 	mmc_host_do_disable(host, 1);
 	mmc_do_release_host(host);
+
+out:
+	wake_unlock(&mmc_delayed_work_wake_lock);
 }
 
 /**
@@ -688,6 +723,105 @@ u32 mmc_vddrange_to_ocrmask(int vdd_min, int vdd_max)
 }
 EXPORT_SYMBOL(mmc_vddrange_to_ocrmask);
 
+#ifdef CONFIG_REGULATOR
+
+/**
+ * mmc_regulator_get_ocrmask - return mask of supported voltages
+ * @supply: regulator to use
+ *
+ * This returns either a negative errno, or a mask of voltages that
+ * can be provided to MMC/SD/SDIO devices using the specified voltage
+ * regulator.  This would normally be called before registering the
+ * MMC host adapter.
+ */
+int mmc_regulator_get_ocrmask(struct regulator *supply)
+{
+	int			result = 0;
+	int			count;
+	int			i;
+
+	count = regulator_count_voltages(supply);
+	if (count < 0)
+		return count;
+
+	for (i = 0; i < count; i++) {
+		int		vdd_uV;
+		int		vdd_mV;
+
+		vdd_uV = regulator_list_voltage(supply, i);
+		if (vdd_uV <= 0)
+			continue;
+
+		vdd_mV = vdd_uV / 1000;
+		result |= mmc_vddrange_to_ocrmask(vdd_mV, vdd_mV);
+	}
+
+	return result;
+}
+EXPORT_SYMBOL(mmc_regulator_get_ocrmask);
+
+/**
+ * mmc_regulator_set_ocr - set regulator to match host->ios voltage
+ * @vdd_bit: zero for power off, else a bit number (host->ios.vdd)
+ * @supply: regulator to use
+ *
+ * Returns zero on success, else negative errno.
+ *
+ * MMC host drivers may use this to enable or disable a regulator using
+ * a particular supply voltage.  This would normally be called from the
+ * set_ios() method.
+ */
+int mmc_regulator_set_ocr(struct regulator *supply, unsigned short vdd_bit)
+{
+	int			result = 0;
+	int			min_uV, max_uV;
+	int			enabled;
+
+	enabled = regulator_is_enabled(supply);
+	if (enabled < 0)
+		return enabled;
+
+	if (vdd_bit) {
+		int		tmp;
+		int		voltage;
+
+		/* REVISIT mmc_vddrange_to_ocrmask() may have set some
+		 * bits this regulator doesn't quite support ... don't
+		 * be too picky, most cards and regulators are OK with
+		 * a 0.1V range goof (it's a small error percentage).
+		 */
+		tmp = vdd_bit - ilog2(MMC_VDD_165_195);
+		if (tmp == 0) {
+			min_uV = 1650 * 1000;
+			max_uV = 1950 * 1000;
+		} else {
+			min_uV = 1900 * 1000 + tmp * 100 * 1000;
+			max_uV = min_uV + 100 * 1000;
+		}
+
+		/* avoid needless changes to this voltage; the regulator
+		 * might not allow this operation
+		 */
+		voltage = regulator_get_voltage(supply);
+		if (voltage < 0)
+			result = voltage;
+		else if (voltage < min_uV || voltage > max_uV)
+			result = regulator_set_voltage(supply, min_uV, max_uV);
+		else
+			result = 0;
+
+		if (result == 0 && !enabled)
+			result = regulator_enable(supply);
+	} else if (enabled) {
+		result = regulator_disable(supply);
+	}
+
+	return result;
+}
+EXPORT_SYMBOL(mmc_regulator_set_ocr);
+
+#endif
+
 /*
  * Mask off any voltages we don't support and select
  * the lowest voltage
@@ -737,7 +871,13 @@ void mmc_set_timing(struct mmc_host *host, unsigned int timing)
  */
 static void mmc_power_up(struct mmc_host *host)
 {
-	int bit = fls(host->ocr_avail) - 1;
+	int bit;
+
+	/* If ocr is set, we use it */
+	if (host->ocr)
+		bit = ffs(host->ocr) - 1;
+	else
+		bit = fls(host->ocr_avail) - 1;
 
 	host->ios.vdd = bit;
 	if (mmc_host_is_spi(host)) {
@@ -759,6 +899,7 @@ static void mmc_power_up(struct mmc_host *host)
 	mmc_delay(10);
 
 	host->ios.clock = host->f_min;
+
 	host->ios.power_mode = MMC_POWER_ON;
 	mmc_set_ios(host);
 
@@ -919,352 +1060,6 @@ void mmc_detect_change(struct mmc_host *host, unsigned long delay)
 
 EXPORT_SYMBOL(mmc_detect_change);
 
-void mmc_init_erase(struct mmc_card *card)
-{
-	unsigned int sz;
-
-	if (is_power_of_2(card->erase_size))
-		card->erase_shift = ffs(card->erase_size) - 1;
-	else
-		card->erase_shift = 0;
-
-	/*
-	 * It is possible to erase an arbitrarily large area of an SD or MMC
-	 * card.  That is not desirable because it can take a long time
-	 * (minutes) potentially delaying more important I/O, and also the
-	 * timeout calculations become increasingly hugely over-estimated.
-	 * Consequently, 'pref_erase' is defined as a guide to limit erases
-	 * to that size and alignment.
-	 *
-	 * For SD cards that define Allocation Unit size, limit erases to one
-	 * Allocation Unit at a time.  For MMC cards that define High Capacity
-	 * Erase Size, whether it is switched on or not, limit to that size.
-	 * Otherwise just have a stab at a good value.  For modern cards it
-	 * will end up being 4MiB.  Note that if the value is too small, it
-	 * can end up taking longer to erase.
-	 */
-	if (mmc_card_sd(card) && card->ssr.au) {
-		card->pref_erase = card->ssr.au;
-		card->erase_shift = ffs(card->ssr.au) - 1;
-	} else if (card->ext_csd.hc_erase_size) {
-		card->pref_erase = card->ext_csd.hc_erase_size;
-	} else {
-		sz = (card->csd.capacity << (card->csd.read_blkbits - 9)) >> 11;
-		if (sz < 128)
-			card->pref_erase = 512 * 1024 / 512;
-		else if (sz < 512)
-			card->pref_erase = 1024 * 1024 / 512;
-		else if (sz < 1024)
-			card->pref_erase = 2 * 1024 * 1024 / 512;
-		else
-			card->pref_erase = 4 * 1024 * 1024 / 512;
-		if (card->pref_erase < card->erase_size)
-			card->pref_erase = card->erase_size;
-		else {
-			sz = card->pref_erase % card->erase_size;
-			if (sz)
-				card->pref_erase += card->erase_size - sz;
-		}
-	}
-}
-
-static void mmc_set_mmc_erase_timeout(struct mmc_card *card,
-				      struct mmc_command *cmd,
-				      unsigned int arg, unsigned int qty)
-{
-	unsigned int erase_timeout;
-
-	if (card->ext_csd.erase_group_def & 1) {
-		/* High Capacity Erase Group Size uses HC timeouts */
-		if (arg == MMC_TRIM_ARG)
-			erase_timeout = card->ext_csd.trim_timeout;
-		else
-			erase_timeout = card->ext_csd.hc_erase_timeout;
-	} else {
-		/* CSD Erase Group Size uses write timeout */
-		unsigned int mult = (10 << card->csd.r2w_factor);
-		unsigned int timeout_clks = card->csd.tacc_clks * mult;
-		unsigned int timeout_us;
-
-		/* Avoid overflow: e.g. tacc_ns=80000000 mult=1280 */
-		if (card->csd.tacc_ns < 1000000)
-			timeout_us = (card->csd.tacc_ns * mult) / 1000;
-		else
-			timeout_us = (card->csd.tacc_ns / 1000) * mult;
-
-		/*
-		 * ios.clock is only a target.  The real clock rate might be
-		 * less but not that much less, so fudge it by multiplying by 2.
-		 */
-		timeout_clks <<= 1;
-		timeout_us += (timeout_clks * 1000) /
-			      (card->host->ios.clock / 1000);
-
-		erase_timeout = timeout_us / 1000;
-
-		/*
-		 * Theoretically, the calculation could underflow so round up
-		 * to 1ms in that case.
-		 */
-		if (!erase_timeout)
-			erase_timeout = 1;
-	}
-
-	/* Multiplier for secure operations */
-	if (arg & MMC_SECURE_ARGS) {
-		if (arg == MMC_SECURE_ERASE_ARG)
-			erase_timeout *= card->ext_csd.sec_erase_mult;
-		else
-			erase_timeout *= card->ext_csd.sec_trim_mult;
-	}
-
-	erase_timeout *= qty;
-
-	/*
-	 * Ensure at least a 1 second timeout for SPI as per
-	 * 'mmc_set_data_timeout()'
-	 */
-	if (mmc_host_is_spi(card->host) && erase_timeout < 1000)
-		erase_timeout = 1000;
-
-	cmd->erase_timeout = erase_timeout;
-}
-
-static void mmc_set_sd_erase_timeout(struct mmc_card *card,
-				     struct mmc_command *cmd, unsigned int arg,
-				     unsigned int qty)
-{
-	if (card->ssr.erase_timeout) {
-		/* Erase timeout specified in SD Status Register (SSR) */
-		cmd->erase_timeout = card->ssr.erase_timeout * qty +
-				     card->ssr.erase_offset;
-	} else {
-		/*
-		 * Erase timeout not specified in SD Status Register (SSR) so
-		 * use 250ms per write block.
-		 */
-		cmd->erase_timeout = 250 * qty;
-	}
-
-	/* Must not be less than 1 second */
-	if (cmd->erase_timeout < 1000)
-		cmd->erase_timeout = 1000;
-}
-
-static void mmc_set_erase_timeout(struct mmc_card *card,
-				  struct mmc_command *cmd, unsigned int arg,
-				  unsigned int qty)
-{
-	if (mmc_card_sd(card))
-		mmc_set_sd_erase_timeout(card, cmd, arg, qty);
-	else
-		mmc_set_mmc_erase_timeout(card, cmd, arg, qty);
-}
-
-static int mmc_do_erase(struct mmc_card *card, unsigned int from,
-			unsigned int to, unsigned int arg)
-{
-	struct mmc_command cmd;
-	unsigned int qty = 0;
-	int err;
-
-	/*
-	 * qty is used to calculate the erase timeout which depends on how many
-	 * erase groups (or allocation units in SD terminology) are affected.
-	 * We count erasing part of an erase group as one erase group.
-	 * For SD, the allocation units are always a power of 2.  For MMC, the
-	 * erase group size is almost certainly also power of 2, but it does not
-	 * seem to insist on that in the JEDEC standard, so we fall back to
-	 * division in that case.  SD may not specify an allocation unit size,
-	 * in which case the timeout is based on the number of write blocks.
-	 *
-	 * Note that the timeout for secure trim 2 will only be correct if the
-	 * number of erase groups specified is the same as the total of all
-	 * preceding secure trim 1 commands.  Since the power may have been
-	 * lost since the secure trim 1 commands occurred, it is generally
-	 * impossible to calculate the secure trim 2 timeout correctly.
-	 */
-	if (card->erase_shift)
-		qty += ((to >> card->erase_shift) -
-			(from >> card->erase_shift)) + 1;
-	else if (mmc_card_sd(card))
-		qty += to - from + 1;
-	else
-		qty += ((to / card->erase_size) -
-			(from / card->erase_size)) + 1;
-
-	if (!mmc_card_blockaddr(card)) {
-		from <<= 9;
-		to <<= 9;
-	}
-
-	memset(&cmd, 0, sizeof(struct mmc_command));
-	if (mmc_card_sd(card))
-		cmd.opcode = SD_ERASE_WR_BLK_START;
-	else
-		cmd.opcode = MMC_ERASE_GROUP_START;
-	cmd.arg = from;
-	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
-	err = mmc_wait_for_cmd(card->host, &cmd, 0);
-	if (err) {
-		printk(KERN_ERR "mmc_erase: group start error %d, "
-		       "status %#x\n", err, cmd.resp[0]);
-		err = -EINVAL;
-		goto out;
-	}
-
-	memset(&cmd, 0, sizeof(struct mmc_command));
-	if (mmc_card_sd(card))
-		cmd.opcode = SD_ERASE_WR_BLK_END;
-	else
-		cmd.opcode = MMC_ERASE_GROUP_END;
-	cmd.arg = to;
-	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
-	err = mmc_wait_for_cmd(card->host, &cmd, 0);
-	if (err) {
-		printk(KERN_ERR "mmc_erase: group end error %d, status %#x\n",
-		       err, cmd.resp[0]);
-		err = -EINVAL;
-		goto out;
-	}
-
-	memset(&cmd, 0, sizeof(struct mmc_command));
-	cmd.opcode = MMC_ERASE;
-	cmd.arg = arg;
-	cmd.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
-	mmc_set_erase_timeout(card, &cmd, arg, qty);
-	err = mmc_wait_for_cmd(card->host, &cmd, 0);
-	if (err) {
-		printk(KERN_ERR "mmc_erase: erase error %d, status %#x\n",
-		       err, cmd.resp[0]);
-		err = -EIO;
-		goto out;
-	}
-
-	if (mmc_host_is_spi(card->host))
-		goto out;
-
-	do {
-		memset(&cmd, 0, sizeof(struct mmc_command));
-		cmd.opcode = MMC_SEND_STATUS;
-		cmd.arg = card->rca << 16;
-		cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
-		/* Do not retry else we can't see errors */
-		err = mmc_wait_for_cmd(card->host, &cmd, 0);
-		if (err || (cmd.resp[0] & 0xFDF92000)) {
-			printk(KERN_ERR "error %d requesting status %#x\n",
-				err, cmd.resp[0]);
-			err = -EIO;
-			goto out;
-		}
-	} while (!(cmd.resp[0] & R1_READY_FOR_DATA) ||
-		 R1_CURRENT_STATE(cmd.resp[0]) == 7);
-out:
-	return err;
-}
-
-/**
- * mmc_erase - erase sectors.
- * @card: card to erase
- * @from: first sector to erase
- * @nr: number of sectors to erase
- * @arg: erase command argument (SD supports only %MMC_ERASE_ARG)
- *
- * Caller must claim host before calling this function.
- */
-int mmc_erase(struct mmc_card *card, unsigned int from, unsigned int nr,
-	      unsigned int arg)
-{
-	unsigned int rem, to = from + nr;
-
-	if (!(card->host->caps & MMC_CAP_ERASE) ||
-	    !(card->csd.cmdclass & CCC_ERASE))
-		return -EOPNOTSUPP;
-
-	if (!card->erase_size)
-		return -EOPNOTSUPP;
-
-	if (mmc_card_sd(card) && arg != MMC_ERASE_ARG)
-		return -EOPNOTSUPP;
-
-	if ((arg & MMC_SECURE_ARGS) &&
-	    !(card->ext_csd.sec_feature_support & EXT_CSD_SEC_ER_EN))
-		return -EOPNOTSUPP;
-
-	if ((arg & MMC_TRIM_ARGS) &&
-	    !(card->ext_csd.sec_feature_support & EXT_CSD_SEC_GB_CL_EN))
-		return -EOPNOTSUPP;
-
-	if (arg == MMC_SECURE_ERASE_ARG) {
-		if (from % card->erase_size || nr % card->erase_size)
-			return -EINVAL;
-	}
-
-	if (arg == MMC_ERASE_ARG) {
-		rem = from % card->erase_size;
-		if (rem) {
-			rem = card->erase_size - rem;
-			from += rem;
-			if (nr > rem)
-				nr -= rem;
-			else
-				return 0;
-		}
-		rem = nr % card->erase_size;
-		if (rem)
-			nr -= rem;
-	}
-
-	if (nr == 0)
-		return 0;
-
-	to = from + nr;
-
-	if (to <= from)
-		return -EINVAL;
-
-	/* 'from' and 'to' are inclusive */
-	to -= 1;
-
-	return mmc_do_erase(card, from, to, arg);
-}
-EXPORT_SYMBOL(mmc_erase);
-
-int mmc_can_erase(struct mmc_card *card)
-{
-	if ((card->host->caps & MMC_CAP_ERASE) &&
-	    (card->csd.cmdclass & CCC_ERASE) && card->erase_size)
-		return 1;
-	return 0;
-}
-EXPORT_SYMBOL(mmc_can_erase);
-
-int mmc_can_trim(struct mmc_card *card)
-{
-	if (card->ext_csd.sec_feature_support & EXT_CSD_SEC_GB_CL_EN)
-		return 1;
-	return 0;
-}
-EXPORT_SYMBOL(mmc_can_trim);
-
-int mmc_can_secure_erase_trim(struct mmc_card *card)
-{
-	if (card->ext_csd.sec_feature_support & EXT_CSD_SEC_ER_EN)
-		return 1;
-	return 0;
-}
-EXPORT_SYMBOL(mmc_can_secure_erase_trim);
-
-int mmc_erase_group_aligned(struct mmc_card *card, unsigned int from,
-			    unsigned int nr)
-{
-	if (!card->erase_size)
-		return 0;
-	if (from % card->erase_size || nr % card->erase_size)
-		return 0;
-	return 1;
-}
-EXPORT_SYMBOL(mmc_erase_group_aligned);
 
 void mmc_rescan(struct work_struct *work)
 {
@@ -1277,15 +1072,14 @@ void mmc_rescan(struct work_struct *work)
 	mmc_bus_get(host);
 
 	/* if there is a card registered, check whether it is still present */
-	if ((host->bus_ops != NULL) &&
-            host->bus_ops->detect && !host->bus_dead) {
+	if ((host->bus_ops != NULL) && host->bus_ops->detect && !host->bus_dead)
 		host->bus_ops->detect(host);
-		/* If the card was removed the bus will be marked
-		 * as dead - extend the wakelock so userspace
-		 * can respond */
-		if (host->bus_dead)
-			extend_wakelock = 1;
-	}
+
+	/* If the card was removed the bus will be marked
+	 * as dead - extend the wakelock so userspace
+	 * can respond */
+	if (host->bus_dead)
+		extend_wakelock = 1;
 
 	mmc_bus_put(host);
 
@@ -1310,8 +1104,10 @@ void mmc_rescan(struct work_struct *work)
 		goto out;
 
 	mmc_claim_host(host);
+
 	mmc_power_up(host);
 	mmc_go_idle(host);
+
 	mmc_send_if_cond(host, host->ocr_avail);
 
 	/*
@@ -1357,7 +1153,7 @@ out:
 		wake_unlock(&mmc_delayed_work_wake_lock);
 
 	if (host->caps & MMC_CAP_NEEDS_POLL)
-		mmc_schedule_delayed_work(&host->detect, HZ);
+		queue_delayed_work(workqueue, &host->detect, HZ);
 }
 
 void mmc_start_host(struct mmc_host *host)
@@ -1388,6 +1184,8 @@ void mmc_stop_host(struct mmc_host *host)
 		mmc_claim_host(host);
 		mmc_detach_bus(host);
 		mmc_release_host(host);
+		mmc_bus_put(host);
+		return;
 	}
 	mmc_bus_put(host);
 
@@ -1395,6 +1193,40 @@ void mmc_stop_host(struct mmc_host *host)
 
 	mmc_power_off(host);
 }
+
+void mmc_power_save_host(struct mmc_host *host)
+{
+	mmc_bus_get(host);
+
+	if (!host->bus_ops || host->bus_dead || !host->bus_ops->power_restore) {
+		mmc_bus_put(host);
+		return;
+	}
+
+	if (host->bus_ops->power_save)
+		host->bus_ops->power_save(host);
+
+	mmc_bus_put(host);
+
+	mmc_power_off(host);
+}
+EXPORT_SYMBOL(mmc_power_save_host);
+
+void mmc_power_restore_host(struct mmc_host *host)
+{
+	mmc_bus_get(host);
+
+	if (!host->bus_ops || host->bus_dead || !host->bus_ops->power_restore) {
+		mmc_bus_put(host);
+		return;
+	}
+
+	mmc_power_up(host);
+	host->bus_ops->power_restore(host);
+
+	mmc_bus_put(host);
+}
+EXPORT_SYMBOL(mmc_power_restore_host);
 
 int mmc_card_awake(struct mmc_host *host)
 {
@@ -1445,6 +1277,7 @@ EXPORT_SYMBOL(mmc_card_can_sleep);
  */
 int mmc_suspend_host(struct mmc_host *host, pm_message_t state)
 {
+	int err = 0;
 
 	if (mmc_bus_needs_resume(host))
 		return 0;
@@ -1457,22 +1290,27 @@ int mmc_suspend_host(struct mmc_host *host, pm_message_t state)
 	mmc_bus_get(host);
 	if (host->bus_ops && !host->bus_dead) {
 		if (host->bus_ops->suspend)
-			host->bus_ops->suspend(host);
-		if (!host->bus_ops->resume) {
+			err = host->bus_ops->suspend(host);
+		if (err == -ENOSYS || !host->bus_ops->resume) {
+			/*
+			 * We simply "remove" the card in this case.
+			 * It will be redetected on resume.
+			 */
 			if (host->bus_ops->remove)
 				host->bus_ops->remove(host);
-
 			mmc_claim_host(host);
 			mmc_detach_bus(host);
 			mmc_release_host(host);
+			err = 0;
 		}
 	}
 	mmc_bus_put(host);
-	mmc_flush_scheduled_work(); //nvidia
+	mmc_flush_scheduled_work();
 
-	mmc_power_off(host);
+	if (!err)
+		mmc_power_off(host);
 
-	return 0;
+	return err;
 }
 
 EXPORT_SYMBOL(mmc_suspend_host);
@@ -1483,6 +1321,8 @@ EXPORT_SYMBOL(mmc_suspend_host);
  */
 int mmc_resume_host(struct mmc_host *host)
 {
+	int err = 0;
+
 	mmc_bus_get(host);
 	if (host->bus_resume_flags & MMC_BUSRESUME_MANUAL_RESUME) {
 		host->bus_resume_flags |= MMC_BUSRESUME_NEEDS_RESUME;
@@ -1494,7 +1334,19 @@ int mmc_resume_host(struct mmc_host *host)
 		mmc_power_up(host);
 		mmc_select_voltage(host, host->ocr);
 		BUG_ON(!host->bus_ops->resume);
-		host->bus_ops->resume(host);
+		err = host->bus_ops->resume(host);
+		if (err) {
+			printk(KERN_WARNING "%s: error %d during resume "
+					    "(card was removed?)\n",
+					    mmc_hostname(host), err);
+			if (host->bus_ops->remove)
+				host->bus_ops->remove(host);
+			mmc_claim_host(host);
+			mmc_detach_bus(host);
+			mmc_release_host(host);
+			/* no need to bother upper layers */
+			err = 0;
+		}
 	}
 	mmc_bus_put(host);
 
@@ -1504,7 +1356,7 @@ int mmc_resume_host(struct mmc_host *host)
 	 */
 	mmc_detect_change(host, 1);
 
-	return 0;
+	return err;
 }
 
 EXPORT_SYMBOL(mmc_resume_host);

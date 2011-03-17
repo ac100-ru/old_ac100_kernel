@@ -174,8 +174,7 @@ void NvAesCoreAp20LockSskReadWrites(const AesHwEngine Engine, const NvU32 *const
  * @param pEngineVirAddr AES engine virtual address.
  * @param SrcPhyAddress The physical address of source buffer.
  * @param DestPhyAddress The physical address of destination buffer.
- * @param DataSize The size of buffer.
- * @param DmaPhyAddr The physical address of the DMA.
+ * @param NumBlocks Number of blocks in Source buffer
  * @param IsEncryption NV_TRUE if encryption else NV_FALSE.
  * @param OpMode Specifies the AES operational mode.
  *
@@ -187,10 +186,9 @@ NvAesCoreAp20ProcessBuffer(
     const NvU32 *const pEngineVirAddr,
     const NvU32 SrcPhyAddress,
     const NvU32 DestPhyAddress,
-    const NvU32 DataSize,
-    const NvU32 DmaPhyAddr,
+    const NvU32 NumBlocks,
     const NvBool IsEncryption,
-    const NvU32 OpMode);
+    const NvDdkAesOperationalMode OpMode);
 
 /**
  * Load the SSK key into secure scratch resgister and disables the write permissions.
@@ -208,23 +206,31 @@ NvAesCoreAp20LoadSskToSecureScratchAndLock(
     const size_t Size);
 
 /**
- * Get the read permissions for IV for each key slot of an engine.
+ * Disables read access to the given key slot
  *
- * @param Engine AES Engine for which Iv permissions for an engine are sought.
+ * @param Engine AES engine for which read access needs to be disabled
+ *               for the given key slot
+ * @param Slot Key slot number for which read access needs to be disabled.
  * @param pEngineVirAddr AES engine virtual address.
- * @param pReadPermissions Pointer to read permissions.
  *
- * @retval None.
+ * @retval None
  */
 void
-NvAesCoreAp20GetIvReadPermissions(
+NvAesCoreAp20KeyReadDisable(
     const AesHwEngine Engine,
-    const NvU32 *const pEngineVirAddr,
-    NvBool *const pReadPermissions);
+    const AesHwKeySlot Slot,
+    const NvU32 *const pEngineVirAddr);
+
+/**
+ * Queries whether SSK update is allowed or not
+ *
+ * @retval NV_TRUE if SSK update is allowed
+ * @retval NV_FALSE if SSK update is not allowed
+ */
+NvBool NvAesCoreAp20IsSskUpdateAllowed(void);
 
 #ifdef __cplusplus
 };
 #endif
 
 #endif // #define INCLUDED_NVDDK_AES_CORE_AP20_H
-

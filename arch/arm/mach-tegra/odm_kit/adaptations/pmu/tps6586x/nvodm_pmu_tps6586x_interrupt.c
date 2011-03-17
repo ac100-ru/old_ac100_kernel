@@ -1,35 +1,20 @@
 /*
  * Copyright (c) 2009 NVIDIA Corporation.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * Neither the name of the NVIDIA Corporation nor the names of its contributors
- * may be used to endorse or promote products derived from this software
- * without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
-
 
 #include "nvodm_pmu_tps6586x_interrupt.h"
 #include "nvodm_pmu_tps6586x_i2c.h"
@@ -37,17 +22,17 @@
 #include "nvodm_services.h"
 #include "nvodm_pmu_tps6586x_batterycharger.h"
 
-//INT_MASK3
+/* INT_MASK3 */
 #define TPS6586X_INT_BATT_INST 0x01
 #define TPS6586X_INT_PACK_COLD_DET 0x02
 #define TPS6586X_INT_PACK_HOT_DET 0x04
-//INT_MASK4
-#define TPS6586X_INT_ALM2_INST		0x02
-//INT_MASK5
-#define TPS6586X_INT_USB_DETECTION 0x04
-#define TPS6586X_INT_AC_DETECTION  0x08
-#define TPS6586X_INT_ALM1_DETECTION	0x10
-#define TPS6586X_INT_LOWSYS_DETECTION 0x40
+/* INT_MASK4 */
+#define TPS6586X_INT_ALM2_INST          0x02
+/* INT_MASK5 */
+#define TPS6586X_INT_USB_DETECTION      0x04
+#define TPS6586X_INT_AC_DETECTION       0x08
+#define TPS6586X_INT_ALM1_DETECTION     0x10
+#define TPS6586X_INT_LOWSYS_DETECTION   0x40
 
 NvBool Tps6586xSetupInterrupt(NvOdmPmuDeviceHandle  hDevice,
                               TPS6586xStatus *pmuStatus)
@@ -118,17 +103,24 @@ void Tps6586xInterruptHandler_int(NvOdmPmuDeviceHandle  hDevice,
     pmuStatus->powerGood |= ((data & 0xFF)<<8);
 
     /* INT_ACK3 */
-    /* LOW SYS */
     if (!Tps6586xI2cRead8(hDevice, TPS6586x_RB7_INT_ACK3, &data))
     {
         return;
     }
     if (data != 0)
     {
+        /* ACK_RTCALM1 */
+        if (data&0x01)
+        {
+        /* printk("%s ACK_RTC_ALM_1 detect!!!\n", __func__); */
+        }
+
+        /* ACK_CHGTEMP */
         if (data&0x40)
         {
             pmuStatus->highTemp = NV_TRUE;
         }
+        /* ACK_ACDET & ACK_USBDET */
         if (data&0x0C)
         {
             pmuStatus->mChgPresent = NV_TRUE;
@@ -136,13 +128,18 @@ void Tps6586xInterruptHandler_int(NvOdmPmuDeviceHandle  hDevice,
     }
 
     /* INT_ACK4 */
-    /* CHG TEMP */
     if (!Tps6586xI2cRead8(hDevice, TPS6586x_RB8_INT_ACK4, &data))
     {
         return;
     }
     if (data != 0)
     {
+        /* ACK_RTCALM2 */
+        if (data&0x04)
+        {
+        /* printk("%s ACK_RTC_ALM_2 detect!!!\n", __func__); */
+        }
+        /* LOW SYS */
         if (data&0x02)
         {
             pmuStatus->lowBatt = NV_TRUE;

@@ -24,42 +24,34 @@
 #include <linux/proc_fs.h>
 #include <linux/miscdevice.h>
 #include <linux/uaccess.h>
-#include <linux/cpumask.h>
-#include <linux/sched.h>
-#include <linux/cpu.h>
 #include <linux/platform_device.h>
-#include <linux/freezer.h>
 #include <linux/suspend.h>
 #include <linux/percpu.h>
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
 #endif
-#include <linux/smp.h>
-#include <asm/smp_twd.h>
-#include <asm/cpu.h>
 #include "nvcommon.h"
 #include "nvassert.h"
 #include "nvos.h"
 #include "nvrm_memmgr.h"
+#include "nvrm_dma.h"
+#include "nvrm_i2c.h"
 #include "nvrm_ioctls.h"
-#include "nvrm_message.h"
-#include "mach/nvrm_linux.h"
-#include "linux/nvos_ioctl.h"
 #include "nvrm_power_private.h"
+#include "mach/nvrm_linux.h"
+#include "nvos_ioctl.h"
 #include "nvreftrack.h"
-#include "mach/timex.h"
+#include "board.h"
 
-
-#define WAKE_LOCK 1
-#ifdef WAKE_LOCK
-#include <linux/wakelock.h>
-struct wake_lock rm_wake_lock;
-#endif
-
-
+NvRmDeviceHandle s_hRmGlobal = NULL;
 pid_t s_nvrm_daemon_pid = 0;
 
 NvError NvRm_Dispatch(void *InBuffer,
+                      NvU32 InSize,
+                      void *OutBuffer,
+                      NvU32 OutSize,
+                      NvDispatchCtx* Ctx);
+NvError NvRm_Dispatch_Others(void *InBuffer,
                       NvU32 InSize,
                       void *OutBuffer,
                       NvU32 OutSize,
@@ -71,13 +63,12 @@ static long nvrm_unlocked_ioctl(struct file *file,
     unsigned int cmd, unsigned long arg);
 static int nvrm_mmap(struct file *file, struct vm_area_struct *vma);
 extern void reset_cpu(unsigned int cpu, unsigned int reset);
+extern void NvRmPrivDvsStop(void);
+extern void NvRmPrivDvsRun(void);
 
 //Variables for AVP suspend operation
 extern NvRmDeviceHandle s_hRmGlobal;
-static NvRmMemHandle s_IramMemHandle;
-static NvRmTransportHandle s_AvpSuspendPort;
 
-static NvOsThreadHandle s_DfsThread = NULL;
 static NvRtHandle s_RtHandle = NULL;
 
 #define DEVICE_NAME "nvrm"
@@ -98,73 +89,32 @@ static struct miscdevice nvrm_dev =
     .minor = MISC_DYNAMIC_MINOR,
 };
 
-static void NvRmDfsThread(void *args)
+static const struct file_operations knvrm_fops =
 {
-    NvRmDeviceHandle hRm = (NvRmDeviceHandle)args;
-    struct cpumask cpu_mask;
+    .owner = THIS_MODULE,
+    .open = nvrm_open,
+    .release = nvrm_close,
+    .unlocked_ioctl = nvrm_unlocked_ioctl,
+    .mmap = nvrm_mmap
+};
 
-    //Ensure that only cpu0 is in the affinity mask
-    cpumask_clear(&cpu_mask);
-    cpumask_set_cpu(0, &cpu_mask);
-    if (sched_setaffinity(0, &cpu_mask))
-    {
-        panic("Unable to setaffinity of DFS thread!\n");
-    }
+static struct miscdevice knvrm_dev =
+{
+    .name = "knvrm",
+    .fops = &knvrm_fops,
+    .minor = MISC_DYNAMIC_MINOR,
+};
 
-    //Confirm that only CPU0 can run this thread
-    if (!cpumask_test_cpu(0, &cpu_mask) || cpumask_weight(&cpu_mask) != 1)
-    {
-        panic("Unable to setaffinity of DFS thread!\n");
-    }
 
-    set_freezable_with_signal();
-
-    if (NvRmDfsGetState(hRm) > NvRmDfsRunState_Disabled)
-    {
-        NvRmFreqKHz CpuKHz, f;
-        CpuKHz = NvRmPrivDfsGetCurrentKHz(NvRmDfsClockId_Cpu);
-        local_timer_rescale(CpuKHz);
-
-        NvRmDfsSetState(hRm, NvRmDfsRunState_ClosedLoop);
-
-        for (;;)
-        {
-            NvRmPmRequest Request = NvRmPrivPmThread();
-            f = NvRmPrivDfsGetCurrentKHz(NvRmDfsClockId_Cpu);
-            if (CpuKHz != f)
-            {
-                CpuKHz = f;
-                local_timer_rescale(CpuKHz);
-                twd_set_prescaler(NULL);
-                smp_call_function(twd_set_prescaler, NULL, NV_TRUE);
-            }
-            if (Request & NvRmPmRequest_ExitFlag)
-            {
-                break;
-            }
-            if (Request & NvRmPmRequest_CpuOnFlag)
-            {
-#ifdef CONFIG_HOTPLUG_CPU
-                printk("DFS requested CPU1 ON\n");
-                preset_lpj = per_cpu(cpu_data, 0).loops_per_jiffy;
-                cpu_up(1);
-                smp_call_function(twd_set_prescaler, NULL, NV_TRUE);
-#endif
-            }
-
-            if (Request & NvRmPmRequest_CpuOffFlag)
-            {
-#ifdef CONFIG_HOTPLUG_CPU
-                printk("DFS requested CPU1 OFF\n");
-                cpu_down(1);
-#endif
-            }
-        }
-    }
-}
+struct nvrm_file_priv {
+    NvRtClientHandle rt_client;
+    bool su;
+};
 
 static void client_detach(NvRtClientHandle client)
 {
+    void *ptr;
+
     if (NvRtUnregisterClient(s_RtHandle, client))
     {
         NvDispatchCtx dctx;
@@ -175,12 +125,66 @@ static void client_detach(NvRtClientHandle client)
 
         for (;;)
         {
-            void* ptr = NvRtFreeObjRef(&dctx,
-                                       NvRtObjType_NvRm_NvRmMemHandle,
-                                       NULL);
+
+            ptr = NvRtFreeObjRef(&dctx,
+                                 NvRtObjType_NvRm_GpioHandle,
+                                 NULL);
             if (!ptr) break;
-            NVRT_LEAK("NvRm", "NvRmMemHandle", ptr);
+            NVRT_LEAK("NvRm", "GpioHandle", (NvU32)ptr);
+            NvRmGpioReleasePinHandles((NvRmGpioHandle)s_hRmGlobal, (NvRmGpioPinHandle *)&ptr, 1);
+        }
+
+        for (;;)
+        {
+            ptr = NvRtFreeObjRef(&dctx,
+                                 NvRtObjType_NvRm_NvRmMemHandle,
+                                 NULL);
+            if (!ptr) break;
+            NVRT_LEAK("NvRm", "NvRmMemHandle", (NvU32)ptr);
             NvRmMemHandleFree(ptr);
+        }
+
+        for(;;)
+        {
+            ptr = NvRtFreeObjRef(&dctx,
+                                 NvRtObjType_NvRm_NvRmI2cHandle,
+                                 NULL);
+            if (!ptr) break;
+            NVRT_LEAK("NvRm", "NvRmI2cHandle", (NvU32)ptr);
+            NvRmI2cClose((NvRmI2cHandle)ptr);
+        }
+
+        for(;;)
+        {
+            ptr = NvRtFreeObjRef(&dctx,
+                                 NvRtObjType_NvRm_NvRmDmaHandle,
+                                 NULL);
+            if(!ptr) break;
+            NVRT_LEAK("NvRm", "NvRmDmaHandle", (NvU32)ptr);
+            NvRmDmaFree(ptr);
+        }
+
+        for(;;)
+        {
+            NvRmExternalClockObj *obj = NULL;
+            ptr = NvRtFreeObjRef(&dctx,
+                                 NvRtObjType_NvRm_PinmuxClkHandle,
+                                 NULL);
+            if(!ptr) break;
+            NVRT_LEAK("NvRm", "PinmuxClkHandle", (NvU32)ptr);
+
+            obj = (NvRmExternalClockObj *)ptr;
+            NvRmExternalClockConfig(g_NvRmHandle,
+                                    NvOdmIoModule_ExternalClock,
+                                    obj->Instance,
+                                    obj->Config,
+                                    NV_TRUE);
+            /*
+             * this "obj" is a static struct in nvrm_pinmux_dispatch.c
+             * reset Instance number so it can be reused for next clock
+             * config
+             */
+            obj->Instance = NVRM_EXT_CLK_CNT;
         }
 
         NvRtUnregisterClient(s_RtHandle, client);
@@ -189,21 +193,28 @@ static void client_detach(NvRtClientHandle client)
 
 int nvrm_open(struct inode *inode, struct file *file)
 {
-    NvRtClientHandle Client;
+    struct nvrm_file_priv *priv;
 
-    if (NvRtRegisterClient(s_RtHandle, &Client) != NvSuccess)
+    priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+    if (!priv) return -ENOMEM;
+
+    if (NvRtRegisterClient(s_RtHandle, &priv->rt_client) != NvSuccess)
     {
         return -ENOMEM;
     }
 
-    file->private_data = (void*)Client;
+    priv->su = (file->f_op == &knvrm_fops);
+    file->private_data = priv;
 
     return 0;
 }
 
 int nvrm_close(struct inode *inode, struct file *file)
 {
-    client_detach((NvRtClientHandle)file->private_data);
+    struct nvrm_file_priv *priv = file->private_data;
+
+    client_detach(priv->rt_client);
+    kfree(priv);
     return 0;
 }
 
@@ -217,6 +228,7 @@ long nvrm_unlocked_ioctl(struct file *file,
     void *ptr = 0;
     long e;
     NvBool bAlloc = NV_FALSE;
+    struct nvrm_file_priv *priv = file->private_data;
 
     switch( cmd ) {
     case NvRmIoctls_Generic:
@@ -224,7 +236,7 @@ long nvrm_unlocked_ioctl(struct file *file,
         NvDispatchCtx dctx;
 
         dctx.Rt         = s_RtHandle;
-        dctx.Client     = (NvRtClientHandle)file->private_data;
+        dctx.Client     = priv->rt_client;
         dctx.PackageIdx = 0;
 
         err = NvOsCopyIn( &p, (void *)arg, sizeof(p) );
@@ -263,9 +275,15 @@ long nvrm_unlocked_ioctl(struct file *file,
             goto fail;
         }
 
-        err = NvRm_Dispatch( ptr, p.InBufferSize + p.InOutBufferSize,
-            ((NvU8 *)ptr) + p.InBufferSize, p.InOutBufferSize +
-            p.OutBufferSize, &dctx );
+        if (priv->su) {
+            err = NvRm_Dispatch( ptr, p.InBufferSize + p.InOutBufferSize,
+                ((NvU8 *)ptr) + p.InBufferSize, p.InOutBufferSize +
+                p.OutBufferSize, &dctx );
+        } else {
+            err = NvRm_Dispatch_Others( ptr, p.InBufferSize + p.InOutBufferSize,
+                ((NvU8 *)ptr) + p.InBufferSize, p.InOutBufferSize +
+                p.OutBufferSize, &dctx );
+        }
         if( err != NvSuccess )
         {
             printk( "NvRmIoctls_Generic: dispatch failure\n" );
@@ -292,7 +310,7 @@ long nvrm_unlocked_ioctl(struct file *file,
         goto fail;
     case NvRmIoctls_NvRmFbControl:
         printk( "NvRmIoctls_NvRmFbControl: deprecated \n" );
-	break;
+        break;
 
     case NvRmIoctls_NvRmMemRead:
     case NvRmIoctls_NvRmMemWrite:
@@ -306,278 +324,174 @@ long nvrm_unlocked_ioctl(struct file *file,
         printk( "NvRmIoctls_NvRmMemMapIntoCallerPtr: not supported\n" );
         goto fail;
     case NvRmIoctls_NvRmBootDone:
-        if (!s_DfsThread)
+        return tegra_start_dvfsd();
+    case NvRmIoctls_NvRmGetClientId:
+        err = NvOsCopyIn(&p, (void*)arg, sizeof(p));
+        if (err != NvSuccess)
         {
-            if (NvOsInterruptPriorityThreadCreate(NvRmDfsThread,
-                    (void*)s_hRmGlobal, &s_DfsThread)!=NvSuccess)
-            {
-                NvOsDebugPrintf("Failed to create DFS processing thread\n");
-                goto fail;
-            }
+            NvOsDebugPrintf("NvRmIoctls_NvRmGetClientId: copy in failed\n");
+            goto fail;
+        }
+
+        NV_ASSERT(p.InBufferSize == 0);
+        NV_ASSERT(p.OutBufferSize == sizeof(NvRtClientHandle));
+        NV_ASSERT(p.InOutBufferSize == 0);
+
+        if (NvOsCopyOut(p.pBuffer,
+                        &priv->rt_client,
+                        sizeof(NvRtClientHandle)) != NvSuccess)
+        {
+            NvOsDebugPrintf("Failed to copy client id\n");
+            goto fail;
         }
         break;
-    case NvRmIoctls_NvRmGetClientId:
-		err = NvOsCopyIn(&p, (void*)arg, sizeof(p));
-		if (err != NvSuccess)
-		{
-			NvOsDebugPrintf("NvRmIoctls_NvRmGetClientId: copy in failed\n");
-			goto fail;
-		}
+    case NvRmIoctls_NvRmClientAttach:
+    {
+        NvRtClientHandle Client;
 
-		NV_ASSERT(p.InBufferSize == 0);
-		NV_ASSERT(p.OutBufferSize == sizeof(NvRtClientHandle));
-		NV_ASSERT(p.InOutBufferSize == 0);
+        err = NvOsCopyIn(&p, (void*)arg, sizeof(p));
+        if (err != NvSuccess)
+        {
+            NvOsDebugPrintf("NvRmIoctls_NvRmClientAttach: copy in failed\n");
+            goto fail;
+        }
 
-		if (NvOsCopyOut(p.pBuffer,
-						&file->private_data,
-						sizeof(NvRtClientHandle)) != NvSuccess)
-		{
-			NvOsDebugPrintf("Failed to copy client id\n");
-			goto fail;
-		}
-		break;
-	case NvRmIoctls_NvRmClientAttach:
-	{
-		NvRtClientHandle Client;
+        NV_ASSERT(p.InBufferSize == sizeof(NvRtClientHandle));
+        NV_ASSERT(p.OutBufferSize == 0);
+        NV_ASSERT(p.InOutBufferSize == 0);
 
-		err = NvOsCopyIn(&p, (void*)arg, sizeof(p));
-		if (err != NvSuccess)
-		{
-			NvOsDebugPrintf("NvRmIoctls_NvRmClientAttach: copy in failed\n");
-			goto fail;
-		}
+        if (NvOsCopyIn((void*)&Client,
+                       p.pBuffer,
+                       sizeof(NvRtClientHandle)) != NvSuccess)
+        {
+            NvOsDebugPrintf("Failed to copy client id\n");
+            goto fail;
+        }
 
-		NV_ASSERT(p.InBufferSize == sizeof(NvRtClientHandle));
-		NV_ASSERT(p.OutBufferSize == 0);
-		NV_ASSERT(p.InOutBufferSize == 0);
+        NV_ASSERT(Client || !"Bad client");
 
-		if (NvOsCopyIn((void*)&Client,
-					   p.pBuffer,
-					   sizeof(NvRtClientHandle)) != NvSuccess)
-		{
-			NvOsDebugPrintf("Failed to copy client id\n");
-			goto fail;
-		}
+        if (Client == priv->rt_client)
+        {
+            // The daemon is attaching to itself, no need to add refcount
+            break;
+        }
+        if (NvRtAddClientRef(s_RtHandle, Client) != NvSuccess)
+        {
+            NvOsDebugPrintf("Client ref add unsuccessful\n");
+            goto fail;
+        }
+        break;
+    }
+    case NvRmIoctls_NvRmClientDetach:
+    {
+        NvRtClientHandle Client;
 
-		NV_ASSERT(Client || !"Bad client");
+        err = NvOsCopyIn(&p, (void*)arg, sizeof(p));
+        if (err != NvSuccess)
+        {
+            NvOsDebugPrintf("NvRmIoctls_NvRmClientAttach: copy in failed\n");
+            goto fail;
+        }
 
-		if (Client == (NvRtClientHandle)file->private_data)
-		{
-			// The daemon is attaching to itself, no need to add refcount
-			break;
-		}
-		if (NvRtAddClientRef(s_RtHandle, Client) != NvSuccess)
-		{
-			NvOsDebugPrintf("Client ref add unsuccessful\n");
-			goto fail;
-		}
-		break;
-	}
-	case NvRmIoctls_NvRmClientDetach:
-	{
-		NvRtClientHandle Client;
+        NV_ASSERT(p.InBufferSize == sizeof(NvRtClientHandle));
+        NV_ASSERT(p.OutBufferSize == 0);
+        NV_ASSERT(p.InOutBufferSize == 0);
 
-		err = NvOsCopyIn(&p, (void*)arg, sizeof(p));
-		if (err != NvSuccess)
-		{
-			NvOsDebugPrintf("NvRmIoctls_NvRmClientAttach: copy in failed\n");
-			goto fail;
-		}
+        if (NvOsCopyIn((void*)&Client,
+                       p.pBuffer,
+                       sizeof(NvRtClientHandle)) != NvSuccess)
+        {
+            NvOsDebugPrintf("Failed to copy client id\n");
+            goto fail;
+        }
 
-		NV_ASSERT(p.InBufferSize == sizeof(NvRtClientHandle));
-		NV_ASSERT(p.OutBufferSize == 0);
-		NV_ASSERT(p.InOutBufferSize == 0);
+        NV_ASSERT(Client || !"Bad client");
 
-		if (NvOsCopyIn((void*)&Client,
-					   p.pBuffer,
-					   sizeof(NvRtClientHandle)) != NvSuccess)
-		{
-			NvOsDebugPrintf("Failed to copy client id\n");
-			goto fail;
-		}
+        if (Client == priv->rt_client)
+        {
+            // The daemon is detaching from itself, no need to dec refcount
+            break;
+        }
 
-		NV_ASSERT(Client || !"Bad client");
+        client_detach(Client);
+        break;
+    }
+    // FIXME: power ioctls?
+    default:
+        printk( "unknown ioctl code\n" );
+        goto fail;
+    }
 
-		if (Client == (NvRtClientHandle)file->private_data)
-		{
-			// The daemon is detaching from itself, no need to dec refcount
-			break;
-		}
-
-		client_detach(Client);
-		break;
-	}
-	// FIXME: power ioctls?
-	default:
-		printk( "unknown ioctl code\n" );
-		goto fail;
-	}
-
-	e = 0;
-	goto clean;
+    e = 0;
+    goto clean;
 
 fail:
-	e = -EINVAL;
+    e = -EINVAL;
 
 clean:
-	if( bAlloc )
-	{
-		NvOsFree( ptr );
-	}
+    if( bAlloc )
+    {
+        NvOsFree( ptr );
+    }
 
-	return e;
+    return e;
 }
 
 int nvrm_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	return 0;
+    return 0;
 }
 
 static int nvrm_probe(struct platform_device *pdev)
 {
-	int e = 0;
-	NvU32 NumTypes = NvRtObjType_NvRm_Num;
+    int e = 0;
+    NvU32 NumTypes = NvRtObjType_NvRm_Num;
 
-	printk("nvrm probe\n");
+    printk("nvrm probe\n");
 
-	NV_ASSERT(s_RtHandle == NULL);
+    NV_ASSERT(s_RtHandle == NULL);
 
-	if (NvRtCreate(1, &NumTypes, &s_RtHandle) != NvSuccess)
-	{
-		e = -ENOMEM;
-	}
+    if (NvRtCreate(1, &NumTypes, &s_RtHandle) != NvSuccess)
+    {
+        e = -ENOMEM;
+    }
 
-	if (e == 0)
-	{
-		e = misc_register( &nvrm_dev );
-	}
+    if (e == 0)
+    {
+        e = misc_register( &nvrm_dev );
+    }
 
-	if( e < 0 )
-	{
-		if (s_RtHandle)
-		{
-			NvRtDestroy(s_RtHandle);
-			s_RtHandle = NULL;
-		}
+    if (e == 0)
+    {
+        e = misc_register( &knvrm_dev );
+    }
 
-		printk("nvrm probe failed to open\n");
-	}
-	return e;
+    if( e < 0 )
+    {
+        if (s_RtHandle)
+        {
+            NvRtDestroy(s_RtHandle);
+            s_RtHandle = NULL;
+        }
+        printk("nvrm probe failed to open\n");
+    }
+    return e;
 }
 
 static int nvrm_remove(struct platform_device *pdev)
 {
-	misc_deregister( &nvrm_dev );
-	NvRtDestroy(s_RtHandle);
-	s_RtHandle = NULL;
-	return 0;
-}
-
-NvError NvRmAvpSuspend(NvRmDeviceHandle hRmDeviceHandle)
-{
-	NvRmMessage_InitiateLP0 Msg;
-	NvError e = NvSuccess;
-	NvRmHeap Heaps[2];
-	NvU32 iramSize, iramAddr, numInstances, instSize;
-	volatile NvU32 *syncVal = NULL;
-	volatile NvU32 *bar;
-
-	if (!s_AvpSuspendPort)
-	{
-		e = NvRmTransportOpen(hRmDeviceHandle, "RPC_AVP_PORT",
-				NULL, &s_AvpSuspendPort);
-		if (e)
-			goto fail;
-	}
-
-	Heaps[0] = NvRmHeap_ExternalCarveOut;
-
-	NvRmModuleGetBaseAddress(hRmDeviceHandle,
-	    NVRM_MODULE_ID(NvRmPrivModuleID_Iram, 0),&iramAddr, &instSize);
-
-	numInstances = NvRmModuleGetNumInstances(hRmDeviceHandle,
-	    NVRM_MODULE_ID(NvRmPrivModuleID_Iram, 0));
-
-	iramSize = instSize * numInstances;
-	if (s_IramMemHandle == NULL)
-	{
-		NV_CHECK_ERROR_CLEANUP(
-			NvRmMemHandleCreate(hRmDeviceHandle, &s_IramMemHandle,
-			iramSize + sizeof(NvU32))
-		);
-
-		NV_CHECK_ERROR_CLEANUP(
-			NvRmMemAlloc(s_IramMemHandle, Heaps, 1, 16,
-			NvOsMemAttribute_Uncached)
-		);
-	}
-
-	Msg.msg = NvRmMsg_InitiateLP0;
-	Msg.sourceAddr = iramAddr;
-	Msg.bufferAddr = NvRmMemPin(s_IramMemHandle);
-	Msg.bufferSize = iramSize;
-
-	NV_CHECK_ERROR_CLEANUP(
-		NvRmMemMap(s_IramMemHandle, iramSize,
-		sizeof(NvU32), NVOS_MEM_READ_WRITE, (void**)&syncVal)
-	);
-
-	*syncVal = 0;
-
-	//Make sure write lands in memory before AVP reads it.
-	bar = (volatile NvU32*)syncVal;
-	(void)(*bar);
-
-	//SendMsgInLP0 should never return an error in this scenario.
-	//If it does, something is seriously wrong with LP0.
-	//(No one else should be talking to the AVP at this moment)
-	NV_CHECK_ERROR_CLEANUP(
-		NvRmTransportSendMsgInLP0(s_AvpSuspendPort, &Msg, sizeof(Msg))
-	);
-
-	//Wait for the AVP to acknowledge that LP0 call
-	while (!*syncVal);
-
-	return NvSuccess;
-fail:
-    if (s_IramMemHandle)
-    {
-		NvRmMemHandleFree(s_IramMemHandle);
-		s_IramMemHandle = NULL;
-    }
-
-	return e;
-}
-
-static int nvrm_suspend(struct platform_device *pdev, pm_message_t state)
-{
-	if (NvRmAvpSuspend(s_hRmGlobal))
-		return -1;
-
-	if(NvRmKernelPowerSuspend(s_hRmGlobal)) {
-		printk(KERN_INFO "%s : FAILED\n", __func__);
-		return -1;
-	}
-	return 0;
-}
-
-static int nvrm_resume(struct platform_device *pdev)
-{
-	if(NvRmKernelPowerResume(s_hRmGlobal)) {
-		printk(KERN_INFO "%s : FAILED\n", __func__);
-		return -1;
-	}
-	return 0;
-
+    misc_deregister( &nvrm_dev );
+    misc_deregister( &knvrm_dev );
+    NvRtDestroy(s_RtHandle);
+    s_RtHandle = NULL;
+    return 0;
 }
 
 static struct platform_driver nvrm_driver =
 {
-	.probe	 = nvrm_probe,
-	.remove	 = nvrm_remove,
-	.suspend = nvrm_suspend,
-	.resume	 = nvrm_resume,
-	.driver	 = { .name = "nvrm" }
+    .probe     = nvrm_probe,
+    .remove     = nvrm_remove,
+    .driver     = { .name = "nvrm" }
 };
 
 #if defined(CONFIG_PM)
@@ -604,62 +518,62 @@ static const char *STRING_PM_SIGNAL          = "PM_SIGNAL";
 // Reading blocks if the value is not available.
 static ssize_t
 nvrm_notifier_show(struct kobject *kobj, struct kobj_attribute *attr,
-		   char *buf)
+                   char *buf)
 {
-	int nchar;
+    int nchar;
 
-	// Block if the value is not available yet.
-	if (! sys_nvrm_notifier)
-	{
-	    printk(KERN_INFO "%s: blocking\n", __func__);
-	    wait_event_interruptible(sys_nvrm_notifier_wait, sys_nvrm_notifier);
-	}
+    // Block if the value is not available yet.
+    if (! sys_nvrm_notifier)
+    {
+        printk(KERN_INFO "%s: blocking\n", __func__);
+        wait_event_interruptible(sys_nvrm_notifier_wait, sys_nvrm_notifier);
+    }
 
-	// In case of false wakeup, return "".
-	if (! sys_nvrm_notifier)
-	{
-	    printk(KERN_INFO "%s: false wakeup, returning with '\\n'\n", __func__);
-	    nchar = sprintf(buf, "\n");
-	    return nchar;
-	}
+    // In case of false wakeup, return "".
+    if (! sys_nvrm_notifier)
+    {
+        printk(KERN_INFO "%s: false wakeup, returning with '\\n'\n", __func__);
+        nchar = sprintf(buf, "\n");
+        return nchar;
+    }
 
-	// Return the value, and clear.
-	printk(KERN_INFO "%s: returning with '%s'\n", __func__, sys_nvrm_notifier);
-	nchar = sprintf(buf, "%s\n", sys_nvrm_notifier);
-	sys_nvrm_notifier = NULL;
-	return nchar;
+    // Return the value, and clear.
+    printk(KERN_INFO "%s: returning with '%s'\n", __func__, sys_nvrm_notifier);
+    nchar = sprintf(buf, "%s\n", sys_nvrm_notifier);
+    sys_nvrm_notifier = NULL;
+    return nchar;
 }
 
 // Writing is no blocking.
 static ssize_t
 nvrm_notifier_store(struct kobject *kobj, struct kobj_attribute *attr,
-			const char *buf, size_t count)
+                    const char *buf, size_t count)
 {
-	if (!strncmp(buf, STRING_PM_CONTINUE, strlen(STRING_PM_CONTINUE))) {
-		// Wake up pm_notifier.
-		tegra_pm_notifier_continue_ok = 1;
-		wake_up(&tegra_pm_notifier_wait);
-	}
-	else if (!strncmp(buf, STRING_PM_SIGNAL, strlen(STRING_PM_SIGNAL))) {
-		s_nvrm_daemon_pid = 0;
-		sscanf(buf, "%*s %d", &s_nvrm_daemon_pid);
-		printk(KERN_INFO "%s: nvrm_daemon=%d\n", __func__, s_nvrm_daemon_pid);
-	}
-	else {
-		printk(KERN_ERR "%s: wrong value '%s'\n", __func__, buf);
-	}
+    if (!strncmp(buf, STRING_PM_CONTINUE, strlen(STRING_PM_CONTINUE))) {
+        // Wake up pm_notifier.
+        tegra_pm_notifier_continue_ok = 1;
+        wake_up(&tegra_pm_notifier_wait);
+    }
+    else if (!strncmp(buf, STRING_PM_SIGNAL, strlen(STRING_PM_SIGNAL))) {
+        s_nvrm_daemon_pid = 0;
+        sscanf(buf, "%*s %d", &s_nvrm_daemon_pid);
+        printk(KERN_INFO "%s: nvrm_daemon=%d\n", __func__, s_nvrm_daemon_pid);
+    }
+    else {
+        printk(KERN_ERR "%s: wrong value '%s'\n", __func__, buf);
+    }
 
-	return count;
+    return count;
 }
 
 static struct kobj_attribute nvrm_notifier_attribute =
-	__ATTR(notifier, 0666, nvrm_notifier_show, nvrm_notifier_store);
+       __ATTR(notifier, 0666, nvrm_notifier_show, nvrm_notifier_store);
 
 //
 // PM notifier
 //
 
-static void notify_daemon(const char* notice)
+void notify_daemon(const char* notice)
 {
 	long timeout = HZ * 30;
 
@@ -693,22 +607,22 @@ int tegra_pm_notifier(struct notifier_block *nb,
 	printk(KERN_INFO "%s: start processing event=%lx\n", __func__, event);
 
 	// Notify the event to nvrm_daemon.
-	if (event == PM_SUSPEND_PREPARE) {
+	switch (event) {
+	case PM_SUSPEND_PREPARE:
 #ifndef CONFIG_HAS_EARLYSUSPEND
 		notify_daemon(STRING_PM_DISPLAY_OFF);
 #endif
 		notify_daemon(STRING_PM_SUSPEND_PREPARE);
-	}
-	else if (event == PM_POST_SUSPEND) {
-	        #if WAKE_LOCK
-	        wake_lock_timeout(&rm_wake_lock, 5*HZ );
-	        #endif
+		NvRmPrivDvsStop();
+		break;
+	case PM_POST_SUSPEND:
 		notify_daemon(STRING_PM_POST_SUSPEND);
 #ifndef CONFIG_HAS_EARLYSUSPEND
 		notify_daemon(STRING_PM_DISPLAY_ON);
 #endif
-	}
-	else {
+		NvRmPrivDvsRun();
+		break;
+	default:
 		printk(KERN_ERR "%s: unknown event %ld\n", __func__, event);
 		return NOTIFY_DONE;
 	}
@@ -725,7 +639,7 @@ void tegra_display_off(struct early_suspend *h)
 
 void tegra_display_on(struct early_suspend *h)
 {
-	notify_daemon(STRING_PM_DISPLAY_ON);
+//Henry--	notify_daemon(STRING_PM_DISPLAY_ON);
 }
 
 static struct early_suspend tegra_display_power =
@@ -735,46 +649,95 @@ static struct early_suspend tegra_display_power =
 	.level = EARLY_SUSPEND_LEVEL_DISABLE_FB
 };
 #endif
+
+/*
+ * NVRM CPU power gating (LP2) policy
+ */
+static ssize_t
+nvrm_lp2policy_show(struct kobject *kobj, struct kobj_attribute *attr,
+                    char *buf)
+{
+    return sprintf(buf, "%u\n", g_Lp2Policy);
+}
+
+static ssize_t
+nvrm_lp2policy_store(struct kobject *kobj, struct kobj_attribute *attr,
+                     const char *buf, size_t count)
+{
+    unsigned int n, policy;
+
+    n = sscanf(buf, "%u", &policy);
+    if ((n != 1) || (policy >= NvRmLp2Policy_Num))
+        return -1;
+
+    g_Lp2Policy = policy;
+    return count;
+}
+
+static struct kobj_attribute nvrm_lp2policy_attribute =
+              __ATTR(lp2policy, 0644, nvrm_lp2policy_show, nvrm_lp2policy_store);
+
+/*
+ * NVRM lowest power state run-time selection
+ */
+static ssize_t
+nvrm_core_lock_show(struct kobject *kobj, struct kobj_attribute *attr,
+			char *buf)
+{
+	return sprintf(buf, "%u\n", core_lock_on);
+}
+
+static ssize_t
+nvrm_core_lock_store(struct kobject *kobj, struct kobj_attribute *attr,
+			const char *buf, size_t count)
+{
+	unsigned int n, lock;
+
+	n = sscanf(buf, "%u", &lock);
+	if (n != 1)
+		return -1;
+
+	core_lock_on = (bool)lock;
+	return count;
+}
+
+static struct kobj_attribute nvrm_core_lock_attribute =
+	__ATTR(core_lock, 0666, nvrm_core_lock_show, nvrm_core_lock_store);
+
 #endif
 
 static int __init nvrm_init(void)
 {
-	int ret = 0;
-	printk(KERN_INFO "%s called\n", __func__);
+    int ret = 0;
+    printk(KERN_INFO "%s called\n", __func__);
 
-	#if defined(CONFIG_PM)
-	// Register PM notifier.
-	pm_notifier(tegra_pm_notifier, 0);
-	tegra_pm_notifier_continue_ok = 0;
-	init_waitqueue_head(&tegra_pm_notifier_wait);
+    #if defined(CONFIG_PM)
+    // Register PM notifier.
+    pm_notifier(tegra_pm_notifier, 0);
+    tegra_pm_notifier_continue_ok = 0;
+    init_waitqueue_head(&tegra_pm_notifier_wait);
 
-	#if defined(CONFIG_HAS_EARLYSUSPEND)
-	register_early_suspend(&tegra_display_power);
-	#endif
+    #if defined(CONFIG_HAS_EARLYSUSPEND)
+    register_early_suspend(&tegra_display_power);
+    #endif
 
-	// Create /sys/power/nvrm/notifier.
-	nvrm_kobj = kobject_create_and_add("nvrm", power_kobj);
-	sysfs_create_file(nvrm_kobj, &nvrm_notifier_attribute.attr);
-	sys_nvrm_notifier = NULL;
-	init_waitqueue_head(&sys_nvrm_notifier_wait);
-	#endif
+    // Create /sys/power/nvrm/notifier.
+    nvrm_kobj = kobject_create_and_add("nvrm", power_kobj);
+    sysfs_create_file(nvrm_kobj, &nvrm_core_lock_attribute.attr);
+    sysfs_create_file(nvrm_kobj, &nvrm_lp2policy_attribute.attr);
+    sysfs_create_file(nvrm_kobj, &nvrm_notifier_attribute.attr);
+    sys_nvrm_notifier = NULL;
+    init_waitqueue_head(&sys_nvrm_notifier_wait);
+    #endif
 
-	// Register NvRm platform driver.
-	ret = platform_driver_register(&nvrm_driver);
+    // Register NvRm platform driver.
+    ret = platform_driver_register(&nvrm_driver);
 
-	#if WAKE_LOCK
-	//wake_lock_init(&rm_wake_lock, WAKE_LOCK_SUSPEND, "tegra_rm_wakelock_suspend");
-	wake_lock_init(&rm_wake_lock, WAKE_LOCK_IDLE, "tegra_rm_wakelock_suspend");
-	#endif
-
-	return ret;
+    return ret;
 }
 
 static void __exit nvrm_deinit(void)
 {
-    #if WAKE_LOCK
-    wake_lock_destroy(&rm_wake_lock);
-    #endif
     printk(KERN_INFO "%s called\n", __func__);
     platform_driver_unregister(&nvrm_driver);
 }

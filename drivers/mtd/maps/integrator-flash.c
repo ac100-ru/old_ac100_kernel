@@ -31,6 +31,7 @@
 #include <linux/ioport.h>
 #include <linux/platform_device.h>
 #include <linux/init.h>
+#include <linux/io.h>
 
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/map.h>
@@ -39,13 +40,10 @@
 
 #include <asm/mach/flash.h>
 #include <mach/hardware.h>
-#include <asm/io.h>
 #include <asm/system.h>
 
-#define SUBDEV_NAME_SIZE	(BUS_ID_SIZE + 2)
-
 struct armflash_subdev_info {
-	char			name[SUBDEV_NAME_SIZE];
+	char			*name;
 	struct mtd_info		*mtd;
 	struct map_info		map;
 	struct flash_platform_data *plat;
@@ -92,12 +90,12 @@ static int armflash_subdev_probe(struct armflash_subdev_info *subdev,
 	/*
 	 * look for CFI based flash parts fitted to this board
 	 */
-	info->map.size		= size;
-	info->map.bankwidth	= plat->width;
-	info->map.phys		= res->start;
-	info->map.virt		= base;
-	info->map.name		= dev_name(&dev->dev);
-	info->map.set_vpp	= armflash_set_vpp;
+	subdev->map.size	= size;
+	subdev->map.bankwidth	= plat->width;
+	subdev->map.phys	= res->start;
+	subdev->map.virt	= base;
+	subdev->map.name	= subdev->name;
+	subdev->map.set_vpp	= armflash_set_vpp;
 
 	simple_map_init(&subdev->map);
 
@@ -134,6 +132,8 @@ static void armflash_subdev_remove(struct armflash_subdev_info *subdev)
 		map_destroy(subdev->mtd);
 	if (subdev->map.virt)
 		iounmap(subdev->map.virt);
+	kfree(subdev->name);
+	subdev->name = NULL;
 	release_mem_region(subdev->map.phys, subdev->map.size);
 }
 
@@ -177,16 +177,22 @@ static int armflash_probe(struct platform_device *dev)
 
 		if (nr == 1)
 			/* No MTD concatenation, just use the default name */
-			snprintf(subdev->name, SUBDEV_NAME_SIZE, "%s",
-				 dev_name(&dev->dev));
+			subdev->name = kstrdup(dev_name(&dev->dev), GFP_KERNEL);
 		else
-			snprintf(subdev->name, SUBDEV_NAME_SIZE, "%s-%d",
-				 dev_name(&dev->dev), i);
+			subdev->name = kasprintf(GFP_KERNEL, "%s-%d",
+						 dev_name(&dev->dev), i);
+		if (!subdev->name) {
+			err = -ENOMEM;
+			break;
+		}
 		subdev->plat = plat;
 
 		err = armflash_subdev_probe(subdev, res);
-		if (err)
+		if (err) {
+			kfree(subdev->name);
+			subdev->name = NULL;
 			break;
+		}
 	}
 	info->nr_subdev = i;
 

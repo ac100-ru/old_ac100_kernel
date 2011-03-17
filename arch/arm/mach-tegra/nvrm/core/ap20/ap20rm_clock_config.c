@@ -191,9 +191,6 @@ static struct Ap20CpuConfigRec
     // PLLX frequency steps table pointer 
     const NvRmFreqKHz* pPllXStepsKHz;
 
-    // CPU power good delay in microseconds
-    NvU32 CpuPowerGoodUs;
-
     // Core over CPU voltage dependency parameters:
     // Vcore >= CoreOverCpuSlope * Vcpu + CoreOverCpuOffset
     NvU32 CoreOverCpuOffset;
@@ -475,15 +472,15 @@ static void Ap20EmcConfigInit(NvRmDeviceHandle hRmDevice)
      }
 }
 
+// EMC module virtual base address to speed up timing update
+static void* s_pEmcBaseReg = NULL;
+
 static void
 Ap20EmcTimingSet(
     NvRmDeviceHandle hRmDevice,
     const NvRmAp20EmcTimingConfig* pEmcConfig)
 {
     NvU32 i, a, d;
-
-    // EMC module virtual base address to speed up timing update
-    static void* s_pEmcBaseReg = NULL;
 
     if (s_pEmcBaseReg == NULL)
     {
@@ -499,6 +496,43 @@ Ap20EmcTimingSet(
         a = (((NvU32)(s_pEmcBaseReg)) + s_Ap20EmcConfig.pEmcTimingReg[i]);
         NV_WRITE32(a, d);
     }
+
+    // Clear clock change interrupt status (write 1 to clear)
+    a = (((NvU32)(s_pEmcBaseReg)) + EMC_INTSTATUS_0);
+    d = NV_DRF_NUM(EMC, INTSTATUS, CLKCHANGE_COMPLETE_INT, 1);
+    NV_WRITE32(a, d);
+
+    d = NV_READ32(a);   // make sure writes are completed
+}
+
+static void
+Ap20EmcTimingSetFinish(
+    NvRmDeviceHandle hRmDevice,
+    const NvRmAp20EmcTimingConfig* pEmcConfig)
+{
+    NvU32 a, d;
+    NV_ASSERT(s_pEmcBaseReg);
+
+    // After EMC clock change is completed, digital DLL should be restarted
+    // (provided it is enabled for current EMC frequency)
+    if (!NV_DRF_VAL(EMC, CFG_DIG_DLL, CFG_DLL_EN, pEmcConfig->EmcDigDll))
+        return;
+
+    a = (((NvU32)(s_pEmcBaseReg)) + EMC_INTSTATUS_0);
+    for (;;)
+    {
+        d = NV_DRF_VAL(EMC, INTSTATUS, CLKCHANGE_COMPLETE_INT, NV_READ32(a));
+        if (d)
+            break;
+    }
+
+    a = (((NvU32)(s_pEmcBaseReg)) + EMC_CFG_DIG_DLL_0);
+    NV_WRITE32(a, pEmcConfig->EmcDigDll);
+    d = NV_READ32(a);   // make sure writes are completed
+
+    a = (((NvU32)(s_pEmcBaseReg)) + EMC_TIMING_CONTROL_0);
+    d = NV_DRF_NUM(EMC, TIMING_CONTROL, TIMING_UPDATE, 1);
+    NV_WRITE32(a, d);
     d = NV_READ32(a);   // make sure writes are completed
 }
 
@@ -567,6 +601,7 @@ Ap20EmcSwitchToUndividedPllM0(
     NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
             CLK_RST_CONTROLLER_CLK_SOURCE_EMC_0, reg);
     NvOsWaitUS(NVRM_CLOCK_CHANGE_DELAY);
+    Ap20EmcTimingSetFinish(hRmDevice, pEmcConfig);
 
     // Now set new divider value. Note that PLLM_UD bit is already set, so
     // the actual EMC frequency is not changed. Hence, no need to update EMC
@@ -609,6 +644,7 @@ Ap20EmcSwitchFromUndividedPllM0(
     NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
             CLK_RST_CONTROLLER_CLK_SOURCE_EMC_0, reg);
     NvOsWaitUS(NVRM_CLOCK_CHANGE_DELAY);
+    Ap20EmcTimingSetFinish(hRmDevice, pEmcConfig);
 
     // Update EMC state
     s_Ap20EmcConfig.UdPllM0 = NV_FALSE;
@@ -648,6 +684,7 @@ Ap20EmcSwitchDividedSources(
     NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
             CLK_RST_CONTROLLER_CLK_SOURCE_EMC_0, reg);
     NvOsWaitUS(NVRM_CLOCK_CHANGE_DELAY);
+    Ap20EmcTimingSetFinish(hRmDevice, pEmcConfig);
 
     // Update EMC state (undivided path status not changed)
     NV_ASSERT(!s_Ap20EmcConfig.UdPllM0);
@@ -890,7 +927,7 @@ Ap20VdeClockSourceFind(
     if (s_Ap20VdeConfig.pVdeState->refCount == 0)
     {
         pDfsSource->SourceId = NvRmClockSource_Invalid;
-        pDfsSource->MinMv = NvRmVoltsUnspecified;
+        pDfsSource->MinMv = NvRmVoltsOff;
         return;
     }
 
@@ -964,13 +1001,12 @@ Ap20VdeClockSourceFind(
     }
 
 get_mv:
-    // Finally update VDE v-scale references, get operational voltage for the
-    // found source/divider settings, and store new domain frequency
-    NvRmPrivLockModuleClockState();
-    pDfsSource->MinMv = NvRmPrivModuleVscaleReAttach(
-        hRmDevice, s_Ap20VdeConfig.pVdeInfo, s_Ap20VdeConfig.pVdeState,
-        DomainKHz, SourceKHz, NV_FALSE);
-    NvRmPrivUnlockModuleClockState();
+    // Finally get operational voltage for the found source/divider settings,
+    // and store new domain frequency
+    pDfsSource->MinMv =
+        NvRmPrivModuleVscaleGetMV(hRmDevice, NvRmModuleID_Vde, DomainKHz);
+    if (pDfsSource->MinMv < NvRmPrivSourceVscaleGetMV(hRmDevice, SourceKHz))
+        pDfsSource->MinMv = NvRmPrivSourceVscaleGetMV(hRmDevice, SourceKHz);
     pDfsSource->SourceKHz = DomainKHz;
 }
 
@@ -1012,13 +1048,17 @@ Ap20VdeClockConfigure(
         return;
     }
 
-    // Set new VDE clock state and update PLL references
+    // Set new VDE clock state and update PLL, V-scale references
     NvRmPrivLockModuleClockState();
     pCstate->SourceClock = SourceIndex;
     pCstate->Divider = pDfsSource->DividerSetting;
     pCstate->actual_freq = pDfsSource->SourceKHz;
     NvRmPrivModuleClockSet(hRmDevice, pCinfo, pCstate);
+
     NvRmPrivModuleClockReAttach(hRmDevice, pCinfo, pCstate);
+    NvRmPrivModuleVscaleReAttach(
+        hRmDevice, pCinfo, pCstate, pCstate->actual_freq,
+        NvRmPrivGetClockSourceFreq(pDfsSource->SourceId), NV_FALSE);
     NvRmPrivUnlockModuleClockState();
 
     *pDomainKHz = pCstate->actual_freq;
@@ -1033,9 +1073,9 @@ Ap20SystemClockSourceFind(
     NvRmFreqKHz DomainKHz,
     NvRmDfsSource* pDfsSource)
 {
-    NvU32 i;
+    NvU32 i, m, c;
     NvRmMilliVolts DivMv;
-    NvRmFreqKHz SourceKHz, M1KHz, C1KHz;
+    NvRmFreqKHz SourceKHz, M1KHz, C1KHz, P2KHz;
     NV_ASSERT(DomainKHz <= MaxKHz);
     DivMv = pDfsSource->DividerSetting = 0; // no 2ndary divider by default
 
@@ -1048,7 +1088,7 @@ Ap20SystemClockSourceFind(
         pDfsSource->SourceKHz = SourceKHz;
         goto get_mv;
     }
-
+#if NVRM_AP20_USE_OSC_DOUBLER
     // 2nd choice - doubler
     SourceKHz = NvRmPrivGetClockSourceFreq(NvRmClockSource_ClkD);
     NV_ASSERT(SourceKHz <= MaxKHz);
@@ -1058,7 +1098,7 @@ Ap20SystemClockSourceFind(
         pDfsSource->SourceKHz = SourceKHz;
         goto get_mv;
     }
-
+#endif
     /*
      * 3rd option - PLLP divider per policy specification. Find
      * the policy entry with source frequency closest and above requested.
@@ -1083,39 +1123,53 @@ Ap20SystemClockSourceFind(
     {
         i--;    // last/highest source is the best we can do
     }
-    SourceKHz = s_Ap20PllPSystemClockPolicy[i].SourceKHz;
+    SourceKHz = P2KHz = s_Ap20PllPSystemClockPolicy[i].SourceKHz;
 
     /*
-     * 4th and 5th options - PLLM1 and PLLC1 secondary dividers are configured
-     * at maximum possible frequency during initialization or whenever base PLL
-     * settings are changed. Used these options only if PLLP can not provide
-     * high enough source frequency for the requested target. Always select the
-     * source (PLLM1 or PLLC1) with bigger frequency.
+     * 4th and 5th options - PLLM1 and PLLC1 secondary dividers. Use these
+     * options only if target frequency is above half of PLLP0 output. Select
+     * the option that provides minimum output frequency equal or above the
+     * target, if all output frequencies within domain maximum are below the
+     * target, select the maximum option.
      */
-    if (SourceKHz < DomainKHz)
+    if (DomainKHz > (NvRmPrivGetClockSourceFreq(NvRmClockSource_PllP0) >> 1))
     {
-        M1KHz = NvRmPrivGetClockSourceFreq(NvRmClockSource_PllM1);
-        C1KHz = NvRmPrivGetClockSourceFreq(NvRmClockSource_PllC1);
-        if ((M1KHz > SourceKHz) || (C1KHz > SourceKHz))
+        C1KHz = M1KHz = DomainKHz;
+        c = NvRmPrivFindFreqMinAbove(NvRmClockDivider_Fractional_2,
+                NvRmPrivGetClockSourceFreq(NvRmClockSource_PllC0),
+                MaxKHz, &C1KHz);
+        m = NvRmPrivFindFreqMinAbove(NvRmClockDivider_Fractional_2,
+                NvRmPrivGetClockSourceFreq(NvRmClockSource_PllM0),
+                MaxKHz, &M1KHz);
+
+        SourceKHz = NV_MAX(NV_MAX(C1KHz, M1KHz), P2KHz);
+        if ((DomainKHz <= P2KHz) && (P2KHz < SourceKHz))
+            SourceKHz = P2KHz;
+        if ((DomainKHz <= C1KHz) && (C1KHz < SourceKHz))
+            SourceKHz = C1KHz;
+        // PLLM1 is selected as the last resort if two others are below target
+
+        if (C1KHz == SourceKHz)
         {
-            if (M1KHz > C1KHz)
-            {
-                pDfsSource->SourceKHz = M1KHz;  // Selected PLLM 2ndary divider
-                pDfsSource->SourceId = NvRmClockSource_PllM1;
-                DivMv = NvRmPrivSourceVscaleGetMV(hRmDevice,
-                    NvRmPrivGetClockSourceFreq(NvRmClockSource_PllM0));
-            }
-            else
-            {
-                pDfsSource->SourceKHz = C1KHz;  // Selected PLLC 2ndary divider
-                pDfsSource->SourceId = NvRmClockSource_PllC1;
-                DivMv = NvRmPrivSourceVscaleGetMV(hRmDevice,
-                    NvRmPrivGetClockSourceFreq(NvRmClockSource_PllC0));
-            }
+            pDfsSource->SourceKHz = C1KHz;  // Selected PLLC 2ndary divider
+            pDfsSource->SourceId = NvRmClockSource_PllC1;
+            pDfsSource->DividerSetting = c;
+            DivMv = NvRmPrivSourceVscaleGetMV(hRmDevice,
+                NvRmPrivGetClockSourceFreq(NvRmClockSource_PllC0));
+            goto get_mv;
+        }
+        if (M1KHz == SourceKHz)
+        {
+            pDfsSource->SourceKHz = M1KHz;  // Selected PLLM 2ndary divider
+            pDfsSource->SourceId = NvRmClockSource_PllM1;
+            pDfsSource->DividerSetting = m;
+            DivMv = NvRmPrivSourceVscaleGetMV(hRmDevice,
+                NvRmPrivGetClockSourceFreq(NvRmClockSource_PllM0));
             goto get_mv;
         }
     }
-    pDfsSource->SourceKHz = SourceKHz;          // Selected PLLP 2ndary divider
+    // Selected PLLP 2ndary divider
+    pDfsSource->SourceKHz = s_Ap20PllPSystemClockPolicy[i].SourceKHz;
     pDfsSource->SourceId = s_Ap20PllPSystemClockPolicy[i].SourceId;
     pDfsSource->DividerSetting = s_Ap20PllPSystemClockPolicy[i].DividerSetting;
     DivMv = NvRmPrivSourceVscaleGetMV(hRmDevice,
@@ -1143,13 +1197,13 @@ Ap20SystemBusClockConfigure(
     switch(SourceId)
     {
         case NvRmClockSource_PllP2:
-            // Reconfigure PLLP variable divider if it is used as a source
+        case NvRmClockSource_PllC1:
+        case NvRmClockSource_PllM1:
+            // Reconfigure secondary divider if it is used as a source
             NvRmPrivDividerSet(hRmDevice,
                 NvRmPrivGetClockSourceHandle(SourceId)->pInfo.pDivider,
                 pDfsSource->DividerSetting);
             // fall through
-        case NvRmClockSource_PllC1:
-        case NvRmClockSource_PllM1:
         case NvRmClockSource_ClkD:
         case NvRmClockSource_ClkM:
             break;  // fixed sources - do nothing
@@ -1158,22 +1212,6 @@ Ap20SystemBusClockConfigure(
     }
     NV_ASSERT_SUCCESS(NvRmPrivCoreClockConfigure(
         hRmDevice, pCinfo, MaxKHz, pDomainKHz, &SourceId));
-}
-
-static void
-Ap20SetCpuPowerGoodDelay(
-    NvRmDeviceHandle hRmDevice,
-    NvRmFreqKHz ApbKHz)
-{
-    NvU32 reg;
-    NV_ASSERT(s_Ap20CpuConfig.CpuPowerGoodUs);
-
-    // AP20 CPU power good delay is counted by h/w in APB clocks (use 
-    // 1/1000 ~ 17/16384 with 3% margin)
-    reg = ((ApbKHz * 17) >> 14) * s_Ap20CpuConfig.CpuPowerGoodUs;
-    reg = NV_DRF_NUM(APBDEV_PMC, CPUPWRGOOD_TIMER, DATA, reg);
-    NV_REGW(hRmDevice, NvRmModuleID_Pmif, 0,
-            APBDEV_PMC_CPUPWRGOOD_TIMER_0, reg);
 }
 
 /*****************************************************************************/
@@ -1196,13 +1234,11 @@ static void Ap20CpuConfigInit(NvRmDeviceHandle hRmDevice)
     // parameters based on PMU property.
     if (!NvOdmQueryGetPmuProperty(&PmuProperty))
     {
-        PmuProperty.CpuPowerGoodUs = NVRM_DEFAULT_CPU_PWRGOOD_US;
         PmuProperty.AccuracyPercent = NVRM_DEFAULT_PMU_ACCURACY_PCT;
     }
-    NV_ASSERT(PmuProperty.CpuPowerGoodUs && PmuProperty.AccuracyPercent);
+    NV_ASSERT(PmuProperty.AccuracyPercent);
     NV_ASSERT(PmuProperty.AccuracyPercent < 5);  // 5% is a must for PMU
 
-    s_Ap20CpuConfig.CpuPowerGoodUs = PmuProperty.CpuPowerGoodUs;
     s_Ap20CpuConfig.CoreOverCpuOffset = (NV_AP20_CORE_OVER_CPU_MV * 100) /
                                         (100 - PmuProperty.AccuracyPercent);
     s_Ap20CpuConfig.CoreOverCpuSlope =
@@ -1394,14 +1430,14 @@ NvBool NvRmPrivAp20DfsClockConfigure(
         pMaxKHz->Domains[NvRmDfsClockId_Cpu],
         pDfsKHz->Domains[NvRmDfsClockId_Cpu],
         &CpuClockSource, &SystemMv);
-    // CPU clock source may affect system core voltage as well
+    // CPU and VDE clocks affect system core voltage as well
     SystemMv = NV_MAX(SystemMv, SystemClockSource.MinMv);
+    SystemMv = NV_MAX(SystemMv, VdeClockSource.MinMv);
 
 #if !NV_OAL
     // Adjust core and cpu voltage for the new clock sources before actual
-    // change. Note that only voltage requirements for always running clocks
-    // (CPU, System, EMC) are specified explicitely. VDE voltage requirement
-    // is already integrated with other clock-gated modules.
+    // change. Note that core voltage dependencies on CPU and VDE are already
+    // included into system voltage requirement.
     NvRmPrivVoltageScale(NV_TRUE, CpuClockSource.MinMv,
                          SystemMv, Emc2xClockSource.MinMv);
 #endif
@@ -1421,7 +1457,6 @@ NvBool NvRmPrivAp20DfsClockConfigure(
         &pDfsKHz->Domains[NvRmDfsClockId_Ahb],
         &pDfsKHz->Domains[NvRmDfsClockId_Apb],
         pMaxKHz->Domains[NvRmDfsClockId_Apb]);
-    Ap20SetCpuPowerGoodDelay(hRmDevice, pDfsKHz->Domains[NvRmDfsClockId_Apb]);
     Ap20VdeClockConfigure(hRmDevice,
         pMaxKHz->Domains[NvRmDfsClockId_Vpipe],
         &pDfsKHz->Domains[NvRmDfsClockId_Vpipe],
@@ -1562,6 +1597,8 @@ void
 NvRmPrivAp20FastClockConfig(NvRmDeviceHandle hRmDevice)
 {
 #if !NV_OAL
+    static NvBool resume = NV_FALSE;
+
     NvU32 divc1, divm1, divp2;
     NvRmFreqKHz SclkKHz, CpuKHz, PllP2KHz, PllM1KHz, PllC1KHz;
     NvRmDfsSource VdeSource;
@@ -1572,21 +1609,26 @@ NvRmPrivAp20FastClockConfig(NvRmDeviceHandle hRmDevice)
 
     // Set fastest EMC/MC configuration provided PLLM0 boot frequency matches
     // one of the pre-defined configurations, i.e, it is the first entry in the
-    // sorted table
+    // sorted table. Preserve warm boot EMC configuration during resume.
     if ((s_Ap20EmcConfigSortedTable[0].Emc2xKHz == FreqKHz) &&
-        (s_Ap20EmcConfig.Index != 0))
+        (s_Ap20EmcConfig.Index != 0) && (!resume))
     {
         Ap20EmcSwitchToUndividedPllM0(hRmDevice, s_Ap20EmcConfigSortedTable);
         s_Ap20EmcConfig.Index = 0;
     }
 
-    // Set AVP/System Bus clock (now, with nominal core voltage it can be up
-    // to SoC maximum). First determine settings for PLLP/PLLM/PLLC secondary
-    // dividers to get maximum possible frequency on PLLP_OUT2, or PLLM_OUT1
-    // or PLLC_OUT1 outputs.
-    SclkKHz = NvRmPrivGetSocClockLimits(NvRmModuleID_Avp)->MaxKHz;
+    // Set AVP/System Bus clock to maximum during initialization (core voltage
+    // is already nominal). During resume core voltage maybe below nominal,
+    // hence, preserve system bus frequency set by the warm boot code, but
+    // re-arrange source selection, and dividers settings per RM convention.
+    if (!resume)
+        SclkKHz = NvRmPrivGetSocClockLimits(NvRmModuleID_Avp)->MaxKHz;
+    else
+        SclkKHz = NvRmPrivGetClockSourceFreq(NvRmClockSource_SystemBus);
     NV_ASSERT(SclkKHz);
 
+    // First determine settings for PLLP/PLLM/PLLC secondary dividers to get
+    // closest target approximation from below
     FreqKHz = NvRmPrivGetClockSourceFreq(NvRmClockSource_PllP0);
     PllP2KHz = SclkKHz;
     divp2 = NvRmPrivFindFreqMaxBelow(
@@ -1636,19 +1678,21 @@ NvRmPrivAp20FastClockConfig(NvRmDeviceHandle hRmDevice)
             NvRmClockSource_PllC1, 0, 0);
     }
     NvRmPrivBusClockInit(hRmDevice, SclkKHz);
-    Ap20SetCpuPowerGoodDelay(
-        hRmDevice, NvRmPrivGetClockSourceFreq(NvRmClockSource_Apb));
 
-    // Set VDE maximum clock (VDE is disabled after basic reset - need to
-    // temporary enable it for configuration)
-    FreqKHz = NvRmPrivGetSocClockLimits(NvRmModuleID_Vde)->MaxKHz;
-    NvRmPowerModuleClockControl(hRmDevice, NvRmModuleID_Vde, 0, NV_TRUE);
-    Ap20VdeClockSourceFind(hRmDevice, FreqKHz, FreqKHz, &VdeSource);
-    Ap20VdeClockConfigure(hRmDevice, FreqKHz, &FreqKHz, &VdeSource);
-    NvRmPowerModuleClockControl(hRmDevice, NvRmModuleID_Vde, 0, NV_FALSE);
+    // No need for VDE re-configurations during resume.
+    if (!resume)
+    {
+        // Set VDE maximum clock during initialization (VDE is disabled
+        // after basic reset - need to temporary enable it for configuration)
+        FreqKHz = NvRmPrivGetSocClockLimits(NvRmModuleID_Vde)->MaxKHz;
+        NvRmPowerModuleClockControl(hRmDevice, NvRmModuleID_Vde, 0, NV_TRUE);
+        Ap20VdeClockSourceFind(hRmDevice, FreqKHz, FreqKHz, &VdeSource);
+        Ap20VdeClockConfigure(hRmDevice, FreqKHz, &FreqKHz, &VdeSource);
+        NvRmPowerModuleClockControl(hRmDevice, NvRmModuleID_Vde, 0, NV_FALSE);
+    }
 
-    // Set PLLX0 and CPU clock to SoC maximum (can be done now, when core
-    // voltage is guaranteed to be nominal)
+    // Set PLLX0 and CPU clock to SoC maximum (cpu voltage is guaranteed to
+    // be nominal during initialization and resume as well)
     CpuKHz = NvRmPrivGetSocClockLimits(NvRmModuleID_Cpu)->MaxKHz;
     FreqKHz = NvRmPrivGetClockSourceFreq(NvRmClockSource_PllX0);
     if (CpuKHz != FreqKHz)
@@ -1664,6 +1708,8 @@ NvRmPrivAp20FastClockConfig(NvRmDeviceHandle hRmDevice)
         hRmDevice,
         NvRmPrivGetClockSourceHandle(NvRmClockSource_PllP4)->pInfo.pDivider,
         NVRM_AP20_FIXED_PLLP4_SETTING);
+
+    resume = NV_TRUE;
 #endif
 }
 

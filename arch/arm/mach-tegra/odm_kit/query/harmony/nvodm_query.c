@@ -1,42 +1,21 @@
 /*
+ * arch/arm/mach-tegra/odm_kit/query/harmony/nvodm_query.c
+ *
  * Copyright (c) 2007-2009 NVIDIA Corporation.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * Neither the name of the NVIDIA Corporation nor the names of its contributors
- * may be used to endorse or promote products derived from this software
- * without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
- */
-
-/**
- * @file
- * <b>NVIDIA APX ODM Kit:
- *         Implementation of the ODM Query API</b>
- *
- * @b Description: Implements the query functions for ODMs that may be
- *                 accessed at boot-time, runtime, or anywhere in between.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include "nvodm_query.h"
@@ -301,13 +280,17 @@ static NvOdmWakeupPadInfo s_NvOdmWakeupPadInfo[] =
     {NV_FALSE,  4, NvOdmWakeupPadPolarity_High},    // Wake Event  4 - hdmi_int (HDMI_HPD)
     {NV_TRUE,   5, NvOdmWakeupPadPolarity_Low},     // Wake Event  5 - vgp[6] (VI_GP6, Flash_EN2)
     {NV_FALSE,  6, NvOdmWakeupPadPolarity_High},    // Wake Event  6 - gp3_pu[5] (GPS_ON_OFF, GPS_IRQ)
+#ifdef CONFIG_BT_BLUESLEEP
+    {NV_TRUE,  7, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event  7 - gp3_pu[6] (GPS_INT, BT_IRQ)
+#else
     {NV_FALSE,  7, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event  7 - gp3_pu[6] (GPS_INT, BT_IRQ)
+#endif
     {NV_FALSE,  8, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event  8 - gmi_wp_n (MICRO SD_CD)
     {NV_FALSE,  9, NvOdmWakeupPadPolarity_High},    // Wake Event  9 - gp3_ps[2] (KB_COL10)
     {NV_FALSE, 10, NvOdmWakeupPadPolarity_High},    // Wake Event 10 - gmi_ad21 (Accelerometer_TH/TAP)
     {NV_TRUE,  11, NvOdmWakeupPadPolarity_Low},     // Wake Event 11 - spi2_cs2 (PEN_INT, AUDIO-IRQ, LOW_BAT#)
     {NV_FALSE, 12, NvOdmWakeupPadPolarity_Low},     // Wake Event 12 - spi2_cs1 (HEADSET_DET, not used)
-    {NV_FALSE, 13, NvOdmWakeupPadPolarity_Low},     // Wake Event 13 - sdio1_dat1
+    {NV_TRUE,  13, NvOdmWakeupPadPolarity_Low},     // Wake Event 13 - sdio1_dat1 (WLAN_WAKE)
     {NV_FALSE, 14, NvOdmWakeupPadPolarity_High},    // Wake Event 14 - gp3_pv[6] (WLAN_INT)
     {NV_FALSE, 15, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event 15 - gmi_ad16  (SPI3_DOUT, DTV_SPI4_CS1)
     {NV_TRUE,  16, NvOdmWakeupPadPolarity_High},    // Wake Event 16 - rtc_irq
@@ -316,13 +299,13 @@ static NvOdmWakeupPadInfo s_NvOdmWakeupPadInfo[] =
 #else
     {NV_FALSE, 17, NvOdmWakeupPadPolarity_High},
 #endif
-    {NV_FALSE, 18, NvOdmWakeupPadPolarity_Low},     // Wake Event 18 - pwr_int (PMIC_INT)
+    {NV_TRUE,  18, NvOdmWakeupPadPolarity_Low},     // Wake Event 18 - pwr_int (PMIC_INT)
     {NV_FALSE, 19, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event 19 - usb_vbus_wakeup[0]
     {NV_FALSE, 20, NvOdmWakeupPadPolarity_High},    // Wake Event 20 - usb_vbus_wakeup[1]
     {NV_FALSE, 21, NvOdmWakeupPadPolarity_Low},     // Wake Event 21 - usb_iddig[0]
     {NV_FALSE, 22, NvOdmWakeupPadPolarity_Low},     // Wake Event 22 - usb_iddig[1]
     {NV_TRUE,  23, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event 23 - gmi_iordy (HSMMC_CLK)
-    {NV_FALSE, 24, NvOdmWakeupPadPolarity_High},    // Wake Event 24 - gp3_pv[2] (BB_MOD, MODEM WAKEUP_AP15, SPI-SS)
+    {NV_TRUE,  24, NvOdmWakeupPadPolarity_Low},     // Wake Event 24 - gp3_pv[2]
     {NV_FALSE, 25, NvOdmWakeupPadPolarity_High},    // Wake Event 25 - gp3_ps[4] (KB_COL12)
     {NV_FALSE, 26, NvOdmWakeupPadPolarity_High},    // Wake Event 26 - gp3_ps[5] (KB_COL10)
     {NV_FALSE, 27, NvOdmWakeupPadPolarity_High},    // Wake Event 27 - gp3_ps[0] (KB_COL8)
@@ -668,7 +651,7 @@ NvOdmQueryPinAttributes(const NvOdmPinAttrib** pPinAttributes)
 
 NvBool NvOdmQueryGetPmuProperty(NvOdmPmuProperty* pPmuProperty)
 {
-    pPmuProperty->IrqConnected = NV_FALSE;
+    pPmuProperty->IrqConnected = NV_TRUE;
     pPmuProperty->PowerGoodCount = 0x7E7E;
     pPmuProperty->IrqPolarity = NvOdmInterruptPolarity_Low;
     pPmuProperty->CorePowerReqPolarity = NvOdmCorePowerReqPolarity_Low;
@@ -677,6 +660,8 @@ NvBool NvOdmQueryGetPmuProperty(NvOdmPmuProperty* pPmuProperty)
     pPmuProperty->CpuPowerGoodUs = 2000;
     pPmuProperty->AccuracyPercent = 3;
     pPmuProperty->VCpuOTPOnWakeup = NV_FALSE;
+    pPmuProperty->PowerOffCount = 0;
+    pPmuProperty->CpuPowerOffUs = 0;
     return NV_TRUE;
 }
 

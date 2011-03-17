@@ -363,6 +363,24 @@ SpiHwSetChipSelectLevelBasedOnPacket(
     return NV_TRUE;
 }
 
+static void
+SpiHwSetCsSetupHoldTime(
+    SerialHwRegisters *pSlinkHwRegs,
+    NvU32 CsSetupTimeInClocks,
+    NvU32 CsHoldTimeInClocks)
+{
+    NV_ASSERT(0);
+}
+
+static void
+SpiHwSetSlaveCsId(
+    SerialHwRegisters *pSlinkHwRegs,
+    NvU32 CsId,
+    NvBool IsHigh)
+{
+    NV_ASSERT(0);
+}
+
 /**
  * Set the packet length and packed mode.
  */
@@ -605,6 +623,14 @@ static NvBool SpiHwIsTransferCompleted(SerialHwRegisters *pSpiHwRegs)
     return NV_TRUE;
 }
 
+static NvBool
+SpiHwClearFifosForNewTransfer(
+    SerialHwRegisters *pSpiHwRegs,
+    SerialHwDataFlow DataDirection)
+{
+    return NV_FALSE;
+}
+
 /**
  * Initialize the spi intterface for the hw access.
  */
@@ -622,6 +648,8 @@ void NvRmPrivSpiSlinkInitSpiInterface(HwInterface *pSpiInterface)
     pSpiInterface->HwSetChipSelectDefaultLevelFxn = SpiHwSetChipSelectDefaultLevelFxn;
     pSpiInterface->HwSetChipSelectLevelFxn = SpiHwSetChipSelectLevel;
     pSpiInterface->HwSetChipSelectLevelBasedOnPacketFxn = SpiHwSetChipSelectLevelBasedOnPacket;
+    pSpiInterface->HwSetCsSetupHoldTime    = SpiHwSetCsSetupHoldTime;
+    pSpiInterface->HwSetSlaveCsIdFxn    = SpiHwSetSlaveCsId;
     pSpiInterface->HwSetPacketLengthFxn = SpiHwSetPacketLength;
     pSpiInterface->HwSetDmaTransferSizeFxn = SpiHwSetDmaTransferSize;
     pSpiInterface->HwGetTransferdCountFxn = SpiHwGetTransferdCount;
@@ -632,4 +660,5 @@ void NvRmPrivSpiSlinkInitSpiInterface(HwInterface *pSpiInterface)
     pSpiInterface->HwClearTransferStatusFxn = SpiHwClearTransferStatus;
     pSpiInterface->HwGetTransferStatusFxn = SpiHwGetTransferStatus;
     pSpiInterface->HwIsTransferCompletedFxn = SpiHwIsTransferCompleted;
+    pSpiInterface->HwClearFifosForNewTransferFxn = SpiHwClearFifosForNewTransfer;
 }

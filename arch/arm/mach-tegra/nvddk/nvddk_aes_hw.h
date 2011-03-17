@@ -152,4 +152,3 @@ typedef struct AesHwIvRec
 #endif
 
 #endif // INCLUDED_AES_HW_H
-

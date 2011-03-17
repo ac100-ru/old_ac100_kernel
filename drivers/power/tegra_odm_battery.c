@@ -21,6 +21,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define NV_DEBUG 0
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -29,11 +31,11 @@
 #include <linux/debugfs.h>
 #include <linux/power_supply.h>
 #include <linux/wakelock.h>
-#include <linux/tegra_devices.h>
 
 #include "nvcommon.h"
 #include "nvos.h"
 #include "nvrm_pmu.h"
+#include "nvodm_battery.h"
 #include "mach/nvrm_linux.h" // for s_hRmGlobal
 
 #define NVBATTERY_POLLING_INTERVAL 30000 /* 30 Seconds */
@@ -71,10 +73,10 @@ static char *supply_list[] = {
 	"battery",
 };
 
-static int tegra_power_get_property(struct power_supply *psy, 
+static int tegra_power_get_property(struct power_supply *psy,
 	enum power_supply_property psp, union power_supply_propval *val);
 
-static int tegra_battery_get_property(struct power_supply *psy, 
+static int tegra_battery_get_property(struct power_supply *psy,
 	enum power_supply_property psp, union power_supply_propval *val);
 
 static struct power_supply tegra_supplies[] = {
@@ -120,6 +122,7 @@ typedef struct tegra_battery_dev {
 	NvU32	ACLineStatus;
 	NvU32	batt_status_poll_period;
 	NvBool	present;
+	NvOdmBatteryDeviceHandle hOdmBattDev;
 } tegra_battery_dev;
 
 static tegra_battery_dev *batt_dev;
@@ -247,7 +250,7 @@ static int tegra_get_ac_status(NvCharger_Type *charger)
 	return 0;
 }
 
-static int tegra_power_get_property(struct power_supply *psy, 
+static int tegra_power_get_property(struct power_supply *psy,
 	enum power_supply_property psp, union power_supply_propval *val)
 {
 	NvCharger_Type charger;
@@ -380,7 +383,7 @@ static void tegra_battery_poll_timer_func(unsigned long unused)
 static int tegra_battery_probe(struct platform_device *pdev)
 {
 	int i, rc;
-
+	NvBool result;
 
 	batt_dev = kzalloc(sizeof(*batt_dev), GFP_KERNEL);
 	if (!batt_dev) {
@@ -394,6 +397,12 @@ static int tegra_battery_probe(struct platform_device *pdev)
 	batt_dev->charging_source = NvCharger_Type_AC;
 	batt_dev->charging_enabled = NvCharge_Control_Charging_Enable;
 
+	result = NvOdmBatteryDeviceOpen(&(batt_dev->hOdmBattDev), NULL);
+	if (!result) {
+		pr_err("NvOdmBatteryDeviceOpen FAILED\n");
+		goto err;
+	}
+
 	for (i = 0; i < ARRAY_SIZE(tegra_supplies); i++) {
 		rc = power_supply_register(&pdev->dev, &tegra_supplies[i]);
 		if (rc) {
@@ -404,7 +413,6 @@ static int tegra_battery_probe(struct platform_device *pdev)
 			return rc;
 		}
 	}
-
 	printk(KERN_INFO "%s: battery driver registered\n", pdev->name);
 
 	batt_dev->batt_status_poll_period = NVBATTERY_POLLING_INTERVAL;
@@ -425,6 +433,12 @@ static int tegra_battery_probe(struct platform_device *pdev)
 	}
 
 	return 0;
+err:
+	if (batt_dev) {
+		kfree(batt_dev);
+		batt_dev = NULL;
+	}
+	return -1;
 }
 
 static int tegra_battery_remove(struct platform_device *pdev)
@@ -439,10 +453,13 @@ static int tegra_battery_remove(struct platform_device *pdev)
 		device_remove_file(&pdev->dev, &tegra_battery_attr);
 
 		del_timer_sync(&(batt_dev->battery_poll_timer));
+                if (batt_dev->hOdmBattDev) {
+                        NvOdmBatteryDeviceClose(batt_dev->hOdmBattDev);
+                        batt_dev->hOdmBattDev = NULL;
+                }
 		kfree(batt_dev);
 		batt_dev = NULL;
 	}
-
 	return 0;
 }
 

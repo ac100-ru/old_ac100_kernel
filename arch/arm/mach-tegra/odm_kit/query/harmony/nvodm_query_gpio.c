@@ -1,41 +1,34 @@
 /*
+ * arch/arm/mach-tegra/odm_kit/query/harmony/nvodm_query_gpio.c
+ *
  * Copyright (c) 2007-2009 NVIDIA Corporation.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * Neither the name of the NVIDIA Corporation nor the names of its contributors
- * may be used to endorse or promote products derived from this software
- * without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include "nvodm_query_gpio.h"
 #include "nvodm_services.h"
 #include "nvrm_drf.h"
+#include "nvodm_query_discovery.h"
+
+#include "linux/input.h"
 
 #define NVODM_ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define NVODM_PORT(x) ((x) - 'a')
+
+#define EEPROM_ID_E1206      0x0C06
 
 static const NvOdmGpioPinInfo s_vi[] = {
     {NVODM_PORT('t'), 3, NvOdmGpioPinActiveState_High}, // EN_VDDIO_SD
@@ -153,6 +146,27 @@ static const NvOdmGpioPinInfo s_WakeFromKeyBoard[] = {
     {NVODM_PORT('a'), 0, NvOdmGpioPinActiveState_Low}   // EC Keyboard Wakeup
 };
 
+// Gpio based keypad
+static const NvOdmGpioPinKeyInfo s_GpioPinKeyInfo[] = {
+    {KEY_MENU, 10, NV_TRUE},
+    {KEY_HOME, 10, NV_TRUE},
+    {KEY_BACK, 10, NV_TRUE},
+    {KEY_F3, 10, NV_TRUE},
+    {KEY_F4, 10, NV_TRUE},
+    {KEY_MENU, 10, NV_TRUE},
+};
+
+
+// Gpio based keypad
+static const NvOdmGpioPinInfo s_GpioKeyBoard[] = {
+    {NVODM_PORT('q'), 0, NvOdmGpioPinActiveState_Low, (void *)&s_GpioPinKeyInfo[0]},
+    {NVODM_PORT('q'), 1, NvOdmGpioPinActiveState_Low, (void *)&s_GpioPinKeyInfo[1]},
+    {NVODM_PORT('q'), 2, NvOdmGpioPinActiveState_Low, (void *)&s_GpioPinKeyInfo[2]},
+    {NVODM_PORT('q'), 3, NvOdmGpioPinActiveState_Low, (void *)&s_GpioPinKeyInfo[3]},
+    {NVODM_PORT('q'), 4, NvOdmGpioPinActiveState_Low, (void *)&s_GpioPinKeyInfo[4]},
+    {NVODM_PORT('v'), 2, NvOdmGpioPinActiveState_Low, (void *)&s_GpioPinKeyInfo[5]},
+};
+
 static const NvOdmGpioPinInfo s_Battery[] = {
     // Low Battery
     {NVODM_PORT('w'), 3, NvOdmGpioPinActiveState_Low},
@@ -161,6 +175,7 @@ static const NvOdmGpioPinInfo s_Battery[] = {
 const NvOdmGpioPinInfo *NvOdmQueryGpioPinMap(NvOdmGpioPinGroup Group,
     NvU32 Instance, NvU32 *pCount)
 {
+    NvOdmBoardInfo BoardInfo;
     switch (Group)
     {
         case NvOdmGpioPinGroup_Display:
@@ -225,9 +240,18 @@ const NvOdmGpioPinInfo *NvOdmQueryGpioPinMap(NvOdmGpioPinGroup Group,
             *pCount = NVODM_ARRAY_SIZE(s_Power);
             return s_Power;
 
-        case NvOdmGpioPinGroup_WakeFromECKeyboard:
+        case NvOdmGpioPinGroup_EmbeddedController:
             *pCount = NVODM_ARRAY_SIZE(s_WakeFromKeyBoard);
             return s_WakeFromKeyBoard;
+
+        case NvOdmGpioPinGroup_keypadMisc:
+            if (NvOdmPeripheralGetBoardInfo(EEPROM_ID_E1206, &BoardInfo))
+            {
+                *pCount = NVODM_ARRAY_SIZE(s_GpioKeyBoard);
+                return s_GpioKeyBoard;
+            }
+            *pCount = 0;
+            return NULL;
 
         case NvOdmGpioPinGroup_Battery:
             *pCount = NVODM_ARRAY_SIZE(s_Battery);

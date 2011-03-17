@@ -34,7 +34,6 @@ void __init reserve_node_zero(pg_data_t *pgdat)
 			BOOTMEM_DEFAULT);
 #endif
 
-#ifndef CONFIG_CPU_V7M
 	/*
 	 * Register the exception vector page.
 	 * some architectures which the DRAM is the exception vector to trap,
@@ -42,7 +41,6 @@ void __init reserve_node_zero(pg_data_t *pgdat)
 	 */
 	reserve_bootmem_node(pgdat, CONFIG_VECTORS_BASE, PAGE_SIZE,
 			BOOTMEM_DEFAULT);
-#endif
 }
 
 /*
@@ -63,7 +61,7 @@ void setup_mm_for_reboot(char mode)
 
 void flush_dcache_page(struct page *page)
 {
-	__cpuc_flush_dcache_page(page_address(page));
+	__cpuc_flush_dcache_area(page_address(page), PAGE_SIZE);
 }
 EXPORT_SYMBOL(flush_dcache_page);
 

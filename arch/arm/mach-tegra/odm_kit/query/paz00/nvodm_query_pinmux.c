@@ -41,23 +41,15 @@
 #include "nvassert.h"
 #include "nvodm_query.h"
 #include "nvodm_services.h"
-#include "nvodm_query_gpio.h"
-
-
-#if ((defined EVT_HARDWARE_LAYOUT && defined DVT_HARDWARE_LAYOUT) || \
-	 (defined EVT_HARDWARE_LAYOUT && defined PVT_HARDWARE_LAYOUT) || \
-	 (defined DVT_HARDWARE_LAYOUT && defined PVT_HARDWARE_LAYOUT))
-#error multi defined hardware layout
-#endif
 
 #define NVODM_PINMUX_ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 static const NvU32 s_NvOdmPinMuxConfig_Uart[] = {
-    NvOdmUartPinMap_Config4,    // UART1, 2 lines
-    0,                          // UART2, 2 lines
-    NvOdmUartPinMap_Config1,    // UART3, 4 lines
-    0,                          // UART4, 4 lines
-    0                           // UART5
+    NvOdmUartPinMap_Config4,    // Debug
+    0,
+    0,
+    0,
+    0
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Spi[] = {
@@ -73,13 +65,13 @@ static const NvU32 s_NvOdmPinMuxConfig_Twc[] = {
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_I2c[] = {
-    NvOdmI2cPinMap_Config1,
-    NvOdmI2cPinMap_Config1,
-    NvOdmI2cPinMap_Config1
+    NvOdmI2cPinMap_Config1,   // Light sensor, TPM, G-Sensor
+    NvOdmI2cPinMap_Config1,   // LCD, HDMI
+    NvOdmI2cPinMap_Config1    // EC
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_I2cPmu[] = {
-    NvOdmI2cPmuPinMap_Config1
+    NvOdmI2cPmuPinMap_Config1 // PMU, Thermal sensor
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Ulpi[] = {
@@ -87,10 +79,10 @@ static const NvU32 s_NvOdmPinMuxConfig_Ulpi[] = {
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Sdio[] = {
-    NvOdmSdioPinMap_Config1, 
-    NvOdmSdioPinMap_Config1,
+    NvOdmSdioPinMap_Config1,  // SD memory card
     0,
-    NvOdmSdioPinMap_Config2
+    0,
+    NvOdmSdioPinMap_Config2   // EMMC
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Spdif[] = {
@@ -110,7 +102,7 @@ static const NvU32 s_NvOdmPinMuxConfig_Hdmi[] = {
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Pwm[] = {
-    NvOdmPwmPinMap_Config1
+    NvOdmPwmPinMap_Config1    // PWM0 on ball PU3
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Ata[] = {
@@ -118,14 +110,14 @@ static const NvU32 s_NvOdmPinMuxConfig_Ata[] = {
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Nand[] = {
-    0, 
+    0 
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Dap[] = {
-    NvOdmDapPinMap_Config1,
+    NvOdmDapPinMap_Config1,   // Audio
     0, 
     0, 
-    NvOdmDapPinMap_Config1,
+    0,
     0
 };
 
@@ -142,8 +134,8 @@ static const NvU32 s_NvOdmPinMuxConfig_Mio[] = {
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_ExternalClock[] = {
-    NvOdmExternalClockPinMap_Config1,
-    NvOdmExternalClockPinMap_Config3,
+    NvOdmExternalClockPinMap_Config1,  // Audio (PLLA out)
+    NvOdmExternalClockPinMap_Config3,  // ULPI
     0
 };
 
@@ -152,7 +144,7 @@ static const NvU32 s_NvOdmPinMuxConfig_VideoInput[] = {
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Display[] = {
-    NvOdmDisplayPinMap_Config2,
+    NvOdmDisplayPinMap_Config2,  // 18bit LCD
     0  // Only 1 display is connected to the LCD pins
 };
 
@@ -162,11 +154,11 @@ static const NvU32 s_NvOdmPinMuxConfig_BacklightPwm[] = {
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Crt[] = {
-    0,
+    0
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_Tvo[] = {
-    0,
+    0
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_OneWire[] = {
@@ -174,7 +166,14 @@ static const NvU32 s_NvOdmPinMuxConfig_OneWire[] = {
 };
 
 static const NvU32 s_NvOdmPinMuxConfig_PciExpress[] = {
-    0,
+    0
+};
+
+static const NvU32 s_NvOdmClockLimit_Sdio[] = {
+    50000,
+    50000,
+    50000,
+    50000,
 };
 
 void
@@ -304,6 +303,11 @@ NvOdmQueryClockLimits(
 {
     switch (IoModule)
     {
+        case NvOdmIoModule_Sdio:
+            *pClockSpeedLimits = s_NvOdmClockLimit_Sdio;
+            *pCount = NVODM_PINMUX_ARRAY_SIZE(s_NvOdmClockLimit_Sdio);
+            break;
+
         default:
             *pClockSpeedLimits = NULL;
             *pCount = 0;

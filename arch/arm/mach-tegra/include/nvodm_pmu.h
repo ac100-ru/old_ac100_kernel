@@ -424,10 +424,6 @@ NvOdmPmuSetChargingCurrent(
  */
 void NvOdmPmuInterruptHandler( NvOdmPmuDeviceHandle  hDevice);
 
-//Simon@NV
-NvBool NvOdmPmuCheckAlarmIntEnabled( NvOdmPmuDeviceHandle  hDevice);
-NvBool NvodmPmuPmuEnableAlarmInt(NvOdmPmuDeviceHandle hDevice, NvBool Enable);
-
 /**
  * Gets the count in seconds of the current external RTC (in PMU).
  *
@@ -457,7 +453,7 @@ NvOdmPmuWriteRtc(
  *
  * @param hDevice A handle to the PMU.
  * @param Count A pointer to where to return the current counter in sec.
- * @return NV_TRUE if successful, or NV_FALSE otherwise. 
+ * @return NV_TRUE if successful, or NV_FALSE otherwise.
  */
 NvBool
 NvOdmPmuReadAlarm(
@@ -486,6 +482,35 @@ NvBool
 NvOdmPmuIsRtcInitialized(
     NvOdmPmuDeviceHandle hDevice);
 
+/**
+ * Registers a callback function for PMU RTC Alarm.
+ *
+ * @param hDevice A handle to the PMU.
+ * @param func Callback function to call on alarm interrupt.
+ * @return NV_TRUE if successfully registered, or NV_FALSE on failure.
+ */
+NvBool
+NvOdmPmuAlarmHandlerSet(
+	NvOdmPmuDeviceHandle hDevice,
+	NvBool (*func)(NvOdmPmuDeviceHandle));
+
+/**
+ * Prep PMU for suspend.
+ * @param hDevice A handle to the PMU.
+ * @return NV_TRUE if successful, or NV_FALSE otherwise.
+ */
+NvBool
+NvOdmPmuSuspendRtc(
+	NvOdmPmuDeviceHandle hDevice);
+
+/**
+ * Restore PMU from suspend.
+ * @param hDevice A handle to the PMU.
+ * @return NV_TRUE if successful, or NV_FALSE otherwise.
+ */
+NvBool
+NvOdmPmuResumeRtc(
+	NvOdmPmuDeviceHandle hDevice);
 
 #if defined(__cplusplus)
 }

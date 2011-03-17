@@ -1,33 +1,19 @@
 /*
  * Copyright (c) 2007-2009 NVIDIA Corporation.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * Neither the name of the NVIDIA Corporation nor the names of its contributors
- * may be used to endorse or promote products derived from this software
- * without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include "mach/nvrm_linux.h" // for s_hRmGlobal
@@ -42,22 +28,19 @@
 #define NVODM_ENABLE_PRINTF      0
 
 #if NVODM_ENABLE_PRINTF
-#define NVODM_PRINTF(x) NvOsDebugPrintf x
+#define NVODM_PRINTF(x) NvOdmOsDebugPrintf x
 #else
 #define NVODM_PRINTF(x)
 #endif
 
-// wake from keyboard disabled for now
+// wake from keyboard
 #define WAKE_FROM_KEYBOARD	1
 
-/* command main category */
-#define EC_KBC_COMMAND 0x5
+// enable/disable keyboard scanning in suspend
+#define KEYBOARD_SCANNING_DISABLED_IN_SUSPEND 0
 
 /* number of LEDS on the keyboard */
 enum {NUM_OF_LEDS = 3};
-
-/* Keyboard specific sub-commands */
-#define KBD_RESET_COMMAND 0xFF
 
 /* Special Scan Code set 1 codes */
 #define SC1_LSHIFT (0x2A)
@@ -86,7 +69,7 @@ typedef struct NvOdmKbdContextRec
 	NvRmGpioInterruptHandle GpioIntrHandle;
 	NvU32 PinCount;
 } NvOdmKbdContext;
-static NvOdmKbdContext *hOdm;
+NvOdmKbdContext *hOdm;
 
 static void GpioInterruptHandler(void *args)
 {
@@ -113,8 +96,7 @@ NvBool NvOdmKeyboardInit(void)
     NvStatus = NvEcOpen(&s_NvEcHandle, 0 /* instance */);
     if (NvStatus != NvError_Success)
     {
-        NvOsDebugPrintf("===> NvOdmKeyboardInit: NvEcOpen failed!\n");
-		goto fail;
+        goto fail;
     }
 
     /* reset the EC to start the keyboard scanning */
@@ -124,18 +106,16 @@ NvBool NvOdmKeyboardInit(void)
     Request.NumPayloadBytes = 0;
 
     NvStatus = NvEcSendRequest(s_NvEcHandle, &Request, &Response, sizeof(Request), sizeof(Response));
-#if 0
     if (NvStatus != NvError_Success)
     {
         goto cleanup;
     }
-    
+
     /* check if command passed */
     if (Response.Status != NvEcStatus_Success)
     {
         goto cleanup;
     }
-#endif
 
 #if WAKE_FROM_KEYBOARD
 	hOdm = NvOdmOsAlloc(sizeof(NvOdmKbdContext));
@@ -144,15 +124,13 @@ NvBool NvOdmKeyboardInit(void)
 	}
 
 	/* Check the supported GPIOs */
-	hOdm->GpioPinInfo = NvOdmQueryGpioPinMap(NvOdmGpioPinGroup_WakeFromECKeyboard,
-					0,
-					&hOdm->PinCount);
-        if (hOdm->GpioPinInfo && hOdm->PinCount) {
-            NvRmGpioAcquirePinHandle(s_hGpioGlobal,
-                hOdm->GpioPinInfo->Port,
-                hOdm->GpioPinInfo->Pin,
-                &hOdm->hPin);
-        }
+	hOdm->GpioPinInfo = NvOdmQueryGpioPinMap(NvOdmGpioPinGroup_EmbeddedController,
+					0, &hOdm->PinCount);
+
+	NvRmGpioAcquirePinHandle(s_hGpioGlobal,
+		hOdm->GpioPinInfo->Port,
+		hOdm->GpioPinInfo->Pin,
+		&hOdm->hPin);
 	if (!hOdm->hPin) {
 		goto cleanup;
 	}
@@ -175,7 +153,6 @@ NvBool NvOdmKeyboardInit(void)
 		goto cleanup;
 	}
 
-    #if 0
 	/* enable keyboard as wake up source */
 	Request.PacketType = NvEcPacketType_Request;
 	Request.RequestType = NvEcRequestResponseType_Keyboard;
@@ -197,7 +174,6 @@ NvBool NvOdmKeyboardInit(void)
 	if (Response.Status != NvEcStatus_Success) {
 		goto cleanup;
 	}
-    #endif
 
         /* enable key reporting on wake up */
 	Request.PacketType = NvEcPacketType_Request;
@@ -212,7 +188,6 @@ NvBool NvOdmKeyboardInit(void)
 		&Response,
 		sizeof(Request),
 		sizeof(Response));
-#if 0
 	if (NvStatus != NvError_Success) {
 		goto cleanup;
         }
@@ -220,7 +195,6 @@ NvBool NvOdmKeyboardInit(void)
 	if (Response.Status != NvEcStatus_Success) {
 		goto cleanup;
 	}
-#endif
 #endif
 
     /* create semaphore which can be used to send scan codes to the clients */
@@ -249,23 +223,18 @@ NvBool NvOdmKeyboardInit(void)
 
 cleanup:
 #if WAKE_FROM_KEYBOARD
-    if (hOdm) {
-	    NvRmGpioInterruptUnregister(s_hGpioGlobal, s_hRmGlobal, hOdm->GpioIntrHandle);
-	    hOdm->GpioIntrHandle = NULL;
-		if (hOdm->hPin)
-	        NvRmGpioReleasePinHandles(s_hGpioGlobal, &hOdm->hPin, hOdm->PinCount);
-	    NvOdmOsFree(hOdm);
-	    hOdm = NULL;
-	}
+	NvRmGpioInterruptUnregister(s_hGpioGlobal, s_hRmGlobal, hOdm->GpioIntrHandle);
+	hOdm->GpioIntrHandle = NULL;
+	NvRmGpioReleasePinHandles(s_hGpioGlobal, &hOdm->hPin, hOdm->PinCount);
+	NvOdmOsFree(hOdm);
+	hOdm = NULL;
 #endif
-	if (s_hEcEventRegistration != NULL) {
-        (void)NvEcUnregisterForEvents(s_hEcEventRegistration);
-        s_hEcEventRegistration = NULL;
-    }
-    if (s_hKbcKeyScanRecvSema != NULL) {
-        NvOdmOsSemaphoreDestroy(s_hKbcKeyScanRecvSema);
-        s_hKbcKeyScanRecvSema = NULL;
-    }
+    (void)NvEcUnregisterForEvents(s_hEcEventRegistration);
+    s_hEcEventRegistration = NULL;
+
+    NvOdmOsSemaphoreDestroy(s_hKbcKeyScanRecvSema);
+    s_hKbcKeyScanRecvSema = NULL;
+
     NvEcClose(s_NvEcHandle);
 fail:
     s_NvEcHandle = NULL;
@@ -275,39 +244,14 @@ fail:
 
 void NvOdmKeyboardDeInit(void)
 {
-    NvError NvStatus = NvError_Success;
-    NvEcRequest Request = {0};
-    NvEcResponse Response = {0};
-
 #if WAKE_FROM_KEYBOARD
-    if (hOdm) {
-	    NvRmGpioInterruptUnregister(s_hGpioGlobal, s_hRmGlobal, hOdm->GpioIntrHandle);
-	    hOdm->GpioIntrHandle = NULL;
-		if (hOdm->hPin)
-	        NvRmGpioReleasePinHandles(s_hGpioGlobal, &hOdm->hPin, hOdm->PinCount);
-	    hOdm->PinCount = 0;
-	    NvOdmOsFree(hOdm);
-	    hOdm = NULL;
-	}
+	NvRmGpioInterruptUnregister(s_hGpioGlobal, s_hRmGlobal, hOdm->GpioIntrHandle);
+	hOdm->GpioIntrHandle = NULL;
+	NvRmGpioReleasePinHandles(s_hGpioGlobal, &hOdm->hPin, hOdm->PinCount);
+	hOdm->PinCount = 0;
+	NvOdmOsFree(hOdm);
+	hOdm = NULL;
 #endif
-
-    /* stop the keyboard scanning */
-    Request.PacketType = NvEcPacketType_Request;
-    Request.RequestType = NvEcRequestResponseType_Keyboard;
-    Request.RequestSubtype = (NvEcRequestResponseSubtype) NvEcKeyboardSubtype_Disable;
-    Request.NumPayloadBytes = 0;
-
-    NvStatus = NvEcSendRequest(s_NvEcHandle, &Request, &Response, sizeof(Request), sizeof(Response));
-    if (NvStatus != NvError_Success)
-    {
-        NvOdmOsDebugPrintf("EC keyboard scanning disable fail\n");
-    }
-
-    /* check if command passed */
-    if (Response.Status != NvEcStatus_Success)
-    {
-        NvOdmOsDebugPrintf("EC keyboard scanning disable command fail\n");;
-    }
 
     (void)NvEcUnregisterForEvents(s_hEcEventRegistration);
     s_hEcEventRegistration = NULL;
@@ -355,7 +299,7 @@ NvBool NvOdmKeyboardGetKeyData(NvU32 *pKeyScanCode, NvU8 *pScanCodeFlags, NvU32 
         /* wait till we receive a scan code from the EC */
         NvOdmOsSemaphoreWait(s_hKbcKeyScanRecvSema);
     }
-    
+
     // stop scanning
     if (s_KeyboardDeinit)
         return NV_FALSE;
@@ -363,7 +307,6 @@ NvBool NvOdmKeyboardGetKeyData(NvU32 *pKeyScanCode, NvU8 *pScanCodeFlags, NvU32 
     if (s_hEcEventRegistration)
     {
         NvStatus = NvEcGetEvent(s_hEcEventRegistration, &KbdEvent, sizeof(NvEcEvent));
-
         if (NvStatus != NvError_Success)
         {
             NV_ASSERT(!"Could not receive scan code");
@@ -385,11 +328,11 @@ NvBool NvOdmKeyboardGetKeyData(NvU32 *pKeyScanCode, NvU8 *pScanCodeFlags, NvU32 
         ScanCodeFlags = 0;
 
         if (KbdEvent.NumPayloadBytes == 1)
-            NVODM_PRINTF(("EC Payload = 0x%x\n", KbdEvent.Payload[0]));
+            NVODM_PRINTF(("EC Payload = 0x%x", KbdEvent.Payload[0]));
         else
         {
             for (i = 0; i < KbdEvent.NumPayloadBytes; i++)
-                NVODM_PRINTF(("EC Payload = 0x%x\n", KbdEvent.Payload[i]));
+                NVODM_PRINTF(("EC Payload = 0x%x", KbdEvent.Payload[i]));
         }
 
         for (i = 1; i < KbdEvent.NumPayloadBytes; i++)
@@ -526,6 +469,35 @@ NvBool NvOdmKeyboardToggleLights(NvU32 LedId)
 
 NvBool NvOdmKeyboardPowerHandler(NvBool PowerDown)
 {
+#if KEYBOARD_SCANNING_DISABLED_IN_SUSPEND
+	NvEcRequest Request = {0};
+	NvEcResponse Response = {0};
+	NvError err = NvError_Success;
+
+	/* disable keyboard scanning */
+	Request.PacketType = NvEcPacketType_Request;
+	Request.RequestType = NvEcRequestResponseType_Keyboard;
+	if (PowerDown)
+		Request.RequestSubtype =
+			(NvEcRequestResponseSubtype)NvEcKeyboardSubtype_Disable;
+	else
+		Request.RequestSubtype =
+			(NvEcRequestResponseSubtype)NvEcKeyboardSubtype_Enable;
+	Request.NumPayloadBytes = 0;
+
+	err = NvEcSendRequest(s_NvEcHandle,	&Request, &Response,
+		sizeof(Request),
+		sizeof(Response));
+	if (err != NvError_Success) {
+		NvOsDebugPrintf("%s: scanning enable/disable request send fail\n", __func__);
+		return NV_FALSE;
+	}
+
+	if (Response.Status != NvEcStatus_Success) {
+		NvOsDebugPrintf("%s: scanning could not be enabled/disabled\n", __func__);
+		return NV_FALSE;
+	}
+#endif
     return NV_TRUE;
 }
 

@@ -64,7 +64,7 @@
 #endif
 
 // Active modules report on suspend entry : 0=disable, 1=enable
-#define NVRM_POWER_DEBUG_SUSPEND_ENTRY (0)
+#define NVRM_POWER_DEBUG_SUSPEND_ENTRY (1)
 
 /*****************************************************************************/
 
@@ -202,6 +202,11 @@ static NvU32 s_StarveOnRefCounts[NvRmDfsClockId_Num];
 // Heads of busy hint lists for DFS clock domain
 static BusyHintReq s_BusyReqHeads[NvRmDfsClockId_Num];
 
+// Busy requests pool
+#define NVRM_BUSYREQ_POOL_SIZE (24)
+static BusyHintReq s_BusyReqPool[NVRM_BUSYREQ_POOL_SIZE];
+static BusyHintReq* s_pFreeBusyReqPool[NVRM_BUSYREQ_POOL_SIZE];
+static NvU32 s_FreeBusyReqPoolSize = 0;
 
 /*****************************************************************************/
 
@@ -235,6 +240,12 @@ RecordPowerCycle(NvRmDeviceHandle hRmDeviceHandle, NvU32 PowerGroup);
  */
 static void
 ReportRmPowerState(NvRmDeviceHandle hRmDeviceHandle);
+
+/*
+ * Manages busy request pool
+ */
+static BusyHintReq* BusyReqAlloc(void);
+static void BusyReqFree(BusyHintReq* pBusyHintReq);
 
 /*
  * Cancels busy hints reported by the specified client for
@@ -369,11 +380,10 @@ static void CancelPowerRequests(
 /*****************************************************************************/
 NvError NvRmPrivPowerInit(NvRmDeviceHandle hRmDeviceHandle)
 {
+    NvU32 i;
     NvError e;
 
     NV_ASSERT(hRmDeviceHandle);
-
-    // TODO: expand after clock API is completed
 
     // Initialize registry
     s_PowerRegistry.pPowerClients = NULL;
@@ -387,6 +397,12 @@ NvError NvRmPrivPowerInit(NvRmDeviceHandle hRmDeviceHandle)
     NvOsMemset(s_BusyReqHeads, 0, sizeof(s_BusyReqHeads));
     NvOsMemset(s_StarveOnRefCounts, 0, sizeof(s_StarveOnRefCounts));
     NvOsMemset(s_PowerOnRefCounts, 0, sizeof(s_PowerOnRefCounts));
+
+    // Initialize busy requests pool
+    NvOsMemset(s_BusyReqPool, 0, sizeof(s_BusyReqPool));
+    for (i = 0; i < NVRM_BUSYREQ_POOL_SIZE; i++)
+        s_pFreeBusyReqPool[i] = &s_BusyReqPool[i];
+    s_FreeBusyReqPoolSize = NVRM_BUSYREQ_POOL_SIZE;
 
     // Create the RM registry mutex and initialize RM/OAL interface
     s_hPowerClientMutex = NULL;
@@ -421,7 +437,7 @@ void NvRmPrivPowerDeinit(NvRmDeviceHandle hRmDeviceHandle)
         {
             BusyHintReq* pBusyHintReq = s_BusyReqHeads[i].pNext;
             s_BusyReqHeads[i].pNext = pBusyHintReq->pNext;
-            NvOsFree(pBusyHintReq);
+            BusyReqFree(pBusyHintReq);
         }
     }
     // Free RM power registry memory
@@ -777,7 +793,8 @@ ReportRmPowerState(NvRmDeviceHandle hRmDeviceHandle)
     switch (OldRmState)
     {
         case NvRmPowerState_LP0:
-            NvOsDebugPrintf("*** Wakeup from LP0 ***\n");
+            NvOsDebugPrintf("*** Wakeup from LP0 *** wake-source: 0x%x\n",
+                    NV_REGR(hRmDeviceHandle, NvRmModuleID_Pmif, 0, 0x14));
             PowerEventNotify(hRmDeviceHandle, NvRmPowerEvent_WakeLP0);
             break;
         case NvRmPowerState_LP1:
@@ -1157,6 +1174,29 @@ NvRmPowerStarvationHint (
 
 /*****************************************************************************/
 
+static BusyHintReq* BusyReqAlloc(void)
+{
+    if (s_FreeBusyReqPoolSize != 0)
+        return s_pFreeBusyReqPool[--s_FreeBusyReqPoolSize];
+    else
+    {
+        NV_ASSERT(!"Busy pool size is too small");
+        return NvOsAlloc(sizeof(BusyHintReq));
+    }
+}
+
+static void BusyReqFree(BusyHintReq* pBusyHintReq)
+{
+    if ((pBusyHintReq >= &s_BusyReqPool[0]) &&
+        (pBusyHintReq < &s_BusyReqPool[NVRM_BUSYREQ_POOL_SIZE]))
+    {
+        NV_ASSERT(s_FreeBusyReqPoolSize < NVRM_BUSYREQ_POOL_SIZE);
+        s_pFreeBusyReqPool[s_FreeBusyReqPoolSize++] = pBusyHintReq;
+        return;
+    }
+    NvOsFree(pBusyHintReq);
+}
+
 static void CancelBusyHints(NvRmDfsClockId ClockId, NvU32 ClientId)
 {
     BusyHintReq* pBusyHintReq = NULL;
@@ -1177,7 +1217,7 @@ static void CancelBusyHints(NvRmDfsClockId ClockId, NvU32 ClientId)
         if ((pBusyHintNext != NULL) && (pBusyHintNext->ClientId == ClientId))
         {
             pBusyHintReq->pNext = pBusyHintNext->pNext;
-            NvOsFree(pBusyHintNext);
+            BusyReqFree(pBusyHintNext);
             continue;
         }
         pBusyHintReq = pBusyHintNext;
@@ -1205,7 +1245,7 @@ static void PurgeBusyHints(NvRmDfsClockId ClockId, NvU32 msec)
              (pBusyHintNext->IntervalMs < (msec - pBusyHintNext->StartTimeMs)) )
         {
             pBusyHintReq->pNext = pBusyHintNext->pNext;
-            NvOsFree(pBusyHintNext);
+            BusyReqFree(pBusyHintNext);
             continue;
         }
         pBusyHintReq = pBusyHintNext;
@@ -1278,7 +1318,7 @@ RecordBusyHints(
                     (pInsert->pNext->BoostKHz < BoostKHz))
                 {
                     // Allocate and initialize new boost hint record
-                    pBusyHintReq = NvOsAlloc(sizeof(BusyHintReq));
+                    pBusyHintReq = BusyReqAlloc();
                     if (pBusyHintReq == NULL)
                     {
                         return NvError_InsufficientMemory;
@@ -1365,7 +1405,7 @@ void NvRmPrivDfsGetBusyHint(
         }
         p = pBusyHintReq;
         pBusyHintReq = pBusyHintReq->pNext;
-        NvOsFree(p);
+        BusyReqFree(p);
     }
     if (pBusyHintReq)
     {
@@ -1476,13 +1516,10 @@ NvRmPowerActivityHint (
 NvError
 NvRmKernelPowerSuspend( NvRmDeviceHandle hRmDeviceHandle )
 {
-    NvOdmSocPowerState state =
-        NvOdmQueryLowestSocPowerState()->LowestPowerState;
+    NvOdmSocPowerState state = NvRmPowerLowestStateGet();
 
-    NvRmPrivDfsSuspend(state);
     if (state ==  NvOdmSocPowerState_Suspend)
         NvRmPrivPowerGroupSuspend(hRmDeviceHandle);
-    NvRmPrivPmuLPxStateConfig(hRmDeviceHandle, state, NV_TRUE);
 
 #if NVRM_POWER_DEBUG_SUSPEND_ENTRY
     NvOsMutexLock(s_hPowerClientMutex);
@@ -1510,7 +1547,7 @@ NvRmKernelPowerSuspend( NvRmDeviceHandle hRmDeviceHandle )
                         if (pVoltageReq->MaxVolts != NvRmVoltsOff)
                         {
                             // could also set some bad e = NvError_Bad???
-                            NvOsDebugPrintf("Active Module: 0x%x",
+                            NvOsDebugPrintf("Active Module: 0x%x\n",
                                                 pVoltageReq->ModuleId);
                         }
                         pVoltageReq = pVoltageReq->pNext;
@@ -1528,10 +1565,12 @@ NvRmKernelPowerSuspend( NvRmDeviceHandle hRmDeviceHandle )
 NvError
 NvRmKernelPowerResume( NvRmDeviceHandle hRmDeviceHandle )
 {
-    NvOdmSocPowerState state =
-        NvOdmQueryLowestSocPowerState()->LowestPowerState;
+    NvOdmSocPowerState state = NvRmPowerLowestStateGet();
 
-    NvRmPrivPmuLPxStateConfig(hRmDeviceHandle, state, NV_FALSE);
+    NvOsMutexLock(s_hPowerClientMutex);
+    ReportRmPowerState(hRmDeviceHandle);
+    NvOsMutexUnlock(s_hPowerClientMutex);
+
     if (state ==  NvOdmSocPowerState_Suspend)
         NvRmPrivPowerGroupResume(hRmDeviceHandle);
     return NvSuccess;

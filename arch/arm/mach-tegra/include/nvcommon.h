@@ -29,6 +29,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  */
+#define NV_DEBUG 0
+
 #ifndef INCLUDED_NVCOMMON_H
 #define INCLUDED_NVCOMMON_H
 
@@ -225,10 +227,6 @@ typedef NvS32 NvSPtr;
  * This macro wraps its argument with the equivalent of "#if NV_DEBUG", but
  * also can be used where "#ifdef"'s can't, like inside a macro.
  */
-#ifndef NV_DEBUG
-#define NV_DEBUG 0
-#endif
-
 #if NV_DEBUG
 #define NV_DEBUG_CODE(x) x
 #else

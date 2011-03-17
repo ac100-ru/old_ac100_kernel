@@ -19,36 +19,37 @@
 
 #ifdef __KERNEL__
 
+/*
+ * On ARM, ordinary assignment (str instruction) doesn't clear the local
+ * strex/ldrex monitor on some implementations. The reason we can use it for
+ * atomic_set() is the clrex or dummy strex done on every exception return.
+ */
 #define atomic_read(v)	((v)->counter)
 #define atomic_set(v,i)	(((v)->counter) = (i))
 
 #if __LINUX_ARM_ARCH__ >= 6
-
-#ifdef CONFIG_ARM_ERRATA_351422
-static inline int atomic_backoff_delay(void)
-{
-	unsigned int delay;
-	__asm__ __volatile__(
-	"	mrc	p15, 0, %0, c0, c0, 5\n"
-	"	and	%0, %0, #0xf\n"
-	"	mov	%0, %0, lsl #8\n"
-	"1:	subs	%0, %0, #1\n"
-	"	bpl	1b\n"
-	: "=&r" (delay)
-	:
-	: "cc" );
-
-	return 1;
-}
-#else
-#define atomic_backoff_delay()	1
-#endif
 
 /*
  * ARMv6 UP and SMP safe atomic ops.  We use load exclusive and
  * store exclusive to ensure that these are atomic.  We may loop
  * to ensure that the update happens.
  */
+static inline void atomic_add(int i, atomic_t *v)
+{
+	unsigned long tmp;
+	int result;
+
+	__asm__ __volatile__("@ atomic_add\n"
+"1:	ldrex	%0, [%3]\n"
+"	add	%0, %0, %4\n"
+"	strex	%1, %0, [%3]\n"
+"	teq	%1, #0\n"
+"	bne	1b"
+        : "=&r" (result), "=&r" (tmp), "+Qo" (v->counter)
+	: "r" (&v->counter), "Ir" (i)
+	: "cc");
+}
+
 static inline int atomic_add_return(int i, atomic_t *v)
 {
 	unsigned long tmp;
@@ -56,19 +57,35 @@ static inline int atomic_add_return(int i, atomic_t *v)
 
 	smp_mb();
 
-	do {
 	__asm__ __volatile__("@ atomic_add_return\n"
-"1:	ldrex	%0, [%2]\n"
-"	add	%0, %0, %3\n"
-"	strex	%1, %0, [%2]\n"
-	: "=&r" (result), "=&r" (tmp)
+"1:	ldrex	%0, [%3]\n"
+"	add	%0, %0, %4\n"
+"	strex	%1, %0, [%3]\n"
+"	teq	%1, #0\n"
+"	bne	1b"
+	: "=&r" (result), "=&r" (tmp), "+Qo" (v->counter)
 	: "r" (&v->counter), "Ir" (i)
 	: "cc");
-	} while (tmp && atomic_backoff_delay());
 
 	smp_mb();
 
 	return result;
+}
+
+static inline void atomic_sub(int i, atomic_t *v)
+{
+	unsigned long tmp;
+	int result;
+
+	__asm__ __volatile__("@ atomic_sub\n"
+"1:	ldrex	%0, [%3]\n"
+"	sub	%0, %0, %4\n"
+"	strex	%1, %0, [%3]\n"
+"	teq	%1, #0\n"
+"	bne	1b"
+	: "=&r" (result), "=&r" (tmp), "+Qo" (v->counter)
+	: "r" (&v->counter), "Ir" (i)
+	: "cc");
 }
 
 static inline int atomic_sub_return(int i, atomic_t *v)
@@ -78,15 +95,15 @@ static inline int atomic_sub_return(int i, atomic_t *v)
 
 	smp_mb();
 
-	do {
 	__asm__ __volatile__("@ atomic_sub_return\n"
-"1:	ldrex	%0, [%2]\n"
-"	sub	%0, %0, %3\n"
-"	strex	%1, %0, [%2]\n"
-	: "=&r" (result), "=&r" (tmp)
+"1:	ldrex	%0, [%3]\n"
+"	sub	%0, %0, %4\n"
+"	strex	%1, %0, [%3]\n"
+"	teq	%1, #0\n"
+"	bne	1b"
+	: "=&r" (result), "=&r" (tmp), "+Qo" (v->counter)
 	: "r" (&v->counter), "Ir" (i)
 	: "cc");
-	} while (tmp && atomic_backoff_delay());
 
 	smp_mb();
 
@@ -101,15 +118,14 @@ static inline int atomic_cmpxchg(atomic_t *ptr, int old, int new)
 
 	do {
 		__asm__ __volatile__("@ atomic_cmpxchg\n"
-		"ldrex	%1, [%2]\n"
+		"ldrex	%1, [%3]\n"
 		"mov	%0, #0\n"
-		"teq	%1, %3\n"
-		"it	eq\n"
-		"strexeq %0, %4, [%2]\n"
-		    : "=&r" (res), "=&r" (oldval)
+		"teq	%1, %4\n"
+		"strexeq %0, %5, [%3]\n"
+		    : "=&r" (res), "=&r" (oldval), "+Qo" (ptr->counter)
 		    : "r" (&ptr->counter), "Ir" (old), "r" (new)
 		    : "cc");
-	} while (res && atomic_backoff_delay());
+	} while (res);
 
 	smp_mb();
 
@@ -120,24 +136,18 @@ static inline void atomic_clear_mask(unsigned long mask, unsigned long *addr)
 {
 	unsigned long tmp, tmp2;
 
-	smp_mb();
-
-	do {
 	__asm__ __volatile__("@ atomic_clear_mask\n"
-"1:	ldrex	%0, [%2]\n"
-"	bic	%0, %0, %3\n"
-"	strex	%1, %0, [%2]\n"
-	: "=&r" (tmp), "=&r" (tmp2)
+"1:	ldrex	%0, [%3]\n"
+"	bic	%0, %0, %4\n"
+"	strex	%1, %0, [%3]\n"
+"	teq	%1, #0\n"
+"	bne	1b"
+	: "=&r" (tmp), "=&r" (tmp2), "+Qo" (*addr)
 	: "r" (addr), "Ir" (mask)
 	: "cc");
-	} while (tmp && atomic_backoff_delay());
-
-	smp_mb();
 }
 
 #else /* ARM_ARCH_6 */
-
-#include <asm/system.h>
 
 #ifdef CONFIG_SMP
 #error SMP not supported on pre-ARMv6 CPUs
@@ -155,6 +165,7 @@ static inline int atomic_add_return(int i, atomic_t *v)
 
 	return val;
 }
+#define atomic_add(i, v)	(void) atomic_add_return(i, v)
 
 static inline int atomic_sub_return(int i, atomic_t *v)
 {
@@ -168,6 +179,7 @@ static inline int atomic_sub_return(int i, atomic_t *v)
 
 	return val;
 }
+#define atomic_sub(i, v)	(void) atomic_sub_return(i, v)
 
 static inline int atomic_cmpxchg(atomic_t *v, int old, int new)
 {
@@ -207,10 +219,8 @@ static inline int atomic_add_unless(atomic_t *v, int a, int u)
 }
 #define atomic_inc_not_zero(v) atomic_add_unless((v), 1, 0)
 
-#define atomic_add(i, v)	(void) atomic_add_return(i, v)
-#define atomic_inc(v)		(void) atomic_add_return(1, v)
-#define atomic_sub(i, v)	(void) atomic_sub_return(i, v)
-#define atomic_dec(v)		(void) atomic_sub_return(1, v)
+#define atomic_inc(v)		atomic_add(1, v)
+#define atomic_dec(v)		atomic_sub(1, v)
 
 #define atomic_inc_and_test(v)	(atomic_add_return(1, v) == 0)
 #define atomic_dec_and_test(v)	(atomic_sub_return(1, v) == 0)
@@ -220,12 +230,11 @@ static inline int atomic_add_unless(atomic_t *v, int a, int u)
 
 #define atomic_add_negative(i,v) (atomic_add_return(i, v) < 0)
 
-/* Atomic operations are already serializing on ARM */
-#define smp_mb__before_atomic_dec()	barrier()
-#define smp_mb__after_atomic_dec()	barrier()
-#define smp_mb__before_atomic_inc()	barrier()
-#define smp_mb__after_atomic_inc()	barrier()
+#define smp_mb__before_atomic_dec()	smp_mb()
+#define smp_mb__after_atomic_dec()	smp_mb()
+#define smp_mb__before_atomic_inc()	smp_mb()
+#define smp_mb__after_atomic_inc()	smp_mb()
 
-#include <asm-generic/atomic.h>
+#include <asm-generic/atomic-long.h>
 #endif
 #endif

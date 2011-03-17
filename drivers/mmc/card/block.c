@@ -42,27 +42,14 @@
 #include "queue.h"
 
 MODULE_ALIAS("mmc:block");
-#ifdef MODULE_PARAM_PREFIX
-#undef MODULE_PARAM_PREFIX
-#endif
-#define MODULE_PARAM_PREFIX "mmcblk."
-
 
 /*
- * The defaults come from config options but can be overriden by module
- * or bootarg options.
+ * max 8 partitions per card
  */
-static int perdev_minors = CONFIG_MMC_BLOCK_MINORS;
+#define MMC_SHIFT	3
+#define MMC_NUM_MINORS	(256 >> MMC_SHIFT)
 
-
-/*
- * We've only got one major, so number of mmcblk devices is
- * limited to 256 / number of minors per device.
- */
-static int max_devices;
-
-/* 256 minors, so at most 256 separate devices */
-static DECLARE_BITMAP(dev_use, 256);
+static DECLARE_BITMAP(dev_use, MMC_NUM_MINORS);
 
 /*
  * There is one mmc_blk_data per slot.
@@ -77,9 +64,6 @@ struct mmc_blk_data {
 };
 
 static DEFINE_MUTEX(open_lock);
-
-module_param(perdev_minors, int, 0444);
-MODULE_PARM_DESC(perdev_minors, "Minors numbers to allocate per device");
 
 static struct mmc_blk_data *mmc_blk_get(struct gendisk *disk)
 {
@@ -101,7 +85,14 @@ static void mmc_blk_put(struct mmc_blk_data *md)
 	mutex_lock(&open_lock);
 	md->usage--;
 	if (md->usage == 0) {
-		int devidx = MINOR(disk_devt(md->disk)) / perdev_minors;
+		int devmaj = MAJOR(disk_devt(md->disk));
+		int devidx = MINOR(disk_devt(md->disk)) >> MMC_SHIFT;
+
+		if (!devmaj)
+			devidx = md->disk->first_minor >> MMC_SHIFT;
+
+		blk_cleanup_queue(md->queue.queue);
+
 		__clear_bit(devidx, dev_use);
 
 		put_disk(md->disk);
@@ -146,7 +137,7 @@ mmc_blk_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return 0;
 }
 
-static struct block_device_operations mmc_bdops = {
+static const struct block_device_operations mmc_bdops = {
 	.open			= mmc_blk_open,
 	.release		= mmc_blk_release,
 	.getgeo			= mmc_blk_getgeo,
@@ -301,7 +292,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		brq.mrq.cmd = &brq.cmd;
 		brq.mrq.data = &brq.data;
 
-		brq.cmd.arg = req->sector;
+		brq.cmd.arg = blk_rq_pos(req);
 		if (!mmc_card_blockaddr(card))
 			brq.cmd.arg <<= 9;
 		brq.cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
@@ -309,7 +300,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		brq.stop.opcode = MMC_STOP_TRANSMISSION;
 		brq.stop.arg = 0;
 		brq.stop.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
-		brq.data.blocks = req->nr_sectors;
+		brq.data.blocks = blk_rq_sectors(req);
 
 		/*
 		 * The block layer doesn't support all sector count
@@ -359,7 +350,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		 * Adjust the sg list so it is the same size as the
 		 * request.
 		 */
-		if (brq.data.blocks != req->nr_sectors) {
+		if (brq.data.blocks != blk_rq_sectors(req)) {
 			int i, data_size = brq.data.blocks << 9;
 			struct scatterlist *sg;
 
@@ -386,10 +377,6 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		 * programming mode even when things go wrong.
 		 */
 		if (brq.cmd.error || brq.data.error || brq.stop.error) {
-			/* Media is not present */
-			if (brq.cmd.error == -ENOMEDIUM)
-				goto cmd_err;
-
 			if (brq.data.blocks > 1 && rq_data_dir(req) == READ) {
 				/* Redo read one sector at a time */
 				printk(KERN_WARNING "%s: retrying using single "
@@ -416,8 +403,8 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 			printk(KERN_ERR "%s: error %d transferring data,"
 			       " sector %u, nr %u, card status %#x\n",
 			       req->rq_disk->disk_name, brq.data.error,
-			       (unsigned)req->sector,
-			       (unsigned)req->nr_sectors, status);
+			       (unsigned)blk_rq_pos(req),
+			       (unsigned)blk_rq_sectors(req), status);
 		}
 
 		if (brq.stop.error) {
@@ -515,18 +502,6 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		ret = __blk_end_request(req, -EIO, blk_rq_cur_bytes(req));
 	spin_unlock_irq(&md->lock);
 
-	if (brq.cmd.error == -ENOMEDIUM) {
-		/* Clean up the dead queue */
-		struct request *temp_req;
-		spin_lock_irq(&md->lock);
-		while ((temp_req = elv_next_request( mq->queue)) != NULL) {
-			do {
-				ret = __blk_end_request(temp_req, -EIO,
-							blk_rq_cur_bytes(temp_req));
-			} while (ret);
-		}
-		spin_unlock_irq(&md->lock);
-	}
 	return 0;
 }
 
@@ -541,11 +516,30 @@ static struct mmc_blk_data *mmc_blk_alloc(struct mmc_card *card)
 {
 	struct mmc_blk_data *md;
 	int devidx, ret;
+#ifdef CONFIG_MMC_BLOCK_DEVICE_NUMBERING
+	int idx;
+	const char *mmc_blk_name;
+#endif
 
-	devidx = find_first_zero_bit(dev_use, max_devices);
-	if (devidx >= max_devices)
+	devidx = find_first_zero_bit(dev_use, MMC_NUM_MINORS);
+	if (devidx >= MMC_NUM_MINORS)
 		return ERR_PTR(-ENOSPC);
 	__set_bit(devidx, dev_use);
+
+#ifdef CONFIG_MMC_BLOCK_DEVICE_NUMBERING
+	mmc_blk_name = kobject_name(&card->host->parent->kobj);
+	mmc_blk_name = mmc_blk_name ? strrchr(mmc_blk_name, '.') : mmc_blk_name;
+	if (mmc_blk_name) {
+		mmc_blk_name++;
+		idx = simple_strtol(mmc_blk_name, NULL, 10);
+		if ( (idx >= 0) && (idx != devidx) &&
+			(!test_bit(idx, dev_use)) && (idx < MMC_NUM_MINORS) ) {
+			__set_bit(idx, dev_use);
+			__clear_bit(devidx, dev_use);
+			devidx = idx;
+		}
+	}
+#endif
 
 	md = kzalloc(sizeof(struct mmc_blk_data), GFP_KERNEL);
 	if (!md) {
@@ -560,7 +554,7 @@ static struct mmc_blk_data *mmc_blk_alloc(struct mmc_card *card)
 	 */
 	md->read_only = mmc_blk_readonly(card);
 
-	md->disk = alloc_disk(perdev_minors);
+	md->disk = alloc_disk(1 << MMC_SHIFT);
 	if (md->disk == NULL) {
 		ret = -ENOMEM;
 		goto err_kfree;
@@ -577,7 +571,7 @@ static struct mmc_blk_data *mmc_blk_alloc(struct mmc_card *card)
 	md->queue.data = md;
 
 	md->disk->major	= MMC_BLOCK_MAJOR;
-	md->disk->first_minor = devidx * perdev_minors;
+	md->disk->first_minor = devidx << MMC_SHIFT;
 	md->disk->fops = &mmc_bdops;
 	md->disk->private_data = md;
 	md->disk->queue = md->queue.queue;
@@ -597,7 +591,7 @@ static struct mmc_blk_data *mmc_blk_alloc(struct mmc_card *card)
 
 	sprintf(md->disk->disk_name, "mmcblk%d", devidx);
 
-	blk_queue_hardsect_size(md->queue.queue, 512);
+	blk_queue_logical_block_size(md->queue.queue, 512);
 
 	if (!mmc_card_sd(card) && mmc_card_blockaddr(card)) {
 		/*
@@ -658,6 +652,7 @@ static int mmc_blk_probe(struct mmc_card *card)
 	return 0;
 
  out:
+	mmc_cleanup_queue(&md->queue);
 	mmc_blk_put(md);
 
 	return err;
@@ -723,11 +718,6 @@ static struct mmc_driver mmc_driver = {
 static int __init mmc_blk_init(void)
 {
 	int res;
-
-        if (perdev_minors != CONFIG_MMC_BLOCK_MINORS)
-          pr_info("mmcblk: using %d minors per device\n", perdev_minors);
-        
-        max_devices = 256 / perdev_minors;
 
 	res = register_blkdev(MMC_BLOCK_MAJOR, "mmc");
 	if (res)

@@ -8,7 +8,6 @@
  */
 #define USB_MAX_CTRL_PAYLOAD		64
 #define USB_DR_SYS_OFFSET		0x400
-#define USB_NR_EP			CONFIG_UDC_FSL_NR_ENDPOINTS
 
  /* USB DR device mode registers (Little Endian) */
 struct usb_dr_device {
@@ -44,7 +43,7 @@ struct usb_dr_device {
 	u32 endptflush;		/* Endpoint Flush Register */
 	u32 endptstatus;	/* Endpoint Status Register */
 	u32 endptcomplete;	/* Endpoint Complete Register */
-	u32 endptctrl[USB_NR_EP];	/* Endpoint Control Registers */
+	u32 endptctrl[6];	/* Endpoint Control Registers */
 };
 
  /* USB DR host mode registers (Little Endian) */
@@ -518,6 +517,8 @@ struct fsl_udc {
 	struct regulator *vbus_regulator;	/* regulator for drawing VBUS */
 	struct delayed_work work; /* delayed work for charger detection */
 	struct work_struct irq_work; /* irq work for controling the usb power*/
+	struct work_struct vbus_work; /* vbus work for enabling clocks and D+ lines*/
+	u32 current_limit_ma; /* stores current limit in mA */
 };
 
 /*-------------------------------------------------------------------------*/

@@ -213,6 +213,7 @@ NvRmI2cOpen(
     // If no clients are opened yet, initialize the i2c controller
     if (c->NumberOfClientsOpened == 0)
     {
+        NvU32 len;
         /* Polulate the controller structure */
         c->hRmDevice = hRmDevice;
         c->OdmIoModule = IoModule;
@@ -228,6 +229,8 @@ NvRmI2cOpen(
         c->hSclPin = 0;
         c->hSdaPin = 0;
 
+        NvRmModuleGetBaseAddress(hRmDevice, NVRM_MODULE_ID(ModuleID, instance),
+            &c->ControllerAdd, &len);
 
         I2cGetSocCapabilities(hRmDevice, ModuleID, instance, &(c->SocI2cCaps));
         c->EnableNewMaster = c->SocI2cCaps.IsNewMasterAvailable;
@@ -312,7 +315,8 @@ fail_2:
     c->I2cPowerClientId = 0;
 
 fail_1:
-    (c->close)(c);
+    if (c->close)
+        (c->close)(c);
     *phI2c = 0;
     NvRmGpioReleasePinHandles(c->hGpio, &c->hSclPin, 1);
     NvRmGpioReleasePinHandles(c->hGpio, &c->hSdaPin, 1);

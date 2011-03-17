@@ -41,6 +41,8 @@
 #include "nvddk_aes_priv.h"
 #include "nvddk_aes_hw.h"
 #include "nvddk_aes_core_ap20.h"
+#include <linux/interrupt.h>
+#include "../board.h"
 
 #define SECURE_HW_REGR(engine, viraddr, reg, value) \
 { \
@@ -93,15 +95,27 @@
 #define SECURE_DRF_NUM(engine, reg, field, num) \
     NV_DRF_NUM(ARVDE_BSEV, reg, field, num) \
 
-#define SECURE_INDEXED_REGR(engine, viraddr, reg, index,value) \
+#define SECURE_INDEXED_REGR(engine, viraddr, index, value) \
 { \
     if (AesHwEngine_A == engine) \
     { \
-        (value) = NV_READ32((NvU32)(viraddr) + (ARVDE_BSEV_##reg##_##0) + index * 4); \
+        (value) = NV_READ32((NvU32)(viraddr) + ARVDE_BSEV_SECURE_SEC_SEL0_0 + ((index) * 4)); \
     } \
     else if (AesHwEngine_B == engine) \
     { \
-        (value) = NV_READ32((NvU32)(viraddr) + (AVPBSEA_##reg##_##0) + index * 4 ); \
+        (value) = NV_READ32((NvU32)(viraddr) + AVPBSEA_SECURE_SEC_SEL0_0 + ((index) * 4)); \
+    } \
+}
+
+#define SECURE_INDEXED_REGW(engine, viraddr, index, value) \
+{ \
+    if (AesHwEngine_A == engine) \
+    { \
+        NV_WRITE32((NvU32)(viraddr) + (ARVDE_BSEV_SECURE_SEC_SEL0_0 + ((index) * 4)), (value)); \
+    } \
+    else if (AesHwEngine_B == engine) \
+    { \
+        NV_WRITE32((NvU32)(viraddr) + (AVPBSEA_SECURE_SEC_SEL0_0 + ((index) * 4)), (value)); \
     } \
 }
 
@@ -312,8 +326,8 @@ void NvAesCoreAp20LockSskReadWrites(const AesHwEngine Engine, const NvU32 *const
     SECURE_HW_REGW(Engine, pEngineVirAddr, SECURE_SEC_SEL4, RegValue);
 }
 
-static void
-AesHwPrivProcessBuffer(
+void
+NvAesCoreAp20ProcessBuffer(
     const AesHwEngine Engine,
     const NvU32 *const pEngineVirAddr,
     const NvU32 SrcPhyAddress,
@@ -349,8 +363,8 @@ AesHwPrivProcessBuffer(
 
     if (AesHwEngine_A == Engine)
     {
-	RegValue |=
-	    // Source Stream interface select,
+        RegValue |=
+            // Source Stream interface select,
             // (SRC_STM_SEL = 0: through CIF (SDRAM)),
             // and (SRC_STM_SEL = 1: through AHB (SDRAM/IRAM)).
             SECURE_DRF_NUM(Engine, CMDQUE_CONTROL, SRC_STM_SEL, (SrcPhyAddress & NV_ADDRESS_MAP_IRAM_A_BASE) ? 1 : 0) |
@@ -361,8 +375,8 @@ AesHwPrivProcessBuffer(
     }
     else
     {
-	RegValue |=
-	    // Source Stream interface select,
+        RegValue |=
+            // Source Stream interface select,
             // (SRC_STM_SEL = 1: through AHB (SDRAM/IRAM)).
             SECURE_DRF_NUM(Engine, CMDQUE_CONTROL, SRC_STM_SEL, 1) |
             // Destination Stream interface select,
@@ -484,82 +498,6 @@ AesHwPrivProcessBuffer(
 }
 
 void
-NvAesCoreAp20ProcessBuffer(
-    const AesHwEngine Engine,
-    const NvU32 *const pEngineVirAddr,
-    const NvU32 SrcPhyAddress,
-    const NvU32 DestPhyAddress,
-    const NvU32 DataSize,
-    const NvU32 DmaPhyAddr,
-    const NvBool IsEncryption,
-    const NvU32 OpMode)
-{
-    NvU32 TotalBytes = DataSize;
-    NvU32 BytesToProcess = 0;
-    NvU32 *pSrcVirAddr = NULL;
-    NvU32 *pDestVirAddr = NULL;
-    NvU32 *pDmaVirAddr = NULL;
-    NvU32 NumBlocks = 0;
-    NvError e = NvRmPhysicalMemMap(
-        SrcPhyAddress,
-        DataSize,
-        NVOS_MEM_READ_WRITE,
-        NvOsMemAttribute_Uncached,
-        (void **)&pSrcVirAddr);
-    if (e != NvSuccess)
-        return;
-
-    e = NvRmPhysicalMemMap(
-        DestPhyAddress,
-        DataSize,
-        NVOS_MEM_READ_WRITE,
-        NvOsMemAttribute_Uncached,
-        (void **)&pDestVirAddr);
-    if (e != NvSuccess)
-    {
-        NvRmPhysicalMemUnmap(pSrcVirAddr, DataSize);
-        return;
-    }
-
-    NV_CHECK_ERROR_CLEANUP(NvRmPhysicalMemMap(
-        DmaPhyAddr,
-        AES_HW_DMA_BUFFER_SIZE_BYTES,
-        NVOS_MEM_READ_WRITE,
-        NvOsMemAttribute_Uncached,
-        (void **)&pDmaVirAddr));
-
-    while (TotalBytes)
-    {
-        if (TotalBytes > AES_HW_DMA_BUFFER_SIZE_BYTES)
-            BytesToProcess = AES_HW_DMA_BUFFER_SIZE_BYTES;
-        else
-            BytesToProcess = TotalBytes;
-
-        // Copy data to the DMA buffer from the client buffer
-        NvOsMemcpy((void *)pDmaVirAddr, (void *)pSrcVirAddr, BytesToProcess);
-
-        NumBlocks = BytesToProcess / NvDdkAesConst_BlockLengthBytes;
-
-        AesHwPrivProcessBuffer(Engine, pEngineVirAddr, DmaPhyAddr, DmaPhyAddr, NumBlocks, IsEncryption, OpMode);
-
-        // Copy data from the DMA buffer to the client buffer
-        NvOsMemcpy((void *)pDestVirAddr, (void *)pDmaVirAddr, BytesToProcess);
-
-        // Increment the buffer pointer
-        pSrcVirAddr += BytesToProcess;
-        pDestVirAddr += BytesToProcess;
-        TotalBytes -= BytesToProcess;
-    }
-
-    // UnMap the virtual address
-    NvRmPhysicalMemUnmap(pDmaVirAddr, DataSize);
-
-fail:
-    NvRmPhysicalMemUnmap(pDestVirAddr, DataSize);
-    NvRmPhysicalMemUnmap(pSrcVirAddr, DataSize);
-}
-
-void
 NvAesCoreAp20LoadSskToSecureScratchAndLock(
     const NvU32 PmicBaseAddr,
     const NvU32 *const pKey,
@@ -598,22 +536,28 @@ NvAesCoreAp20LoadSskToSecureScratchAndLock(
     NvRmPhysicalMemUnmap(pPmicBaseAddr, Size);
 }
 
-void
-NvAesCoreAp20GetIvReadPermissions(
+void NvAesCoreAp20KeyReadDisable(
     const AesHwEngine Engine,
-    const NvU32 *const pEngineVirAddr,
-    NvBool *const pReadPermissions)
+    const AesHwKeySlot Slot,
+    const NvU32 *const pEngineVirAddr)
 {
-    AesHwKeySlot KeySlot;
     NvU32 RegValue = 0;
 
-    NV_ASSERT(pReadPermissions);
-
-    for (KeySlot = AesHwKeySlot_0; KeySlot < AesHwKeySlot_NumExt; KeySlot++)
-    {
-        SECURE_INDEXED_REGR(Engine, pEngineVirAddr, SECURE_SEC_SEL0, KeySlot,RegValue);
-        SECURE_DRF_READ_VAL(Engine, SECURE_SEC_SEL0, IVREAD_ENB0, RegValue, pReadPermissions[KeySlot]);
-    }
+    SECURE_INDEXED_REGR(Engine, pEngineVirAddr, Slot, RegValue);
+    RegValue = NV_FLD_SET_DRF_NUM(ARVDE_BSEV, SECURE_SEC_SEL0, KEYREAD_ENB0, 0, RegValue);
+    SECURE_INDEXED_REGW(Engine, pEngineVirAddr, Slot, RegValue);
 }
 
-
+NvBool NvAesCoreAp20IsSskUpdateAllowed(void)
+{
+    if (tegra_is_ap20_a03())
+    {
+        // It is AO3 chip
+        // Check whether it is AO3P or not
+        // SSK update is not supported on AO3 board
+        if (!tegra_is_ap20_a03p())
+            return NV_FALSE;
+    }
+    // Except AO3, all other chips support SSK update
+    return NV_TRUE;
+}

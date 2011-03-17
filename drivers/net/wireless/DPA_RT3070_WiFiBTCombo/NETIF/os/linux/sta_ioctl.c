@@ -1235,8 +1235,10 @@ int rt_ioctl_siwessid(struct net_device *dev,
         {
 			NdisZeroMemory(pSsidString, MAX_LEN_OF_SSID+1);
 			NdisMoveMemory(pSsidString, essid, data->length);
-			if (Set_SSID_Proc(pAd, pSsidString) == FALSE)
+			if (Set_SSID_Proc(pAd, pSsidString) == FALSE) {
+				kfree(pSsidString);
 				return -EINVAL;
+            }
 			kfree(pSsidString);
 		}
 		else
@@ -4640,6 +4642,7 @@ INT RTMPSetInformation(
 					if (!pBA->bAllTid && (pBA->TID > NUM_OF_TID))
 					{
 						Status = NDIS_STATUS_INVALID_DATA;
+						kfree(pBA);
 						break;
 					}
 					
@@ -5214,6 +5217,7 @@ INT RTMPSetInformation(
 				}
 				//RestartAPIsRequired = TRUE;
 			}
+            kfree(pKey);
 			break;
 
 
@@ -6123,6 +6127,7 @@ ACM_BANDWIDTH_INFO BwInfo, *pInfo;
 			}
 
 			DBGPRINT(RT_DEBUG_TRACE, ("Query::RT_OID_WSC_QUERY_DEFAULT_PROFILE \n"));
+			kfree(pProfile);
 			break;
 		case RT_OID_802_11_WSC_QUERY_PROFILE:
 			wrq->u.data.length = sizeof(WSC_PROFILE);
@@ -6159,6 +6164,7 @@ ACM_BANDWIDTH_INFO BwInfo, *pInfo;
 			}
 
 			DBGPRINT(RT_DEBUG_TRACE, ("Query::RT_OID_802_11_WSC_QUERY_PROFILE \n"));
+			kfree(pProfile);
 			break;
 			
 		case RT_OID_WSC_UUID:

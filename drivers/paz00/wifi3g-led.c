@@ -9,12 +9,6 @@
 #include "nvodm_services.h"
 
 
-#if ((defined EVT_HARDWARE_LAYOUT && defined DVT_HARDWARE_LAYOUT) || \
-	 (defined EVT_HARDWARE_LAYOUT && defined PVT_HARDWARE_LAYOUT) || \
-	 (defined DVT_HARDWARE_LAYOUT && defined PVT_HARDWARE_LAYOUT))
-#error multi defined hardware layout
-#endif
-
 #define	WLAN_SHUTDOWN_PIN	0
 #define	WLAN_RESET_PIN		1
 #define	WLAN_LED_PIN		2
@@ -24,7 +18,7 @@ static NvOdmServicesGpioHandle s_hGpio;
 static const NvOdmGpioPinInfo *s_gpioPinTable;
 
 static NvOdmGpioPinHandle s_hWlanShutdownPin;
-static NvOdmGpioPinHandle s_hWlanResetPin;
+//static NvOdmGpioPinHandle s_hWlanResetPin;
 static NvOdmGpioPinHandle s_hWlanLedPin;
 
 unsigned char gWlanLedStatus = 0;
@@ -33,7 +27,7 @@ unsigned char gWlanLedStatus = 0;
 void set_wlan_led(unsigned mode)
 {
 	NvU32 gpioPinCount;
-
+//printk(KERN_INFO "set wifi led mode=%i begin==== \n",mode);
 	if( gWlanLedStatus == mode )
 	{
 		return;
@@ -58,23 +52,26 @@ void set_wlan_led(unsigned mode)
 		return;
 	}
 
-#ifdef	PVT_HARDWARE_LAYOUT
+	if (!s_hWlanLedPin){
 	s_hWlanLedPin = NvOdmGpioAcquirePinHandle(s_hGpio,
 		s_gpioPinTable[WLAN_LED_PIN].Port,
 		s_gpioPinTable[WLAN_LED_PIN].Pin);
 		NvOdmGpioConfig(s_hGpio, s_hWlanLedPin, NvOdmGpioPinMode_Output);
-#endif
+	}
+
+	if (!s_hWlanShutdownPin){
 	s_hWlanShutdownPin = NvOdmGpioAcquirePinHandle(s_hGpio,
 		s_gpioPinTable[WLAN_SHUTDOWN_PIN].Port,
 		s_gpioPinTable[WLAN_SHUTDOWN_PIN].Pin);
 		NvOdmGpioConfig(s_hGpio, s_hWlanShutdownPin, NvOdmGpioPinMode_Output);
-
+	}
 	// enable or disable WLAN led
-#ifdef	PVT_HARDWARE_LAYOUT
+
 	NvOdmGpioSetState(s_hGpio, s_hWlanLedPin, mode);
-#endif
+
 	NvOdmGpioSetState(s_hGpio, s_hWlanShutdownPin, mode);
 	NvOdmOsWaitUS(300);
+//printk(KERN_INFO "set wifi led end===== \n");
 
     return;
 }

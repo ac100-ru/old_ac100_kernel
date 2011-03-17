@@ -259,8 +259,6 @@ int btrfs_find_orphan_roots(struct btrfs_root *tree_root)
 	struct extent_buffer *leaf;
 	struct btrfs_path *path;
 	struct btrfs_key key;
-	struct btrfs_key root_key;
-	struct btrfs_root *root;
 	int err = 0;
 	int ret;
 
@@ -271,9 +269,6 @@ int btrfs_find_orphan_roots(struct btrfs_root *tree_root)
 	key.objectid = BTRFS_ORPHAN_OBJECTID;
 	key.type = BTRFS_ORPHAN_ITEM_KEY;
 	key.offset = 0;
-
-	root_key.type = BTRFS_ROOT_ITEM_KEY;
-	root_key.offset = (u64)-1;
 
 	while (1) {
 		ret = btrfs_search_slot(NULL, tree_root, &key, path, 0, 0);
@@ -299,25 +294,13 @@ int btrfs_find_orphan_roots(struct btrfs_root *tree_root)
 		    key.type != BTRFS_ORPHAN_ITEM_KEY)
 			break;
 
-		root_key.objectid = key.offset;
-		key.offset++;
-
-		root = btrfs_read_fs_root_no_name(tree_root->fs_info,
-						  &root_key);
-		if (!IS_ERR(root))
-			continue;
-
-		ret = PTR_ERR(root);
-		if (ret != -ENOENT) {
-			err = ret;
-			break;
-		}
-
-		ret = btrfs_find_dead_roots(tree_root, root_key.objectid);
+		ret = btrfs_find_dead_roots(tree_root, key.offset);
 		if (ret) {
 			err = ret;
 			break;
 		}
+
+		key.offset++;
 	}
 
 	btrfs_free_path(path);
@@ -330,6 +313,7 @@ int btrfs_del_root(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 {
 	struct btrfs_path *path;
 	int ret;
+	u32 refs;
 	struct btrfs_root_item *ri;
 	struct extent_buffer *leaf;
 
@@ -343,6 +327,8 @@ int btrfs_del_root(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 	leaf = path->nodes[0];
 	ri = btrfs_item_ptr(leaf, path->slots[0], struct btrfs_root_item);
 
+	refs = btrfs_disk_root_refs(leaf, ri);
+	BUG_ON(refs != 0);
 	ret = btrfs_del_item(trans, root, path);
 out:
 	btrfs_free_path(path);

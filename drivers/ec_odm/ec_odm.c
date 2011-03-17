@@ -13,9 +13,9 @@
 #include <linux/device.h>    
 #include <linux/platform_device.h>
 #include <linux/miscdevice.h>
-#include "linux/nvos_ioctl.h"
+//#include "linux/nvos_ioctl.h"
 #include "nvec.h"
-#include "linux/nvec_ioctls.h"
+//#include "linux/nvec_ioctls.h"
 #include "nvreftrack.h"
 #include "nvassert.h"
 #include "nvec_device.h"
@@ -1010,6 +1010,22 @@ static int disable_touchpad_scroll(ec_odm_touchpad_params *touchpad_params)
     return 0;
 }
 
+//henry++ add support setting mouse speed
+extern void set_mouse_speed(int speed);
+static int set_touchpad_move_speed(ec_odm_touchpad_params *touchpad_params)
+{
+ // pr_info("%s,write_buf=%i\n",__FUNCTION__,touchpad_params->write_buf);
+  if(touchpad_params->write_buf>5){
+     touchpad_params->write_buf=5;
+   }
+  else if (touchpad_params->write_buf<1){
+     touchpad_params->write_buf=1;
+   }
+//pr_info("%s,speed=%i\n",__FUNCTION__,touchpad_params->write_buf);
+    set_mouse_speed(touchpad_params->write_buf);   
+    return 0;
+}
+
 //extern int check_touchpad_status(ec_odm_touchpad_params *touchpad_params);
 extern int enable_touchpad(ec_odm_touchpad_params *touchpad_params);
 extern int disable_touchpad(ec_odm_touchpad_params *touchpad_params);
@@ -1040,6 +1056,11 @@ static int touchpad_opt(ec_odm_touchpad_params *touchpad_params)
         case DISABLE_TOUCHPAD_SCROLL:
             //printk("DISABLE_TOUCHPAD_SCROLL\n");
             disable_touchpad_scroll(touchpad_params);
+            break;
+	//henry++ setting mouse move speed
+        case SETTING_TOUCHPAD_SPEED:
+            //printk("DISABLE_TOUCHPAD_SCROLL\n");
+            set_touchpad_move_speed(touchpad_params);
             break;
         default:
             break;
@@ -1717,7 +1738,7 @@ long ec_odm_unlocked_ioctl(struct file *file,
     unsigned int cmd, unsigned long arg)
 {
     NvError err;
-    NvOsIoctlParams p;
+    //NvOsIoctlParams p;
     NvU32 size;
     NvU32 small_buf[8];
     void *ptr = 0;
@@ -1784,7 +1805,7 @@ struct file_operations ec_odm_fops = {
 int ec_odm_init(void) 
 {
     //printk(KERN_ALERT "IN KERNEL, %s()\n", __FUNCTION__);
-
+//pr_info("Henry>>%s Begin===\n",__FUNCTION__);
     NvError NvStatus = NvError_Success;
     int err;
 
@@ -1812,7 +1833,7 @@ int ec_odm_init(void)
         return -1; 
     } 
     device_create(ec_odm_class, NULL, devid, NULL, "ec_odm");
-
+//pr_info("Henry>>%s End===\n",__FUNCTION__);
     return 0;
 }
 

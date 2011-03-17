@@ -20,6 +20,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define NV_DEBUG 0
+
 #include <linux/module.h>
 #include <linux/input.h>
 #include <linux/platform_device.h>
@@ -42,9 +44,8 @@ static int scroll_thread(void *pdata)
 	struct tegra_scroll_dev *scroll = pdata;
 	NvOdmScrollWheelEvent Events;
 
-	/* FIXME add a terminating condition */ 
+	/* FIXME add a terminating condition */
 	while(1) {
-		NvU32 value = 0;
 		NvOdmOsSemaphoreWait(scroll->sem);
 
 		Events = NvOdmScrollWheelGetEvent(scroll->odm_dev);
@@ -64,7 +65,6 @@ static int scroll_thread(void *pdata)
 	}
 	return 0;
 }
- 
 
 static int __init tegra_scroll_probe(struct platform_device *pdev)
 {
@@ -85,7 +85,7 @@ static int __init tegra_scroll_probe(struct platform_device *pdev)
 		NvOdmScrollWheelEvent_Release  |
 		NvOdmScrollWheelEvent_RotateAntiClockWise |
 		NvOdmScrollWheelEvent_RotateClockWise;
- 
+
 	odm_dev = NvOdmScrollWheelOpen(sem, events);
 	if (odm_dev == NULL) {
 		pr_err("tegra_scroll_probe: scroll wheel not found\n");
@@ -150,7 +150,7 @@ static int tegra_scroll_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct platform_driver tegra_ScrollWheel_driver = {
+static struct platform_driver tegra_scroll_driver = {
 	.probe	= tegra_scroll_probe,
 	.remove	= tegra_scroll_remove,
 	.driver	= {
@@ -158,18 +158,17 @@ static struct platform_driver tegra_ScrollWheel_driver = {
 	},
 };
 
-static int __devinit tegra_ScrollWheel_init(void)
+static int __devinit tegra_scroll_init(void)
 {
-	return platform_driver_register(&tegra_ScrollWheel_driver);
+	return platform_driver_register(&tegra_scroll_driver);
 }
 
-static void __exit tegra_ScrollWheel_exit(void)
+static void __exit tegra_scroll_exit(void)
 {
-	platform_driver_unregister(&tegra_ScrollWheel_driver);
+	platform_driver_unregister(&tegra_scroll_driver);
 }
 
-module_init(tegra_ScrollWheel_init);
-module_exit(tegra_ScrollWheel_exit);
+module_init(tegra_scroll_init);
+module_exit(tegra_scroll_exit);
 
-MODULE_DESCRIPTION("Tegra Key board controller driver");
-
+MODULE_DESCRIPTION("Tegra scrollwheel driver");

@@ -72,7 +72,7 @@ NvOdmUsbUlpiHandle NvOdmUsbUlpiOpen(NvU32 Instance)
     NvU32 ClockFrequencies[MAX_CLOCKS];
     NvU32 NumClocks;
 
-	pDevice = NvOdmOsAlloc(sizeof(NvOdmUsbUlpi));
+    pDevice = NvOdmOsAlloc(sizeof(NvOdmUsbUlpi));
     if(pDevice == NULL)
 		return NULL;
     
@@ -116,7 +116,7 @@ NvOdmUsbUlpiHandle NvOdmUsbUlpiOpen(NvU32 Instance)
     NvOdmGpioSetState(s_hGpio, s_hResetPin, 0x01);
 
     pDevice->CurrentGUID = SMSC3317GUID;
-	return pDevice;
+    return pDevice;
 
 ExitUlpiOdm:
     NvOdmOsFree(pDevice);
@@ -125,19 +125,10 @@ ExitUlpiOdm:
 
 void NvOdmUsbUlpiClose(NvOdmUsbUlpiHandle hOdmUlpi)
 {
-    NvU32 ClockInstances[MAX_CLOCKS];
-    NvU32 ClockFrequencies[MAX_CLOCKS];
-    NvU32 NumClocks;
-
     if (hOdmUlpi)
     {
-        if(!NvOdmExternalClockConfig(SMSC3317GUID, NV_TRUE, ClockInstances, ClockFrequencies, &NumClocks))
-        {
-            NV_DRIVER_TRACE (("ERROR NvOdmUsbUlpiClose: NvOdmExternalClockConfig fail\n"));
-        }
         NvOdmOsFree(hOdmUlpi);
     }
-
     if (s_hResetPin)
     {
         NvOdmGpioReleasePinHandle(s_hGpio, s_hResetPin);
@@ -148,4 +139,6 @@ void NvOdmUsbUlpiClose(NvOdmUsbUlpiHandle hOdmUlpi)
         NvOdmGpioClose(s_hGpio);
         s_hGpio = NULL;
     }
+
 }
+

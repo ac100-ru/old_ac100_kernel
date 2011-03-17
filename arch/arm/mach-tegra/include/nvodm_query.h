@@ -219,6 +219,23 @@ typedef struct
 
     /// If this is NV_TRUE, then this device is an SPI slave.
     NvBool IsSlave;
+
+    /// Specifies whether it can use the hw based cs or not.
+    NvBool CanUseHwBasedCs;
+
+    /// Specifies the Chipselect setup time i.e. Time between the CS active
+    /// state transition to to first clock in the transaction.
+    /// This parameter is used when using the hw based CS.
+    /// The value is in terms of the clock tick where the clock freq is
+    /// the interface frequency.
+    NvU32 CsSetupTimeInClock;
+
+    /// Specifies the Chipselect Hold time i.e. Time between the last clock and
+    /// CS state transition from active to inactive.
+    /// This parameter is used when using the hw based CS.
+    /// The value is in terms of the clock tick where the clock freq is
+    /// the interface frequency.
+    NvU32 CsHoldTimeInClock;
 } NvOdmQuerySpiDeviceInfo;
 
 /**
@@ -628,6 +645,10 @@ typedef enum
     /// Specifies a custom type connection.
     NvOdmDapConnectionIndex_Custom,
 
+    /// Specifies a Reserved type connection used with Test application.
+    /// This index should be used in the nvodm query table.
+    NvOdmDapConnectionIndex_TestReserved,
+
     /// Specifies unknown.
     NvOdmDapConnectionIndex_Unknown,
     /// Ignore -- Forces compilers to make 32-bit enums.
@@ -844,6 +865,15 @@ typedef struct NvOdmPmuPropertyRec
     /// Specifies PMU Core and CPU voltage regulation accuracy in percent
     NvU32 AccuracyPercent;
 
+    /// Specifies the minimum time required for core power request to be
+    /// inactive (in 32 kHz counts).
+    NvU32 PowerOffCount;
+
+    /// Specifies the minimum time required for CPU power request to be
+    /// inactive (in US). Relevant for SoC with separate CPU and core power
+    /// request outputs.
+    NvU32 CpuPowerOffUs;
+
 } NvOdmPmuProperty;
 
 /**
@@ -859,6 +889,10 @@ typedef enum
   /// State where the CPU is halted by the flow controller and power
   /// is gated, plus DDR is in self-refresh. Wake up by any enabled interrupt.
   NvOdmSocPowerState_Suspend,
+
+  /// State where the CPU is halted by the flow controller and
+  /// power is gated. Wake up by any enabled interrupt
+  NvOdmSocPowerState_SimpleSuspend,
 
   /// Specifies to disable the SOC power state.
   NvOdmSocPowerState_Active,

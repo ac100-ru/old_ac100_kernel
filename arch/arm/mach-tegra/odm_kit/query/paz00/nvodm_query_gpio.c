@@ -37,29 +37,13 @@
 #define NVODM_ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define NVODM_PORT(x) ((x) - 'a')
 
-//Robert 2010/04/11
-#if ((defined EVT_HARDWARE_LAYOUT && defined DVT_HARDWARE_LAYOUT) || \
-	 (defined EVT_HARDWARE_LAYOUT && defined PVT_HARDWARE_LAYOUT) || \
-	 (defined DVT_HARDWARE_LAYOUT && defined PVT_HARDWARE_LAYOUT))
-#error multi defined hardware layout
-#endif
 
 static const NvOdmGpioPinInfo s_display[] = {
-#ifdef	PVT_HARDWARE_LAYOUT
-    /* PVT PAZ00 LVDS Interface */
+    /* DVT PAZ00 LVDS interface */
     { NVODM_PORT('m'), 6, NvOdmGpioPinActiveState_High },   // Enable (LVDS_SHTDN_N) (LO:OFF, HI:ON)
     { NVODM_PORT('u'), 3, NvOdmGpioPinActiveState_High },   // LCD_BL_PWM
     { NVODM_PORT('u'), 4, NvOdmGpioPinActiveState_High },   // LCD_BL_EN
     { NVODM_PORT('a'), 4, NvOdmGpioPinActiveState_High },   // EN_VDD_PNL
-#endif
-
-#ifdef	DVT_HARDWARE_LAYOUT
-    /* DVT PAZ00 LVDS interface */
-    { NVODM_PORT('b'), 2, NvOdmGpioPinActiveState_High },   // Enable (LVDS_SHTDN_N) (LO:OFF, HI:ON)
-    { NVODM_PORT('u'), 3, NvOdmGpioPinActiveState_High },   // LCD_BL_PWM
-    { NVODM_PORT('u'), 4, NvOdmGpioPinActiveState_High },   // LCD_BL_EN
-    { NVODM_PORT('c'), 6, NvOdmGpioPinActiveState_High },   // EN_VDD_PNL
-#endif
 };
 
 static const NvOdmGpioPinInfo s_hdmi[] =
@@ -68,11 +52,10 @@ static const NvOdmGpioPinInfo s_hdmi[] =
     { NVODM_PORT('n'), 7, NvOdmGpioPinActiveState_High },    // HDMI HPD
 };
 
-
 static const NvOdmGpioPinInfo s_sdio[] = {
-    {NVODM_PORT('v'), 5, NvOdmGpioPinActiveState_Low},    // Card Detect for SDIO instance 2
+    {NVODM_PORT('v'), 5, NvOdmGpioPinActiveState_Low},    // SDIO1_CD#
     /* High for WP and low for read/write */
-    {NVODM_PORT('h'), 1, NvOdmGpioPinActiveState_High},    // Write Protect for SDIO instance 2 
+    {NVODM_PORT('h'), 1, NvOdmGpioPinActiveState_High},    // SDIO1_WP
 };
 
 static const NvOdmGpioPinInfo s_sdio3[] = {
@@ -90,25 +73,22 @@ static const NvOdmGpioPinInfo s_Bluetooth[] = {
 };
 
 static const NvOdmGpioPinInfo s_Wlan[] = {
-#ifdef	PVT_HARDWARE_LAYOUT
     {NVODM_PORT('k'), 5, NvOdmGpioPinActiveState_Low},  // WF_PWDN#
     {NVODM_PORT('d'), 1, NvOdmGpioPinActiveState_Low},  // WF_RST#
     {NVODM_PORT('d'), 0, NvOdmGpioPinActiveState_Low}   // WF_LED#
-#else
-    {NVODM_PORT('k'), 5, NvOdmGpioPinActiveState_Low},  // WF_PWDN#
-    {NVODM_PORT('k'), 6, NvOdmGpioPinActiveState_Low}   // WF_RST#
-#endif
 };
 
+/*
 static const NvOdmGpioPinInfo s_Power[] = {
     // lid open/close, High = Lid Closed
     {NVODM_GPIO_INVALID_PORT, NVODM_GPIO_INVALID_PIN, NvOdmGpioPinActiveState_Low},
     // power button
     {NVODM_GPIO_INVALID_PORT, NVODM_GPIO_INVALID_PIN, NvOdmGpioPinActiveState_Low}
 };
+*/
 
 static const NvOdmGpioPinInfo s_WakeFromKeyBoard[] = {
-    {NVODM_PORT('j'), 7, NvOdmGpioPinActiveState_Low}   // EC Keyboard Wakeup
+    {NVODM_PORT('j'), 7, NvOdmGpioPinActiveState_Low}   // EC Keyboard Wakeup - T20_WAKE#
 };
 
 const NvOdmGpioPinInfo *NvOdmQueryGpioPinMap(NvOdmGpioPinGroup Group,
@@ -169,9 +149,13 @@ const NvOdmGpioPinInfo *NvOdmQueryGpioPinMap(NvOdmGpioPinGroup Group,
             *pCount = 0;
             return NULL;
 
-        case NvOdmGpioPinGroup_WakeFromECKeyboard:
+        case NvOdmGpioPinGroup_EmbeddedController:
             *pCount = NVODM_ARRAY_SIZE(s_WakeFromKeyBoard);
             return s_WakeFromKeyBoard;
+
+        case NvOdmGpioPinGroup_keypadMisc:
+            *pCount = 0;
+            return NULL;
 
         case NvOdmGpioPinGroup_Battery:
             *pCount = 0;

@@ -21,11 +21,17 @@
 
 #if defined(CONFIG_DEBUG_ICEDCC)
 
-#ifdef CONFIG_CPU_V6
+#ifdef defined(CONFIG_CPU_V6) || defined(CONFIG_CPU_V7)
 		.macro	loadsp, rb
 		.endm
 		.macro	writeb, ch, rb
 		mcr	p14, 0, \ch, c0, c5, 0
+		.endm
+#elif defined(CONFIG_CPU_XSCALE)
+		.macro	loadsp, rb
+		.endm
+		.macro	writeb, ch, rb
+		mcr	p14, 0, \ch, c8, c0, 0
 		.endm
 #else
 		.macro	loadsp, rb
@@ -117,12 +123,6 @@ start:
 		mov	r0, r0
 		.endr
 
-#ifdef CONFIG_NAKED_BOOT
-#include <mach/debug-macro.S>
-		addruart r7
-		inituart r8, r7
-#endif
-
 		b	1f
 		.word	0x016f2818		@ Magic numbers to help the loader
 		.word	start			@ absolute load/run zImage address
@@ -130,7 +130,6 @@ start:
 1:		mov	r7, r1			@ save architecture ID
 		mov	r8, r2			@ save atags pointer
 
-#ifndef CONFIG_CPU_V7M
 #ifndef __ARM_ARCH_2__
 		/*
 		 * Booting from Angel - need to enter SVC mode and disable
@@ -149,7 +148,6 @@ not_angel:
 		msr	cpsr_c, r2
 #else
 		teqp	pc, #0x0c000003		@ turn off interrupts
-#endif
 #endif
 
 		/*
@@ -414,10 +412,8 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 		orr	r1, r1, #3 << 10
 		add	r2, r3, #16384
 1:		cmp	r1, r9			@ if virt > start of RAM
-		it	hs
 		orrhs	r1, r1, #0x0c		@ set cacheable, bufferable
 		cmp	r1, r10			@ if virt > end of RAM
-		it	hs
 		bichs	r1, r1, #0x0c		@ clear cacheable, bufferable
 		str	r1, [r0], #4		@ 1:1 mapping
 		add	r1, r1, #1048576
@@ -464,22 +460,19 @@ __armv7_mmu_cache_on:
 #ifdef CONFIG_MMU
 		mrc	p15, 0, r11, c0, c1, 4	@ read ID_MMFR0
 		tst	r11, #0xf		@ VMSA
-		it	ne
 		blne	__setup_mmu
 		mov	r0, #0
 		mcr	p15, 0, r0, c7, c10, 4	@ drain write buffer
 		tst	r11, #0xf		@ VMSA
-		it	ne
 		mcrne	p15, 0, r0, c8, c7, 0	@ flush I,D TLBs
 #endif
 		mrc	p15, 0, r0, c1, c0, 0	@ read control reg
 		orr	r0, r0, #0x5000		@ I-cache enable, RR cache replacement
 		orr	r0, r0, #0x003c		@ write buffer
+#ifdef CONFIG_MMU
 #ifdef CONFIG_CPU_ENDIAN_BE8
 		orr	r0, r0, #1 << 25	@ big-endian page tables
 #endif
-#ifdef CONFIG_MMU
-		itttt	ne
 		orrne	r0, r0, #1		@ MMU enabled
 		movne	r1, #-1
 		mcrne	p15, 0, r3, c2, c0, 0	@ load page table pointer
@@ -489,6 +482,20 @@ __armv7_mmu_cache_on:
 		mrc	p15, 0, r0, c1, c0, 0	@ and read it back
 		mov	r0, #0
 		mcr	p15, 0, r0, c7, c5, 4	@ ISB
+		mov	pc, r12
+
+__fa526_cache_on:
+		mov	r12, lr
+		bl	__setup_mmu
+		mov	r0, #0
+		mcr	p15, 0, r0, c7, c7, 0	@ Invalidate whole cache
+		mcr	p15, 0, r0, c7, c10, 4	@ drain write buffer
+		mcr	p15, 0, r0, c8, c7, 0	@ flush UTLB
+		mrc	p15, 0, r0, c1, c0, 0	@ read control reg
+		orr	r0, r0, #0x1000		@ I-cache enable
+		bl	__common_mmu_cache_on
+		mov	r0, #0
+		mcr	p15, 0, r0, c8, c7, 0	@ flush UTLB
 		mov	pc, r12
 
 __arm6_mmu_cache_on:
@@ -570,21 +577,16 @@ call_kernel:	bl	cache_clean_flush
  *  r12 = corrupted
  */
 
-call_cache_fn:
-		adr	r12, proc_types
+call_cache_fn:	adr	r12, proc_types
 #ifdef CONFIG_CPU_CP15
 		mrc	p15, 0, r6, c0, c0	@ get processor ID
-#elif defined(CONFIG_CPU_V7M)
-		ldr	r6, =0xe000ed00		@ CPUID register address
-		ldr	r6, [r6]
 #else
 		ldr	r6, =CONFIG_PROCESSOR_ID
 #endif
-1:		ldr	r2, [r12, #4]		@ get mask
-		ldr	r1, [r12, #0]		@ get value
-		and	r2, r6, r2		@ keep the relevant bits
-		teq	r1, r2			@ match with the value
-		itt	eq
+1:		ldr	r1, [r12, #0]		@ get value
+		ldr	r2, [r12, #4]		@ get mask
+		eor	r1, r1, r6		@ (real ^ match)
+		tst	r1, r2			@       & mask
  ARM(		addeq	pc, r12, r3		) @ call cache function
  THUMB(		addeq	r12, r3			)
  THUMB(		moveq	pc, r12			) @ call cache function
@@ -618,6 +620,8 @@ proc_types:
 @		b	__arm6_mmu_cache_off
 @		b	__armv3_mmu_cache_flush
 
+#if !defined(CONFIG_CPU_V7)
+		/* This collides with some V7 IDs, preventing correct detection */
 		.word	0x00000000		@ old ARM ID
 		.word	0x0000f000
 		mov	pc, lr
@@ -626,6 +630,7 @@ proc_types:
  THUMB(		nop				)
 		mov	pc, lr
  THUMB(		nop				)
+#endif
 
 		.word	0x41007000		@ ARM7/710
 		.word	0xfff8fe00
@@ -678,15 +683,42 @@ proc_types:
 
 		.word	0x56056930
 		.word	0xff0ffff0		@ PXA935
-		b	__armv4_mmu_cache_on
-		b	__armv4_mmu_cache_off
-		b	__armv4_mmu_cache_flush
+		W(b)	__armv4_mmu_cache_on
+		W(b)	__armv4_mmu_cache_off
+		W(b)	__armv4_mmu_cache_flush
+
+		.word	0x56158000		@ PXA168
+		.word	0xfffff000
+		W(b)	__armv4_mmu_cache_on
+		W(b)	__armv4_mmu_cache_off
+		W(b)	__armv5tej_mmu_cache_flush
+
+		.word	0x56056930
+		.word	0xff0ffff0		@ PXA935
+		W(b)	__armv4_mmu_cache_on
+		W(b)	__armv4_mmu_cache_off
+		W(b)	__armv4_mmu_cache_flush
 
 		.word	0x56050000		@ Feroceon
 		.word	0xff0f0000
 		W(b)	__armv4_mmu_cache_on
 		W(b)	__armv4_mmu_cache_off
 		W(b)	__armv5tej_mmu_cache_flush
+
+#ifdef CONFIG_CPU_FEROCEON_OLD_ID
+		/* this conflicts with the standard ARMv5TE entry */
+		.long	0x41009260		@ Old Feroceon
+		.long	0xff00fff0
+		b	__armv4_mmu_cache_on
+		b	__armv4_mmu_cache_off
+		b	__armv5tej_mmu_cache_flush
+#endif
+
+		.word	0x66015261		@ FA526
+		.word	0xff01fff1
+		W(b)	__fa526_cache_on
+		W(b)	__armv4_mmu_cache_off
+		W(b)	__fa526_cache_flush
 
 		@ These match on the architecture ID
 
@@ -714,13 +746,11 @@ proc_types:
 		W(b)	__armv4_mmu_cache_off
 		W(b)	__armv6_mmu_cache_flush
 
-#ifndef CONFIG_CPU_V7M
 		.word	0x000f0000		@ new CPU Id
 		.word	0x000f0000
 		W(b)	__armv7_mmu_cache_on
 		W(b)	__armv7_mmu_cache_off
 		W(b)	__armv7_mmu_cache_flush
-#endif
 
 		.word	0			@ unrecognised type
 		.word	0
@@ -836,11 +866,16 @@ __armv4_mpu_cache_flush:
 		bcs	1b			@ segments 7 to 0
 
 		teq	r2, #0
-		it	ne
 		mcrne	p15, 0, ip, c7, c5, 0	@ invalidate I cache
 		mcr	p15, 0, ip, c7, c10, 4	@ drain WB
 		mov	pc, lr
 		
+__fa526_cache_flush:
+		mov	r1, #0
+		mcr	p15, 0, r1, c7, c14, 0	@ clean and invalidate D cache
+		mcr	p15, 0, r1, c7, c5, 0	@ flush I cache
+		mcr	p15, 0, r1, c7, c10, 4	@ drain WB
+		mov	pc, lr
 
 __armv6_mmu_cache_flush:
 		mov	r1, #0
@@ -928,7 +963,6 @@ __armv4_mmu_cache_flush:
 		mov	r2, #1024
 		mov	r2, r2, lsl r1		@ base dcache size *2
 		tst	r3, #1 << 14		@ test M bit
-		it	ne
 		addne	r2, r2, r2, lsr #1	@ +1/2 size if M == 1
 		mov	r3, r3, lsr #12
 		and	r3, r3, #3
@@ -940,8 +974,8 @@ no_cache_id:
 		add	r2, r1, r2
 1:
  ARM(		ldr	r3, [r1], r11		) @ s/w flush D cache
- THUMB(		ldr	r3, [r1]		) @ s/w flush D cache
- THUMB(		add	r1, r1, r11		)
+ THUMB(		ldr     r3, [r1]		) @ s/w flush D cache
+ THUMB(		add     r1, r1, r11		)
 		teq	r1, r2
 		bne	1b
 

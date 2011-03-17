@@ -40,7 +40,7 @@
  */
 
 #include "nvrm_pinmux.h"
-#include "nvrm_power.h"
+#include "nvrm_power_private.h"
 #include "nvrm_pmu.h"
 #include "nvrm_hardware_access.h"
 #include "nvddk_usbphy_priv.h"
@@ -98,6 +98,34 @@ static void UsbPrivEnableVbus(NvDdkUsbPhy *pUsbPhy, NvBool Enable)
                     NvRmPmuSetVoltage(pUsbPhy->hRmDevice,
                             pConnectivity->AddressList[i].Address, ODM_VOLTAGE_OFF, NULL);
                 }
+            }
+            else if (pConnectivity->AddressList[i].Interface == NvOdmIoModule_Gpio)
+            {
+                if ((!pUsbPhy->hGpio))
+                {
+                    pUsbPhy->hGpio = (NvOdmServicesGpioHandle)NvOdmGpioOpen();
+                    if (!pUsbPhy->hGpio)
+                    {
+                        return;
+                    }
+                }
+                if (!pUsbPhy->hPin)
+                {
+                    NvU32 GpioPort = 0, GpioPin = 0;
+                    GpioPort = pConnectivity->AddressList[0].Instance;
+                    GpioPin = pConnectivity->AddressList[0].Address;
+                    pUsbPhy->hPin = NvOdmGpioAcquirePinHandle(pUsbPhy->hGpio, GpioPort, GpioPin);
+                    if (!pUsbPhy->hPin)
+                    {
+                        NvOdmGpioClose(pUsbPhy->hGpio);
+                        return;
+                    }
+                }
+                NvOdmGpioConfig(pUsbPhy->hGpio, pUsbPhy->hPin, NvOdmGpioPinMode_Output);
+                if (!Enable)
+                    NvOdmGpioSetState(pUsbPhy->hGpio, pUsbPhy->hPin, 0);
+                else
+                    NvOdmGpioSetState(pUsbPhy->hGpio, pUsbPhy->hPin, 1);
             }
         }
     }
@@ -184,11 +212,6 @@ UsbPhyOpenHwInterface(
     {
         //NvOsDebugPrintf("AP20 USB Controllers\n");
         Ap20UsbPhyOpenHwInterface(hUsbPhy);
-    }
-    else
-    {
-        //NvOsDebugPrintf("AP16/15 USB Controllers\n");
-        Ap16UsbPhyOpenHwInterface(hUsbPhy);
     }
 }
 
@@ -621,6 +644,17 @@ NvDdkUsbPhyClose(
 
     NvOdmEnableUsbPhyPowerRail(NV_FALSE);
 
+    if (hUsbPhy->hGpio)
+    {
+        if (hUsbPhy->hPin)
+        {
+            NvOdmGpioReleasePinHandle(hUsbPhy->hGpio, hUsbPhy->hPin);
+            hUsbPhy->hPin = NULL;
+        }
+        NvOdmGpioClose(hUsbPhy->hGpio);
+        hUsbPhy->hGpio = NULL;
+    }
+
     NvRmPhysicalMemUnmap(
         (void*)hUsbPhy->UsbVirAdr, hUsbPhy->UsbBankSize);
 
@@ -673,6 +707,8 @@ NvDdkUsbPhyPowerUp(
     // Power up the Phy
     NV_CHECK_ERROR_CLEANUP(hUsbPhy->PowerUp(hUsbPhy));
 
+    /* Allow restoring register context for the USB host if it is a ULPI
+       interface or if the lowest power state is LP1 */
     if (hUsbPhy->pProperty->UsbMode == NvOdmUsbModeType_Host)
     {
         hUsbPhy->RestoreContext(hUsbPhy);
@@ -705,6 +741,8 @@ NvDdkUsbPhyPowerDown(
     NvBool IsDpd)
 {
     NvError e = NvSuccess;
+    NvDdkUsbPhyIoctl_VBusStatusOutputArgs VBusStatus;
+    NvU32 TimeOut = USB_PHY_HW_TIMEOUT_US;
 
     NV_ASSERT(hUsbPhy);
 
@@ -715,6 +753,8 @@ NvDdkUsbPhyPowerDown(
         return e;
     }
 
+    /* Allow saving register context for the USB host if it is a ULPI
+       interface or if the lowest power state is LP1 */
     if (hUsbPhy->pProperty->UsbMode == NvOdmUsbModeType_Host)
     {
         hUsbPhy->SaveContext(hUsbPhy);
@@ -725,6 +765,16 @@ NvDdkUsbPhyPowerDown(
     if (IsHostMode)
     {
         UsbPrivEnableVbus(hUsbPhy, NV_FALSE);
+        /* Wait till Vbus is turned off */
+        do
+        {
+            NvOsWaitUS(1000);
+            TimeOut -= 1000;
+            e = hUsbPhy->Ioctl(hUsbPhy,
+                    NvDdkUsbPhyIoctlType_VBusStatus,
+                    NULL,
+                    &VBusStatus);
+        } while (VBusStatus.VBusDetected && TimeOut);
     }
     // Power down the USB Phy
     NV_CHECK_ERROR_CLEANUP(hUsbPhy->PowerDown(hUsbPhy));

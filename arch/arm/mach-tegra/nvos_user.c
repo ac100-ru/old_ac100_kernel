@@ -32,16 +32,15 @@
 #include <linux/rwsem.h>
 #include <mach/irqs.h>
 #include "nvos.h"
-#include "linux/nvos_ioctl.h"
+#include "nvos_ioctl.h"
 #include "nvassert.h"
+#include <linux/err.h>
 
 int nvos_open(struct inode *inode, struct file *file);
 int nvos_close(struct inode *inode, struct file *file);
 static long nvos_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 int nvos_mmap(struct file *file, struct vm_area_struct *vma);
 int NvOsSemaphoreWaitInterruptible(NvOsSemaphoreHandle semaphore);
-
-#define DEVICE_NAME "nvos"
 
 static const struct file_operations nvos_fops =
 {
@@ -54,8 +53,24 @@ static const struct file_operations nvos_fops =
 
 static struct miscdevice nvosDevice =
 {
-    .name = DEVICE_NAME,
+    .name = "nvos",
     .fops = &nvos_fops,
+    .minor = MISC_DYNAMIC_MINOR,
+};
+
+static const struct file_operations knvos_fops =
+{
+    .owner = THIS_MODULE,
+    .open = nvos_open,
+    .release = nvos_close,
+    .unlocked_ioctl = nvos_ioctl,
+    .mmap = nvos_mmap
+};
+
+static struct miscdevice knvosDevice =
+{
+    .name = "knvos",
+    .fops = &knvos_fops,
     .minor = MISC_DYNAMIC_MINOR,
 };
 
@@ -74,20 +89,26 @@ typedef struct NvOsInstanceRec
     spinlock_t             Lock;
     struct list_head       IrqHandles;
     int                    pid;
+    bool                   su;
 } NvOsInstance;
 
 static int __init nvos_init( void )
 {
-    int retVal = 0;
+    int ret;
 
-    retVal = misc_register(&nvosDevice);
-
-    if (retVal < 0)
-    {
-        printk("nvos init failure\n" );
+    ret = misc_register(&nvosDevice);
+    if (ret != 0) {
+        pr_err("%s error 0x%x registering %s\n", __func__, ret, nvosDevice.name);
+        return ret;
     }
 
-    return retVal;    
+    ret = misc_register(&knvosDevice);
+    if (ret != 0) {
+        pr_err("%s error 0x%x registering %s\n", __func__, ret, knvosDevice.name);
+        return ret;
+    }
+
+    return 0;
 }
 
 static void __exit nvos_deinit( void )
@@ -111,6 +132,7 @@ int nvos_open(struct inode *inode, struct file *filp)
     Instance->tsk = current;
     Instance->pid = current->group_leader->pid;
     Instance->MemRange = NULL;
+    Instance->su = (filp->f_op == &knvos_fops);
     spin_lock_init(&Instance->Lock);
     INIT_LIST_HEAD(&Instance->IrqHandles);
     filp->private_data = (void*)Instance;
@@ -128,7 +150,7 @@ int nvos_close(struct inode *inode, struct file *filp)
         filp->private_data = NULL;
         while (!list_empty(&Instance->IrqHandles))
         {
-            LeakedIrq = list_first_entry(&Instance->IrqHandles, 
+            LeakedIrq = list_first_entry(&Instance->IrqHandles,
                             NvOsIrqListNode, list);
             list_del_init(&LeakedIrq->list);
             printk(__FILE__": leaked NvOsInterruptHandle %p\n",
@@ -203,7 +225,7 @@ static int interrupt_op(
         break;
     }
     case NV_IOCTL_INTERRUPT_MASK:
-        NvOsInterruptMask((NvOsInterruptHandle)p.handle, 
+        NvOsInterruptMask((NvOsInterruptHandle)p.handle,
             p.arg ? NV_TRUE : NV_FALSE);
         e = NvSuccess;
         break;
@@ -230,7 +252,7 @@ static int interrupt_register(
     e = NvOsCopyIn(&k, (void *)arg, sizeof(NvOsInterruptRegisterParams));
     if (e!=NvSuccess)
         return -EINVAL;
-        
+
     irqList = NvOsAlloc(k.nIrqs * sizeof(NvU32));
     semList = NvOsAlloc(k.nIrqs * sizeof(NvOsSemaphoreHandle));
     node = NvOsAlloc(sizeof(NvOsIrqListNode));
@@ -248,7 +270,7 @@ static int interrupt_register(
     NV_CHECK_ERROR_CLEANUP(NvOsCopyIn(irqList, k.Irqs, k.nIrqs*sizeof(NvU32)));
 
     NV_CHECK_ERROR_CLEANUP(
-        NvOsCopyIn(semList, k.SemaphoreList, 
+        NvOsCopyIn(semList, k.SemaphoreList,
             k.nIrqs*sizeof(NvOsSemaphoreHandle))
     );
 
@@ -256,7 +278,7 @@ static int interrupt_register(
      * wrapper before any interrupts are processed, interrupts must be
      * registered and enabled in two separate ioctls.
      */
-    e = NvOsInterruptRegisterInternal(k.nIrqs, irqList, 
+    e = NvOsInterruptRegisterInternal(k.nIrqs, irqList,
             (const void*)semList, NULL, &h, NV_FALSE, NV_TRUE);
 
     if (e==NvSuccess && Instance)
@@ -393,8 +415,13 @@ static long nvos_ioctl(struct file *filp,
             NvOsCopyIn( &kernelSem, (void *)arg, sizeof(kernelSem) )
         );
 
+        if (IS_ERR_OR_NULL(kernelSem)) {
+            e = -EINVAL;
+            goto clean;
+        }
+        BUG_ON( (unsigned long)kernelSem < PAGE_SIZE );
         NvOsSemaphoreSignal(kernelSem);
-        break;           
+        break;
     case NV_IOCTL_SEMAPHORE_WAIT:
         DO_CLEANUP(
             NvOsCopyIn( &kernelSem, (void *)arg, sizeof(kernelSem) )
@@ -412,8 +439,7 @@ static long nvos_ioctl(struct file *filp,
 
         if (k.value == NV_WAIT_INFINITE)
         {
-            k.error = NvSuccess;
-            e = NvOsSemaphoreWaitInterruptible(kernelSem);
+            k.error = NvOsSemaphoreWaitInterruptible(k.sem);
         }
         else
         {
@@ -427,6 +453,9 @@ static long nvos_ioctl(struct file *filp,
         break;
     }
     case NV_IOCTL_INTERRUPT_REGISTER:
+        if (filp->f_op != &knvos_fops)
+            return -EACCES;
+
         lock_kernel();
         e = interrupt_register(Instance, arg);
         unlock_kernel();
@@ -436,6 +465,9 @@ static long nvos_ioctl(struct file *filp,
     case NV_IOCTL_INTERRUPT_DONE:
     case NV_IOCTL_INTERRUPT_ENABLE:
     case NV_IOCTL_INTERRUPT_MASK:
+        if (filp->f_op != &knvos_fops)
+            return -EACCES;
+
         lock_kernel();
         e = interrupt_op(Instance, cmd, arg);
         unlock_kernel();
@@ -444,6 +476,9 @@ static long nvos_ioctl(struct file *filp,
     case NV_IOCTL_MEMORY_RANGE:
     {
         NvOsMemRangeParams *p;
+
+        if (filp->f_op != &knvos_fops)
+            return -EACCES;
 
         p = NvOsAlloc( sizeof(NvOsMemRangeParams) );
         if( !p )

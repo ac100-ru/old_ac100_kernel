@@ -14,10 +14,6 @@
 #include <linux/sysdev.h>
 #include <linux/mutex.h>
 
-#include <asm/system.h>
-#include <asm/cputype.h>
-#include <asm/io.h>
-
 #include "op_counter.h"
 #include "op_arm_model.h"
 
@@ -132,42 +128,26 @@ static void  exit_driverfs(void)
 
 int __init oprofile_arch_init(struct oprofile_operations *ops)
 {
-#if defined(CONFIG_ANDROID) && defined(CONFIG_CPU_V7)
-	return -ENODEV;
-#else
 	struct op_arm_model_spec *spec = NULL;
 	int ret = -ENODEV;
-	int cpu_arch = cpu_architecture();
 
 	ops->backtrace = arm_backtrace;
 
-	if (cpu_is_xscale())
+#ifdef CONFIG_CPU_XSCALE
 	spec = &op_xscale_spec;
-	else if (cpu_is_11mpcore() || cpu_arch == CPU_ARCH_ARMv6) {
-		/* cpu_architecture returns V7 for MPCore! */
+#endif
+
+#ifdef CONFIG_OPROFILE_ARMV6
 	spec = &op_armv6_spec;
-		if (cpu_is_11mpcore())
-			spec->name = "arm/11mpcore";
-		}
-	else if (cpu_arch == CPU_ARCH_ARMv7) {
+#endif
+
+#ifdef CONFIG_OPROFILE_MPCORE
+	spec = &op_mpcore_spec;
+#endif
+
+#ifdef CONFIG_OPROFILE_ARMV7
 	spec = &op_armv7_spec;
-		/*
-		 * V7 CPUs all have the same kind of PMUs, but have a variable
-		 * number of them. So the kernel side of Oprofile only needs
-		 * to know whether we have the L2x0, and whether we're SMP.
-		 * The user side needs more information, to decide which
-		 * events file to use because, for example, some A8 event
-		 * numbers differ from A9 event numbers).
-		 */
-		if (cpu_is_a9()) {
-			if (is_smp())
-				spec->name = "arm/a9mpcore";
-			else
-				spec->name = "arm/a9";
-		}
-		else
-			spec->name = "arm/a8";
-	}
+#endif
 
 	if (spec) {
 		ret = spec->init();
@@ -187,11 +167,10 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 		ops->start = op_arm_start;
 		ops->stop = op_arm_stop;
 		ops->cpu_type = op_arm_model->name;
-		printk(KERN_INFO "oprofile: cpu_architecture() returns 0x%x, using %s model\n", cpu_arch, spec->name);
+		printk(KERN_INFO "oprofile: using %s\n", spec->name);
 	}
 
 	return ret;
-#endif
 }
 
 void oprofile_arch_exit(void)

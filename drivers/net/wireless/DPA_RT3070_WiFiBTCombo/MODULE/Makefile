@@ -106,15 +106,9 @@ endif
 
 ifeq ($(PLATFORM),PC)
 # Linux 2.6
-LINUX_SRC := /out_and_kernel/kernel
-#LINUX_SRC = /home/travis/workspace/PAZ00/kernel-src/branches/PAZ-R09.12.06/trunk
-#/lib/modules/$(shell uname -r)/build
-# Linux 2.4 Change to your local setting
-#LINUX_SRC = /usr/src/linux-2.4
+LINUX_SRC := /home/si/nvidia/paz02/10.9.7/binary-source/kernel
 LINUX_SRC_MODULE =
-#/lib/modules/$(shell uname -r)/kernel/drivers/net/wireless/
-#CROSS_COMPILE = /home/travis/workspace/PAZ00/android-src/branches/PAZ-R09.12.06/trunk/prebuilt/linux-x86/toolchain/arm-eabi-4.4.0/bin/arm-eabi-
-CROSS_COMPILE := /android_svn/trunk/prebuilt/linux-x86/toolchain/arm-eabi-4.4.0/bin/arm-eabi-
+CROSS_COMPILE := /home/si/nvidia/paz02/10.9.7/trunk/prebuilt/linux-x86/toolchain/arm-eabi-4.4.0/bin/arm-eabi-
 endif
 
 ifeq ($(PLATFORM),IXP)
@@ -253,7 +247,7 @@ else
 ifeq ($(RT28xx_MODE),APSTA)
 	cp -f $(RT28xx_DIR)/os/linux/rt$(CHIPSET)apsta.ko /tftpboot
 else
-	cp -f $(RT28xx_DIR)/os/linux/rt$(CHIPSET)sta.ko /tftpboot
+	#cp -f $(RT28xx_DIR)/os/linux/rt$(CHIPSET)sta.ko /tftpboot
 endif
 endif	
 endif

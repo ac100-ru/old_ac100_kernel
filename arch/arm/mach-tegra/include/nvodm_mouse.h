@@ -159,11 +159,11 @@ NvBool NvOdmMousePowerSuspend(NvOdmMouseDeviceHandle hDevice);
 NvBool NvOdmMousePowerResume(NvOdmMouseDeviceHandle hDevice);
 
 /**
- *  Resumes initial for mouse.
- *
+ *  Reset mouse.
+ *                                                                          
  * @param hDevice A handle to the mouse.
  * @return NV_TRUE if successful, or NV_FALSE otherwise.
-*/
+ */
 NvBool NvOdmMouseReset(NvOdmMouseDeviceHandle hDevice);
 
 

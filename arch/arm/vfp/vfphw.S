@@ -1,4 +1,5 @@
-/*  linux/arch/arm/vfp/vfphw.S
+/*
+ *  linux/arch/arm/vfp/vfphw.S
  *
  *  Copyright (C) 2004 ARM Limited.
  *  Written by Deep Blue Solutions Limited.
@@ -99,6 +100,7 @@ ENTRY(vfp_support_entry)
 	beq	no_old_VFP_process
 	VFPFSTMIA r4, r5		@ save the working registers
 	VFPFMRX	r5, FPSCR		@ current status
+#ifndef CONFIG_CPU_FEROCEON
 	tst	r1, #FPEXC_EX		@ is there additional state to save?
 	beq	1f
 	VFPFMRX	r6, FPINST		@ FPINST (only if FPEXC.EX is set)
@@ -106,6 +108,7 @@ ENTRY(vfp_support_entry)
 	beq	1f
 	VFPFMRX	r8, FPINST2		@ FPINST2 if needed (and present)
 1:
+#endif
 	stmia	r4, {r1, r5, r6, r8}	@ save FPEXC, FPSCR, FPINST, FPINST2
 					@ and point r4 at the word at the
 					@ start of the register dump
@@ -118,6 +121,7 @@ no_old_VFP_process:
 	VFPFLDMIA r10, r5		@ reload the working registers while
 					@ FPEXC is in a safe state
 	ldmia	r10, {r1, r5, r6, r8}	@ load FPEXC, FPSCR, FPINST, FPINST2
+#ifndef CONFIG_CPU_FEROCEON
 	tst	r1, #FPEXC_EX		@ is there additional state to restore?
 	beq	1f
 	VFPFMXR	FPINST, r6		@ restore FPINST (only if FPEXC.EX is set)
@@ -125,6 +129,7 @@ no_old_VFP_process:
 	beq	1f
 	VFPFMXR	FPINST2, r8		@ FPINST2 if needed (and present)
 1:
+#endif
 	VFPFMXR	FPSCR, r5		@ restore status
 
 check_for_exception:
@@ -205,11 +210,14 @@ last_VFP_context_address:
 	.word	last_VFP_context
 
 	.macro	tbl_branch, base, tmp, shift
- ARM(	add	pc, pc, \base, lsl \shift	)
- ARM(	mov	r0, r0				)
- THUMB(	adr	\tmp, 1f			)
- THUMB(	add	\tmp, \tmp, \base, lsl \shift	)
- THUMB(	mov	pc, \tmp			)
+#ifdef CONFIG_THUMB2_KERNEL
+	adr	\tmp, 1f
+	add	\tmp, \tmp, \base, lsl \shift
+	mov	pc, \tmp
+#else
+	add	pc, pc, \base, lsl \shift
+	mov	r0, r0
+#endif
 1:
 	.endm
 

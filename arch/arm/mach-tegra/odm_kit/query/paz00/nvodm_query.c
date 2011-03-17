@@ -82,8 +82,8 @@ static const NvOdmQuerySdioInterfaceProperty s_NvOdmQuerySdioInterfaceProperty[4
 {
     { NV_TRUE,   0, NV_FALSE, 0x5, NvOdmQuerySdioSlotUsage_Media  },
     { NV_TRUE,   0, NV_FALSE, 0x6, NvOdmQuerySdioSlotUsage_unused },
-    { NV_FALSE, 10,  NV_TRUE, 0x8, NvOdmQuerySdioSlotUsage_unused },
-    { NV_TRUE,  10,  NV_TRUE, 0x6, NvOdmQuerySdioSlotUsage_Boot   }
+    { NV_TRUE,   0, NV_FALSE, 0x6, NvOdmQuerySdioSlotUsage_unused },
+    { NV_FALSE, 10,  NV_TRUE, 0x6, NvOdmQuerySdioSlotUsage_Boot   }
 };
 
 static const NvOdmQuerySpiDeviceInfo s_NvOdmQuerySpiDeviceInfoTable [] =
@@ -150,13 +150,6 @@ static const NvOdmQueryDapPortConnection s_NvOdmQueryDapPortConnectionTable[] =
     { NvOdmDapConnectionIndex_Music_Path, 2,
     { {NvOdmDapPort_I2s1, NvOdmDapPort_Dap1, NV_TRUE},
       {NvOdmDapPort_Dap1, NvOdmDapPort_I2s1, NV_FALSE}
-    }},
-
-    // Bluetooth to Codec
-    { NvOdmDapConnectionIndex_BlueTooth_Codec, 3,
-    { {NvOdmDapPort_Dap4, NvOdmDapPort_I2s1, NV_TRUE},
-      {NvOdmDapPort_I2s1, NvOdmDapPort_Dap4, NV_FALSE},
-      {NvOdmDapPort_I2s2, NvOdmDapPort_Dap1, NV_FALSE}
     }}
 };
 
@@ -171,9 +164,7 @@ static const NvOdmQueryDapPortProperty s_NvOdmQueryDapPortInfoTable[] =
         {2, 16, 44100, NvOdmQueryI2sDataCommFormat_I2S}},   // Dap1
     {NvOdmDapPort_None, NvOdmDapPort_None , {0, 0, 0, 0} }, // Dap2
     {NvOdmDapPort_None, NvOdmDapPort_None , {0, 0, 0, 0} }, // Dap3
-    // I2S2 (DAC2) <-> DAP4 <-> BLUETOOTH
-    {NvOdmDapPort_I2s2, NvOdmDapPort_BlueTooth,
-        {2, 16, 8000, NvOdmQueryI2sDataCommFormat_I2S}}     // Dap4
+    {NvOdmDapPort_None, NvOdmDapPort_None , {0, 0, 0, 0} }  // Dap4
 };
 
 static const NvOdmSdramControllerConfigAdv s_NvOdmHyS5c1GbEmcConfigTable[] =
@@ -313,7 +304,7 @@ static NvOdmWakeupPadInfo s_NvOdmWakeupPadInfo[] =
 #endif
     {NV_FALSE, 16, NvOdmWakeupPadPolarity_High},    // Wake Event 16 - rtc_irq
     {NV_FALSE, 17, NvOdmWakeupPadPolarity_High},
-    {NV_TRUE, 18, NvOdmWakeupPadPolarity_Low},     // Wake Event 18 - pwr_int (PMIC_INT)
+    {NV_TRUE,  18, NvOdmWakeupPadPolarity_Low},     // Wake Event 18 - pwr_int (PMIC_INT)
     {NV_FALSE, 19, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event 19 - usb_vbus_wakeup[0]
     {NV_FALSE, 20, NvOdmWakeupPadPolarity_High},    // Wake Event 20 - usb_vbus_wakeup[1]
     {NV_FALSE, 21, NvOdmWakeupPadPolarity_Low},     // Wake Event 21 - usb_iddig[0]
@@ -528,27 +519,11 @@ const void*
 NvOdmQuerySdramControllerConfigGet(NvU32 *pEntries, NvU32 *pRevision)
 {
 #if NVODM_ENABLE_EMC_DVFS
-
-    NvU32 StrapValue;
-    if (NvOdmGetStraps(NvOdmStrapGroup_RamCode, &StrapValue))
-    {
-        switch(StrapValue)
-        {
-            case 0:
-            case 1:
-            case 2:
-            case 3:
-                if (pRevision)
-                    *pRevision = s_NvOdmHyS5c1GbEmcConfigTable[0].Revision;
-                if (pEntries)
-                    *pEntries = NV_ARRAY_SIZE(s_NvOdmHyS5c1GbEmcConfigTable);
-                return (const void*)s_NvOdmHyS5c1GbEmcConfigTable;
-            default:
-                if (pEntries)
-                    *pEntries = 0;
-                return NULL;
-        }
-    }
+    if (pRevision)
+        *pRevision = s_NvOdmHyS5c1GbEmcConfigTable[0].Revision;
+    if (pEntries)
+        *pEntries = NV_ARRAY_SIZE(s_NvOdmHyS5c1GbEmcConfigTable);
+    return (const void*)s_NvOdmHyS5c1GbEmcConfigTable;
 #endif
     if (pEntries)
         *pEntries = 0;
@@ -682,6 +657,8 @@ NvBool NvOdmQueryGetPmuProperty(NvOdmPmuProperty* pPmuProperty)
     pPmuProperty->CpuPowerGoodUs = 2000;
     pPmuProperty->AccuracyPercent = 3;
     pPmuProperty->VCpuOTPOnWakeup = NV_FALSE;
+    pPmuProperty->PowerOffCount = 0;
+    pPmuProperty->CpuPowerOffUs = 0;
     return NV_TRUE;
 }
 

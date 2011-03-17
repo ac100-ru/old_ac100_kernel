@@ -31,4 +31,3 @@ config THERMAL_TEGRA
        help
           The tegra thermal sysfs driver is used to monitor the temp.
 endif
-

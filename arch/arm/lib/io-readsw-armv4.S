@@ -26,7 +26,6 @@
 
 ENTRY(__raw_readsw)
 		teq	r2, #0
-		it	eq
 		moveq	pc, lr
 		tst	r1, #3
 		bne	.Linsw_align
@@ -77,8 +76,7 @@ ENTRY(__raw_readsw)
 		pack	r3, r3, ip
 		str	r3, [r1], #4
 
-.Lno_insw_2:	itt	ne
-		ldrneh	r3, [r0]
+.Lno_insw_2:	ldrneh	r3, [r0]
 		strneh	r3, [r1]
 
 		ldmfd	sp!, {r4, r5, pc}
@@ -96,7 +94,6 @@ ENTRY(__raw_readsw)
 #endif
 
 .Linsw_noalign:	stmfd	sp!, {r4, lr}
-		it	cc
 		ldrccb	ip, [r1, #-1]!
 		bcc	1f
 
@@ -124,7 +121,6 @@ ENTRY(__raw_readsw)
 
 3:		tst	r2, #1
 		strb	ip, [r1], #1
-		itttt	ne
 		ldrneh	ip, [r0]
    _BE_ONLY_(	movne	ip, ip, ror #8		)
 		strneb	ip, [r1], #1

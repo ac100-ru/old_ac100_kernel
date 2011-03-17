@@ -62,7 +62,6 @@ static NvOdmPeripheralConnectivity s_Peripherals_Default[] =
 #define NVODM_QUERY_MAX_EEPROMS         8   // Maximum number of EEPROMs per bus segment
 
 #define NVODM_QUERY_ERASED_EEPROM_VALUE 0xFF
-
 #define PROCESSOR_BOARD_ID_I2C_ADDRESS ((0x56)<<1)
 #define PROCESSOR_BOARD_ID_I2C_SEGMENT (0x00)
 
@@ -485,9 +484,11 @@ NvOdmPeripheralGetBoardInfo(
     static NvBool s_ReadBoardInfoDone = NV_FALSE;
 
     if (!s_ReadBoardInfoDone)
+        hOdmI2c = NvOdmI2cOpen(NvOdmIoModule_I2c_Pmu, 0);
+
+    if (!s_ReadBoardInfoDone)
     {
         s_ReadBoardInfoDone = NV_TRUE;
-        hOdmI2c = NvOdmI2cOpen(NvOdmIoModule_I2c_Pmu, 0);
         if (!hOdmI2c)
         {
             // Exit
@@ -502,8 +503,9 @@ NvOdmPeripheralGetBoardInfo(
             if (RetVal == NV_TRUE)
                 NumBoards++;
         }
-        NvOdmI2cClose(hOdmI2c);
     }
+    if (hOdmI2c)
+        NvOdmI2cClose(hOdmI2c);
 
     if (NumBoards)
     {

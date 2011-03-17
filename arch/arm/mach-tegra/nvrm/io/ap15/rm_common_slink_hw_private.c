@@ -46,6 +46,7 @@
 #include "nvrm_hardware_access.h"
 #include "nvassert.h"
 #include "nvos.h"
+#include "linux/kernel.h"
 
 #define SLINK_REG_READ32(pSlinkHwRegsVirtBaseAdd, reg) \
         NV_READ32((pSlinkHwRegsVirtBaseAdd) + ((SLINK_##reg##_0)/4))
@@ -209,6 +210,55 @@ SlinkHwSetDataFlow(
     SLINK_REG_WRITE32(pSlinkHwRegs->pRegsBaseAdd, COMMAND2, 
                             pSlinkHwRegs->HwRegs.SlinkRegs.Command2);
 }
+
+/**
+ * Set CS for slave communication.
+ */
+static void
+SlinkHwSetSlaveCsId(
+    SerialHwRegisters *pSlinkHwRegs,
+    NvU32 CsId,
+    NvBool IsHigh)
+{
+    NvU32 CommandReg1 = pSlinkHwRegs->HwRegs.SlinkRegs.Command1;
+    NvU32 CommandReg2 = pSlinkHwRegs->HwRegs.SlinkRegs.Command2;
+
+    // Set the chip select level.
+    if (IsHigh)
+        CommandReg1 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND,  CS_VALUE, LOW, CommandReg1);
+    else
+        CommandReg1 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND,  CS_VALUE, HIGH, CommandReg1);
+
+    switch (CsId)
+    {
+        case 0:
+            CommandReg2 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND2, SS_EN, CS0, CommandReg2);
+            break;
+
+        case 1:
+            CommandReg2 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND2, SS_EN, CS1, CommandReg2);
+            break;
+
+        case 2:
+            CommandReg2 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND2, SS_EN, CS2, CommandReg2);
+            break;
+
+        case 3:
+            CommandReg2 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND2, SS_EN, CS3, CommandReg2);
+            break;
+
+        default:
+            NV_ASSERT(!"Invalid ChipSelectId");
+    }
+    pSlinkHwRegs->HwRegs.SlinkRegs.Command1 = CommandReg1;
+    pSlinkHwRegs->HwRegs.SlinkRegs.Command2 = CommandReg2;
+
+    SLINK_REG_WRITE32(pSlinkHwRegs->pRegsBaseAdd, COMMAND2,
+                            pSlinkHwRegs->HwRegs.SlinkRegs.Command2);
+    SLINK_REG_WRITE32(pSlinkHwRegs->pRegsBaseAdd, COMMAND,
+                            pSlinkHwRegs->HwRegs.SlinkRegs.Command1);
+}
+
 
 
 /**
@@ -395,15 +445,19 @@ static NvError SlinkHwGetTransferStatus(SerialHwRegisters *pSlinkHwRegs,
     // Check for the receive error 
     if (DataFlow & SerialHwDataFlow_Rx)
     {
-        if (StatusReg & RX_ERROR_STATUS)
+        if (StatusReg & RX_ERROR_STATUS) {
+		pr_err("SPI RX ERROR Status 0x%x\n",StatusReg);
              return NvError_SpiReceiveError;
+	}
     }
 
     // Check for the transmit error 
     if (DataFlow & SerialHwDataFlow_Tx)
     {
-        if (StatusReg & TX_ERROR_STATUS)
+        if (StatusReg & TX_ERROR_STATUS) {
+		pr_err("SPI TX ERROR Status 0x%x\n",StatusReg);
             return NvError_SpiTransmitError;
+	}
     }
     return NvSuccess;
 }
@@ -454,6 +508,7 @@ void NvRmPrivSpiSlinkInitSlinkInterface(HwInterface *pSlinkInterface)
     pSlinkInterface->HwIsTransmitFifoFull = SlinkHwIsTransmitFifoFull;
     pSlinkInterface->HwSetTransferBitOrderFxn = SlinkHwSetTransferBitOrder;
     pSlinkInterface->HwStartTransferFxn = SlinkHwStartTransfer;
+    pSlinkInterface->HwSetSlaveCsIdFxn = SlinkHwSetSlaveCsId;
     pSlinkInterface->HwSetDataFlowFxn = SlinkHwSetDataFlow;
     pSlinkInterface->HwSetPacketLengthFxn = SlinkHwSetPacketLength;
     pSlinkInterface->HwSetDmaTransferSizeFxn = SlinkHwSetDmaTransferSize;

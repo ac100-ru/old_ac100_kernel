@@ -1,33 +1,19 @@
 /*
  * Copyright (c) 2009-2010 NVIDIA Corporation.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * Neither the name of the NVIDIA Corporation nor the names of its contributors
- * may be used to endorse or promote products derived from this software
- * without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include "nvodm_query_discovery.h"
@@ -35,21 +21,6 @@
 #include "nvodm_battery_int.h"
 #include "nvodm_battery.h"
 #include "nvec.h"
-
-static NvU32 Ac_lastTime = 0;
-static NvOdmBatteryAcLineStatus preAcStatus = NvOdmBatteryAcLine_Online;
-static NvU8 preBattSlotStatus = 0;
-static NvU8 preBattCapacityGuage = 0;
-static NvU32 preBattLifeTime = 0;
-static NvU32 preBattVoltage = 0;
-static NvS32 preBattCurrent = NVODM_BATTERY_DATA_UNKNOWN;
-static NvS32 preBattAvgCurrent = NVODM_BATTERY_DATA_UNKNOWN;
-static NvU32 preBattAvgTimeInterval = NVODM_BATTERY_DATA_UNKNOWN;
-static NvU32 preBattTemp = NVODM_BATTERY_DATA_UNKNOWN;
-static NvU32 preRemCapacity = NVODM_BATTERY_DATA_UNKNOWN;
-static NvU32 preLastFullChargeCapacity = NVODM_BATTERY_DATA_UNKNOWN;
-static NvU32 preCriticalCapacity = NVODM_BATTERY_DATA_UNKNOWN;
-
 
 NvBool NvOdmBatteryPrivGetSlotStatusAndCapacityGuage(
        NvOdmBatteryDevice *pBattContext,
@@ -141,9 +112,9 @@ NvOdmBatteryGpioInterruptHandler(void *args)
 
         if (pBattContext->hClientBattEventSem)
             NvOdmOsSemaphoreSignal(pBattContext->hClientBattEventSem);
+	   NvRmGpioInterruptDone(pBattContext->GpioIntrHandle);
     }
 
-    NvRmGpioInterruptDone(pBattContext->GpioIntrHandle);
 }
 #endif
 
@@ -494,7 +465,7 @@ NvBool NvOdmBatteryPrivGetCurrent(
     NvEcResponse EcResponse = {0};
     NvEcBatteryGetCurrentResponsePayload BatteryCurrent;
     NvOdmBatteryDevice *pBattContext = NULL;
-	
+
     NVODMBATTERY_PRINTF(("[ENTER]NvOdmBatteryPrivGetCurrent.\n"));
     *pCurrent = NVODM_BATTERY_DATA_UNKNOWN;
     pBattContext = (NvOdmBatteryDevice *)hDevice;
@@ -513,8 +484,7 @@ NvBool NvOdmBatteryPrivGetCurrent(
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                               NvOdmBatteryPrivGetCurrent\n"));
-		*pCurrent = preBattCurrent;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -523,7 +493,6 @@ NvBool NvOdmBatteryPrivGetCurrent(
                     EcResponse.NumPayloadBytes);
         *pCurrent = BatteryCurrent.PresentCurrent[0];
         *pCurrent |= BatteryCurrent.PresentCurrent[1] << 8;
-		preBattCurrent = *pCurrent;
     }
 
     NVODMBATTERY_PRINTF(("[EXIT]NvOdmBatteryPrivGetCurrent.\n"));
@@ -570,8 +539,7 @@ NvBool NvOdmBatteryPrivGetAverageCurrent(
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                               NvOdmBatteryPrivGetAverageCurrent\n"));
-		*pAverageCurrent = preBattAvgCurrent;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -580,7 +548,6 @@ NvBool NvOdmBatteryPrivGetAverageCurrent(
                     EcResponse.NumPayloadBytes);
         *pAverageCurrent = BatteryAverageCurrent.AverageCurrent[0];
         *pAverageCurrent |= BatteryAverageCurrent.AverageCurrent[1] << 8;
-		preBattAvgCurrent = *pAverageCurrent;
     }
 
     NVODMBATTERY_PRINTF(("[EXIT]NvOdmBatteryPrivGetAverageCurrent.\n"));
@@ -610,7 +577,7 @@ NvBool NvOdmBatteryPrivGetAverageTimeInterval(
     NvEcBatteryGetAveragingTimeIntervalResponsePayload \
                             BatteryAverageTimeInterval;
     NvOdmBatteryDevice *pBattContext = NULL;
-	
+
     NVODMBATTERY_PRINTF(("[ENTER]NvOdmBatteryPrivGetAverageTimeInterval.\n"));
     *pAverageTimeInterval = NVODM_BATTERY_DATA_UNKNOWN;
     pBattContext = (NvOdmBatteryDevice *)hDevice;
@@ -629,8 +596,7 @@ NvBool NvOdmBatteryPrivGetAverageTimeInterval(
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                               NvOdmBatteryPrivGetAverageTimeInterval\n"));
-		*pAverageTimeInterval = preBattAvgTimeInterval;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -640,7 +606,6 @@ NvBool NvOdmBatteryPrivGetAverageTimeInterval(
         *pAverageTimeInterval = BatteryAverageTimeInterval.TimeInterval[0];
         *pAverageTimeInterval |= \
          BatteryAverageTimeInterval.TimeInterval[1] << 8;
-		preBattAvgTimeInterval = *pAverageTimeInterval;
     }
 
     NVODMBATTERY_PRINTF(("[EXIT]NvOdmBatteryPrivGetAverageTimeInterval.\n"));
@@ -668,7 +633,7 @@ NvBool NvOdmBatteryPrivGetTemperature(
     NvEcResponse EcResponse = {0};
     NvEcBatteryGetTemperatureResponsePayload BatteryTemperature;
     NvOdmBatteryDevice *pBattContext = NULL;
-    
+
     NVODMBATTERY_PRINTF(("[ENTER]NvOdmBatteryPrivGetTemperature.\n"));
     *pBatteryTemp = NVODM_BATTERY_DATA_UNKNOWN;
     pBattContext = (NvOdmBatteryDevice *)hDevice;
@@ -687,8 +652,7 @@ NvBool NvOdmBatteryPrivGetTemperature(
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                               NvOdmBatteryPrivGetTemperature\n"));
-		*pBatteryTemp = preBattTemp;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -697,7 +661,6 @@ NvBool NvOdmBatteryPrivGetTemperature(
                     EcResponse.NumPayloadBytes);
         *pBatteryTemp = BatteryTemperature.Temperature[0];
         *pBatteryTemp |= BatteryTemperature.Temperature[1] << 8;
-		preBattTemp = *pBatteryTemp;
     }
 
     NVODMBATTERY_PRINTF(("[EXIT]NvOdmBatteryPrivGetTemperature.\n"));
@@ -834,7 +797,7 @@ NvBool NvOdmBatteryPrivGetRemainingCapacity(
     NvEcResponse EcResponse = {0};
     NvEcBatteryGetCapacityRemainingResponsePayload BatteryRemCap;
     NvOdmBatteryDevice *pBattContext = NULL;
-	
+
     NVODMBATTERY_PRINTF(("[ENTER]NvOdmBatteryPrivGetRemainingCapacity.\n"));
     *pRemCapacity = NVODM_BATTERY_DATA_UNKNOWN;
     pBattContext = (NvOdmBatteryDevice *)hDevice;
@@ -853,8 +816,7 @@ NvBool NvOdmBatteryPrivGetRemainingCapacity(
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                               NvOdmBatteryPrivGetRemainingCapacity\n"));
-		*pRemCapacity = preRemCapacity;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -863,7 +825,6 @@ NvBool NvOdmBatteryPrivGetRemainingCapacity(
                     EcResponse.NumPayloadBytes);
         *pRemCapacity = BatteryRemCap.CapacityRemaining[0];
         *pRemCapacity |= BatteryRemCap.CapacityRemaining[1] << 8;
-		preRemCapacity = *pRemCapacity;
     }
 
     NVODMBATTERY_PRINTF(("[EXIT]NvOdmBatteryPrivGetRemainingCapacity.\n"));
@@ -893,7 +854,7 @@ NvBool NvOdmBatteryPrivGetLastFullChargeCapacity(
     NvEcBatteryGetLastFullChargeCapacityResponsePayload \
         BatteryLastFullChargeCap;
     NvOdmBatteryDevice *pBattContext = NULL;
-	
+
     NVODMBATTERY_PRINTF(("+NvOdmBatteryPrivGetLastFullChargeCapacity.\n"));
     *pLastFullChargeCapacity = NVODM_BATTERY_DATA_UNKNOWN;
     pBattContext = (NvOdmBatteryDevice *)hDevice;
@@ -912,8 +873,7 @@ NvBool NvOdmBatteryPrivGetLastFullChargeCapacity(
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                         NvOdmBatteryPrivGetLastFullChargeCapacity\n"));
-		*pLastFullChargeCapacity = preLastFullChargeCapacity;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -924,7 +884,6 @@ NvBool NvOdmBatteryPrivGetLastFullChargeCapacity(
             BatteryLastFullChargeCap.LastFullChargeCapacity[0];
         *pLastFullChargeCapacity |= \
             BatteryLastFullChargeCap.LastFullChargeCapacity[1] << 8;
-		preLastFullChargeCapacity = *pLastFullChargeCapacity;
     }
 
     NVODMBATTERY_PRINTF(("-NvOdmBatteryPrivGetLastFullChargeCapacity.\n"));
@@ -952,7 +911,7 @@ NvBool NvOdmBatteryPrivGetCriticalCapacity(
     NvEcResponse EcResponse = {0};
     NvEcBatteryGetCriticalCapacityResponsePayload BatteryCriticalCap;
     NvOdmBatteryDevice *pBattContext = NULL;
-	
+
     NVODMBATTERY_PRINTF(("[ENTER]NvOdmBatteryPrivGetCriticalCapacity.\n"));
     *pCriticalCapacity = NVODM_BATTERY_DATA_UNKNOWN;
     pBattContext = (NvOdmBatteryDevice *)hDevice;
@@ -971,8 +930,7 @@ NvBool NvOdmBatteryPrivGetCriticalCapacity(
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                         NvOdmBatteryPrivGetCriticalCapacity\n"));
-		*pCriticalCapacity = preCriticalCapacity;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -981,7 +939,6 @@ NvBool NvOdmBatteryPrivGetCriticalCapacity(
                     EcResponse.NumPayloadBytes);
         *pCriticalCapacity = BatteryCriticalCap.CriticalCapacity[0];
         *pCriticalCapacity |= BatteryCriticalCap.CriticalCapacity[1] << 8;
-		preCriticalCapacity = *pCriticalCapacity;
     }
 
     NVODMBATTERY_PRINTF(("[EXIT]NvOdmBatteryPrivGetCriticalCapacity.\n"));
@@ -1011,7 +968,7 @@ NvOdmBatteryPrivGetSlotStatusAndCapacityGuage(NvOdmBatteryDevice *pBattContext,
     NvError NvStatus = NvError_Success;
     NvEcRequest EcRequest = {0};
     NvEcResponse EcResponse = {0};
-	
+
     NVODMBATTERY_PRINTF(("NvOdmBatteryPrivGetSlotStatusAndCapacityGuage:Enter"));
 
     /* Fill up request structure */
@@ -1028,9 +985,7 @@ NvOdmBatteryPrivGetSlotStatusAndCapacityGuage(NvOdmBatteryDevice *pBattContext,
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                 NvOdmBatteryPrivGetSlotStatusAndCapacityGuage\n"));
-		*BatterySlotStatus = preBattSlotStatus;
-        *BatteryCapacityGuage = preBattCapacityGuage;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -1039,22 +994,20 @@ NvOdmBatteryPrivGetSlotStatusAndCapacityGuage(NvOdmBatteryDevice *pBattContext,
             EcResponse.Payload[NVODM_BATTERY_SLOT_STATUS_DATA];
         *BatteryCapacityGuage = \
             EcResponse.Payload[NVODM_BATTERY_CAPACITY_GUAGE_DATA];
-		preBattSlotStatus = *BatterySlotStatus;
-        preBattCapacityGuage = *BatteryCapacityGuage;
     }
     else
     {
-		*BatterySlotStatus = preBattSlotStatus;
-        *BatteryCapacityGuage = preBattCapacityGuage;
+        *BatterySlotStatus = 0;
+        *BatteryCapacityGuage = 0;
         /*
          * if the response status is unavailable (0x03) that means
          *  HW is unavailable
          * in that case return TRUE to tell that Battery is not present.
          */
-        //if (EcResponse.Status == NvEcStatus_Unavailable)
+        if (EcResponse.Status == NvEcStatus_Unavailable)
             return NV_TRUE;
 
-        //return NV_FALSE;
+        return NV_FALSE;
     }
 
     NVODMBATTERY_PRINTF(("NvOdmBatteryPrivGetSlotStatusAndCapacityGuage:Exit"));
@@ -1086,7 +1039,6 @@ NvBool NvOdmBatteryPrivGetLifeTime(NvOdmBatteryDevice *pBattContext,
     NvEcResponse EcResponse = {0};
     NvEcBatteryGetTimeRemainingResponsePayload BattTimeRemain;
 
-	//
     /* Fill up request structure */
     EcRequest.PacketType = NvEcPacketType_Request;
     EcRequest.RequestType = NvEcRequestResponseType_Battery;
@@ -1101,8 +1053,7 @@ NvBool NvOdmBatteryPrivGetLifeTime(NvOdmBatteryDevice *pBattContext,
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                 NvOdmBatteryPrivGetLifeTime\n"));
-		*BatteryLifeTime = preBattLifeTime;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -1111,14 +1062,13 @@ NvBool NvOdmBatteryPrivGetLifeTime(NvOdmBatteryDevice *pBattContext,
             EcResponse.NumPayloadBytes);
         *BatteryLifeTime  = BattTimeRemain.TimeRemaining[0];
         *BatteryLifeTime |= BattTimeRemain.TimeRemaining[1] << 8;
-		preBattLifeTime = *BatteryLifeTime;
     }
     else
     {
         NVODMBATTERY_PRINTF(("EcResponse.Status failed for \
                     NvOdmBatteryPrivGetLifeTime\n"));
-		*BatteryLifeTime = preBattLifeTime;
-        return NV_TRUE;
+        *BatteryLifeTime = 0;
+        return NV_FALSE;
     }
 
     return NV_TRUE;
@@ -1145,7 +1095,7 @@ NvBool NvOdmPrivBattGetBatteryVoltage(NvOdmBatteryDevice *pBattContext,
     NvEcRequest  EcRequest  = {0};
     NvEcResponse EcResponse = {0};
     NvEcBatteryGetVoltageResponsePayload BattVoltage;
-	
+
     /* Fill up request structure */
     EcRequest.PacketType = NvEcPacketType_Request;
     EcRequest.RequestType = NvEcRequestResponseType_Battery;
@@ -1160,8 +1110,7 @@ NvBool NvOdmPrivBattGetBatteryVoltage(NvOdmBatteryDevice *pBattContext,
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed \
                     NvOdmPrivBattGetBatteryVoltage\n"));
-		*BatteryVoltage = preBattVoltage;
-        return NV_TRUE;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -1170,14 +1119,13 @@ NvBool NvOdmPrivBattGetBatteryVoltage(NvOdmBatteryDevice *pBattContext,
                     EcResponse.NumPayloadBytes);
         NvOdmOsMemcpy(BatteryVoltage, BattVoltage.PresentVoltage,
                     sizeof(BattVoltage.PresentVoltage));
-		preBattVoltage = *BatteryVoltage;
     }
     else
     {
         NVODMBATTERY_PRINTF(("EcResponse.Status failed in \
                     NvOdmPrivBattGetBatteryVoltage\n"));
-		*BatteryVoltage = preBattVoltage;
-        return NV_TRUE;
+        *BatteryVoltage = 0;
+        return NV_FALSE;
     }
 
     return NV_TRUE;
@@ -1230,12 +1178,10 @@ NvBool NvOdmBatteryDeviceOpen(NvOdmBatteryDeviceHandle *hDevice,
     NvStatus = NvOdmBatteryPrivEcGetFirmwareVersion(pBattContext,
                                                     &MajorVersion,
                                                     &MinorVersion);
-#if 0
-	if (NvStatus != NvError_Success)
+    if (NvStatus != NvError_Success)
     {
         goto Cleanup;
     }
-#endif
 
     pBattContext->ECVersion = MinorVersion;
     NVODMBATTERY_PRINTF(("EC Firmware Version = 0x%x\n", MinorVersion));
@@ -1319,13 +1265,12 @@ NvBool NvOdmBatteryDeviceOpen(NvOdmBatteryDeviceHandle *hDevice,
 
             NvStatus = NvEcSendRequest(pBattContext->hEc, &EcRequest, &EcResponse,
                      sizeof(EcRequest), sizeof(EcResponse));
-#if 0
             if (NvStatus != NvSuccess)
                 goto Cleanup;
 
             if (EcResponse.Status != NvEcStatus_Success)
                 goto Cleanup;
-#endif
+
             /* Get the design capacity */
             NvOdmBatteryGetBatteryFullLifeTime(pBattContext, NvOdmBatteryInst_Main,
                                                &BatteryDesignCap);
@@ -1343,12 +1288,10 @@ NvBool NvOdmBatteryDeviceOpen(NvOdmBatteryDeviceHandle *hDevice,
                    EventTypes,
                    1,
                    sizeof(NvEcEvent));
-#if 0
         if (NvStatus != NvError_Success)
         {
             goto Cleanup;
         }
-#endif
 
 #if NVODM_LOWBATTERY_GPIO_INT
         NvStatus = NvRmOpen(&pBattContext->hRm, 0);
@@ -1409,7 +1352,7 @@ NvBool NvOdmBatteryDeviceOpen(NvOdmBatteryDeviceHandle *hDevice,
 
     *hDevice = pBattContext;
     NVODMBATTERY_PRINTF(("[EXIT] NvOdmBatteryDeviceOpen.\n"));
-	return NV_TRUE;
+    return NV_TRUE;
 
 Cleanup:
     NvOdmBatteryDeviceClose(pBattContext);
@@ -1429,7 +1372,7 @@ void NvOdmBatteryDeviceClose(NvOdmBatteryDeviceHandle hDevice)
     NvOdmBatteryDevice *pBattContext = NULL;
 
     pBattContext = (NvOdmBatteryDevice *)hDevice;
-    
+
 #if NVODM_LOWBATTERY_GPIO_INT
     if (pBattContext->hGpio)
     {
@@ -1505,7 +1448,7 @@ NvBool NvOdmBatteryGetAcLineStatus(
     NvEcSystemGetStateResponsePayload SysQueryState;
 
     NvOdmBatteryDevice *pBattContext = NULL;
-	
+
     NVODMBATTERY_PRINTF(("[ENTER] NvOdmBatteryGetAcLineStatus.\n"));
 
     pBattContext = (NvOdmBatteryDevice *)hDevice;
@@ -1524,23 +1467,15 @@ NvBool NvOdmBatteryGetAcLineStatus(
     EcRequest.NumPayloadBytes = 0;
     EcRequest.Payload[0] = 0;
 
-	//why it be called twice very quickly?
-	if ((NvOsGetTimeMS()-Ac_lastTime) < 500) {
-        Ac_lastTime = NvOsGetTimeMS();
-		*pStatus = preAcStatus;
-        return NV_TRUE;
-	}
-    Ac_lastTime = NvOsGetTimeMS();
-    
-	/* Request to EC */
+    /* Request to EC */
     NvStatus = NvEcSendRequest(pBattContext->hEc, &EcRequest, &EcResponse,
                               sizeof(EcRequest), sizeof(EcResponse));
-	if (NvSuccess != NvStatus)
+    if (NvSuccess != NvStatus)
     {
         NVODMBATTERY_PRINTF(("NvEcSendRequest failed for \
                               NvOdmBatteryGetAcLineStatus\n"));
-		*pStatus = preAcStatus;
-        return NV_TRUE;
+        *pStatus = NvOdmBatteryAcLine_Num;
+        return NV_FALSE;
     }
 
     if(EcResponse.Status == NvEcStatus_Success)
@@ -1559,7 +1494,6 @@ NvBool NvOdmBatteryGetAcLineStatus(
         {
             *pStatus = NvOdmBatteryAcLine_Offline;
         }
-		preAcStatus = *pStatus;
     }
 
     NVODMBATTERY_PRINTF(("[EXIT] NvOdmBatteryGetAcLineStatus.\n"));
@@ -1946,4 +1880,3 @@ void NvOdmBatteryGetBatteryChemistry(
     NVODMBATTERY_PRINTF(("[EXIT] NvOdmBatteryGetBatteryChemistry.\n"));
 #endif /* end of NVEC_BATTERY_DISABLED */
 }
-

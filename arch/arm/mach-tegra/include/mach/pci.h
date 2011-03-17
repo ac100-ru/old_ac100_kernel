@@ -23,7 +23,6 @@
 #ifndef __MACH_TEGRA_PCI_H
 
 #include <linux/pci.h>
-#include <mach/platform.h>
 
 #include "nvrm_drf.h"
 #include "ap20/dev_ap_pcie2_root_port.h"

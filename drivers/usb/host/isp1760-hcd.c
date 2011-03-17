@@ -386,6 +386,10 @@ static int isp1760_hc_setup(struct usb_hcd *hcd)
 		hwmode |= HW_DACK_POL_HIGH;
 	if (priv->devflags & ISP1760_FLAG_DREQ_POL_HIGH)
 		hwmode |= HW_DREQ_POL_HIGH;
+	if (priv->devflags & ISP1760_FLAG_INTR_POL_HIGH)
+		hwmode |= HW_INTR_HIGH_ACT;
+	if (priv->devflags & ISP1760_FLAG_INTR_EDGE_TRIG)
+		hwmode |= HW_INTR_EDGE_TRIG;
 
 	/*
 	 * We have to set this first in case we're in 16-bit mode.
@@ -644,7 +648,7 @@ static void transform_add_int(struct isp1760_hcd *priv, struct isp1760_qh *qh,
 
 	if (urb->dev->speed != USB_SPEED_HIGH) {
 		/* split */
-		ptd->dw5 = __constant_cpu_to_le32(0x1c);
+		ptd->dw5 = cpu_to_le32(0x1c);
 
 		if (qh->period >= 32)
 			period = qh->period / 2;
@@ -819,8 +823,13 @@ static void enqueue_an_ATL_packet(struct usb_hcd *hcd, struct isp1760_qh *qh,
 	u32 atl_regs, payload;
 	u32 buffstatus;
 
-	/* wait for the SKIPMAP register to be updated */
-	udelay(1);
+	/*
+	 * When this function is called from the interrupt handler to enqueue
+	 * a follow-up packet, the SKIP register gets written and read back
+	 * almost immediately. With ISP1761, this register requires a delay of
+	 * 195ns between a write and subsequent read (see section 15.1.1.3).
+	 */
+	ndelay(195);
 	skip_map = isp1760_readl(hcd->regs + HC_ATL_PTD_SKIPMAP_REG);
 
 	BUG_ON(!skip_map);
@@ -855,8 +864,13 @@ static void enqueue_an_INT_packet(struct usb_hcd *hcd, struct isp1760_qh *qh,
 	u32 int_regs, payload;
 	u32 buffstatus;
 
-	/* wait for the SKIPMAP register to be updated */
-	udelay(1);
+	/*
+	 * When this function is called from the interrupt handler to enqueue
+	 * a follow-up packet, the SKIP register gets written and read back
+	 * almost immediately. With ISP1761, this register requires a delay of
+	 * 195ns between a write and subsequent read (see section 15.1.1.3).
+	 */
+	ndelay(195);
 	skip_map = isp1760_readl(hcd->regs + HC_INT_PTD_SKIPMAP_REG);
 
 	BUG_ON(!skip_map);
@@ -1058,7 +1072,7 @@ static void do_atl_int(struct usb_hcd *usb_hcd)
 			priv_write_copy(priv, (u32 *)&ptd, usb_hcd->regs +
 					atl_regs, sizeof(ptd));
 
-			ptd.dw0 |= __constant_cpu_to_le32(PTD_VALID);
+			ptd.dw0 |= cpu_to_le32(PTD_VALID);
 			priv_write_copy(priv, (u32 *)&ptd, usb_hcd->regs +
 					atl_regs, sizeof(ptd));
 
@@ -1648,6 +1662,7 @@ static int isp1760_urb_dequeue(struct usb_hcd *hcd, struct urb *urb,
 	u32 reg_base, or_reg, skip_reg;
 	unsigned long flags;
 	struct ptd ptd;
+	packet_enqueue *pe;
 
 	switch (usb_pipetype(urb->pipe)) {
 	case PIPE_ISOCHRONOUS:
@@ -1659,6 +1674,7 @@ static int isp1760_urb_dequeue(struct usb_hcd *hcd, struct urb *urb,
 		reg_base = INT_REGS_OFFSET;
 		or_reg = HC_INT_IRQ_MASK_OR_REG;
 		skip_reg = HC_INT_PTD_SKIPMAP_REG;
+		pe = enqueue_an_INT_packet;
 		break;
 
 	default:
@@ -1666,6 +1682,7 @@ static int isp1760_urb_dequeue(struct usb_hcd *hcd, struct urb *urb,
 		reg_base = ATL_REGS_OFFSET;
 		or_reg = HC_ATL_IRQ_MASK_OR_REG;
 		skip_reg = HC_ATL_PTD_SKIPMAP_REG;
+		pe =  enqueue_an_ATL_packet;
 		break;
 	}
 
@@ -1677,6 +1694,7 @@ static int isp1760_urb_dequeue(struct usb_hcd *hcd, struct urb *urb,
 			u32 skip_map;
 			u32 or_map;
 			struct isp1760_qtd *qtd;
+			struct isp1760_qh *qh = ints->qh;
 
 			skip_map = isp1760_readl(hcd->regs + skip_reg);
 			skip_map |= 1 << i;
@@ -1689,8 +1707,7 @@ static int isp1760_urb_dequeue(struct usb_hcd *hcd, struct urb *urb,
 			priv_write_copy(priv, (u32 *)&ptd, hcd->regs + reg_base
 					+ i * sizeof(ptd), sizeof(ptd));
 			qtd = ints->qtd;
-
-			clean_up_qtdlist(qtd);
+			qtd = clean_up_qtdlist(qtd);
 
 			free_mem(priv, ints->payload);
 
@@ -1701,7 +1718,24 @@ static int isp1760_urb_dequeue(struct usb_hcd *hcd, struct urb *urb,
 			ints->payload = 0;
 
 			isp1760_urb_done(priv, urb, status);
+			if (qtd)
+				pe(hcd, qh, qtd);
 			break;
+
+		} else if (ints->qtd) {
+			struct isp1760_qtd *qtd, *prev_qtd = ints->qtd;
+
+			for (qtd = ints->qtd->hw_next; qtd; qtd = qtd->hw_next) {
+				if (qtd->urb == urb) {
+					prev_qtd->hw_next = clean_up_qtdlist(qtd);
+					isp1760_urb_done(priv, urb, status);
+					break;
+				}
+				prev_qtd = qtd;
+			}
+			/* we found the urb before the end of the list */
+			if (qtd)
+				break;
 		}
 		ints++;
 	}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2009 NVIDIA Corporation.
+ * Copyright (c) 2007-2010 NVIDIA Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,14 +30,14 @@
  *
  */
 
-/** 
+/**
  * @file
- * @brief <b>nVIDIA Driver Development Kit: 
+ * @brief <b>nVIDIA Driver Development Kit:
  *           Power Resource manager </b>
  *
  * @b Description: Implements NvRM Dynamic Voltage and Frequency Scaling for
  *                  for SOC-wide clock domains.
- * 
+ *
  */
 
 #include "nvrm_power_dfs.h"
@@ -164,9 +164,9 @@ static DfsProfile s_Profile = {{0}};
 
 #else
 
-#define DfsProfileInit(pDfs) 
-#define DfsProfileStart(pDfs, ProfileId) 
-#define DfsProfileSample(pDfs, ProfileId) 
+#define DfsProfileInit(pDfs)
+#define DfsProfileStart(pDfs, ProfileId)
+#define DfsProfileSample(pDfs, ProfileId)
 #endif
 
 /*****************************************************************************/
@@ -288,6 +288,9 @@ do\
 
 /*****************************************************************************/
 
+// LP2 entry policy
+NvRmLp2Policy g_Lp2Policy = NVRM_DEFAULT_LP2POLICY;
+
 // DFS object
 static NvRmDfs s_Dfs;
 
@@ -311,7 +314,7 @@ static NvError SystatMonitorsGetCapabilities(NvRmDfs* pDfs);
 static NvError VdeMonitorsGetCapabilities(NvRmDfs* pDfs);
 static NvError EmcMonitorsGetCapabilities(NvRmDfs* pDfs);
 
-/*                         
+/*
  *  Gets monitoring capabilities of all DFS modules
  */
 static NvError DfsGetModulesCapabilities(NvRmDfs* pDfs);
@@ -393,7 +396,7 @@ AddActivitySample(
     NvU32 ActiveCount);
 
 // Determine PM thread request for CPU state control
-static NvRmPmRequest 
+static NvRmPmRequest
 DfsGetPmRequest(
     NvRmDeviceHandle hRmDevice,
     NvRmDfsSampler* pCpuSampler,
@@ -403,7 +406,7 @@ DfsGetPmRequest(
 
 /*
  * DFS clock control thread entry point and termination function
- */ 
+ */
 static NvRmPmRequest DfsThread(NvRmDfs* pDfs);
 static void DfsThreadTerminate(NvRmDfs* pDfs);
 
@@ -437,7 +440,7 @@ DfsClipCpuEmcHighLimits(
 
 /*
  * Emulate sampling results to achieve specified average frequency
- * provided it is bigger than the current one 
+ * provided it is bigger than the current one
  */
 static void
 DfsSetAverageUp(
@@ -463,10 +466,9 @@ DvsChangeCpuVoltage(
     NvRmDvs* pDvs,
     NvRmMilliVolts TargetMv);
 
-/* 
+/*
  * Enable/Disable voltage scaling
  */
-static void NvRmPrivDvsRun(void);
 static void NvRmPrivDvsStopAtNominal(void);
 
 /*
@@ -513,7 +515,7 @@ static NvError SystatMonitorsGetCapabilities(NvRmDfs* pDfs)
 
     /*
      * System Statistic module includes activity monitors for CPU, AVP, AHB,
-     * and APB domains. Its presence is required for DFS to work.   
+     * and APB domains. Its presence is required for DFS to work.
      */
     SystatCaps[0].DomainMap[NvRmDfsClockId_Cpu] = NV_TRUE;
     SystatCaps[0].DomainMap[NvRmDfsClockId_Avp] = NV_TRUE;
@@ -603,7 +605,7 @@ static NvError VdeMonitorsGetCapabilities(NvRmDfs* pDfs)
     }
     else
     {
-        // If get capabilities failed, set "not present" cpabilities 
+        // If get capabilities failed, set "not present" cpabilities
         pCaps = &VdeCaps[0];
     }
     pDfs->Modules[NvRmDfsModuleId_Vde] = *pCaps;
@@ -626,7 +628,7 @@ static NvError EmcMonitorsGetCapabilities(NvRmDfs* pDfs)
 
     /*
      * EMC module includes activity monitor for EMC clock domain. This
-     * monitor may, or may not be present on different versions of EMC 
+     * monitor may, or may not be present on different versions of EMC
      */
     EmcCaps[0].DomainMap[NvRmDfsClockId_Emc] = NV_FALSE;
 
@@ -642,7 +644,7 @@ static NvError EmcMonitorsGetCapabilities(NvRmDfs* pDfs)
     EmcCaps[2].Start = NvRmPrivAp20EmcMonitorsStart;
     EmcCaps[2].Read = NvRmPrivAp20EmcMonitorsRead;
 
-    ModuleCaps[0].MajorVersion = 1; // AP15 A01       
+    ModuleCaps[0].MajorVersion = 1; // AP15 A01
     ModuleCaps[0].MinorVersion = 0;
     ModuleCaps[0].EcoLevel = 0;
     ModuleCaps[0].Capability = (void*)&EmcCaps[1];
@@ -663,14 +665,14 @@ static NvError EmcMonitorsGetCapabilities(NvRmDfs* pDfs)
     if (error == NvSuccess)
     {
         if (pCaps->DomainMap[NvRmDfsClockId_Emc])
-        {       
+        {
             pCaps->pBaseReg = (tbl->ModInst +
                 tbl->Modules[NvRmPrivModuleID_ExternalMemoryController].Index)->VirtAddr;
         }
     }
     else
     {
-        // If get capabilities failed, set "not present" cpabilities 
+        // If get capabilities failed, set "not present" cpabilities
         pCaps = &EmcCaps[0];
     }
     pDfs->Modules[NvRmDfsModuleId_Emc] = *pCaps;
@@ -991,7 +993,7 @@ DfsReadMonitors(
     }
 }
 
-static NvRmPmRequest 
+static NvRmPmRequest
 DfsGetPmRequest(
     NvRmDeviceHandle hRmDevice,
     NvRmDfsSampler* pCpuSampler,
@@ -1022,7 +1024,7 @@ DfsGetTargetFrequencies(
     // Add current sample interval to sampling window; always signal to clock
     // control thread if window wraparound; check busy hints expirtaion time
     ReturnValue = AddSampleInterval(&pDfs->SamplingWindow, msec);
-    pDfs->SamplingWindow.SampleCnt++; 
+    pDfs->SamplingWindow.SampleCnt++;
     BusyCheckTime = pDfs->SamplingWindow.BusyCheckDelayUs <
         (usec - pDfs->SamplingWindow.BusyCheckLastUs);
 
@@ -1088,7 +1090,7 @@ DfsGetTargetFrequencies(
             ActiveCount =
                 (ActiveCount > IdleCount) ? (ActiveCount - IdleCount) : (0);
 #if NVRM_DFS_STALL_AVERAGE_IN_BUSY_PULSE
-            if (!pDomainSampler->BusyPulseMode) 
+            if (!pDomainSampler->BusyPulseMode)
 #endif
             {
                 AddActivitySample(pDomainSampler, ActiveCount);
@@ -1133,14 +1135,14 @@ DfsGetTargetFrequencies(
             }
 
             // Average frequency change is recognized by DFS only if it exceeds
-            // tolerance band. 
+            // tolerance band.
             if ((pDomainSampler->AverageKHz + pDomainParam->LowerBandKHz) <
                 pDomainSampler->BumpedAverageKHz)
             {
                 pDomainSampler->BumpedAverageKHz =
                     pDomainSampler->AverageKHz + pDomainParam->LowerBandKHz;
             }
-            else if (pDomainSampler->AverageKHz > 
+            else if (pDomainSampler->AverageKHz >
                 (pDomainSampler->BumpedAverageKHz + pDomainParam->UpperBandKHz))
             {
                 pDomainSampler->BumpedAverageKHz =
@@ -1210,20 +1212,24 @@ DfsGetTargetFrequencies(
 
         /*
          * Determine if low corner is hit in this domain - clear hit indicator
-         * if new target domain frequency is above low limit (with hysteresis)
-         * For platform with dedicated CPU partition do not include activity
-         * margin when there is no busy or starvation requirements
+         * if new target domain frequency is above low limit (with hysteresis).
+         * For platform with dedicated CPU partition adjust low corner threshold
+         * when no starvation is detected: if target frequency is limited by
+         * activity, include activity margin in the threshold; otherwise set
+         * low corner at busy hint level per LP2 policy
          */
         if (NvRmPrivIsCpuRailDedicated(pDfs->hRm) &&
-            (DomainBusyKHz <= LowCornerDomainKHz) &&
-            ((*pDomainKHz) == pDomainSampler->BumpedAverageKHz))
+            (!pDomainSampler->RtStarveBoostKHz) &&
+            (!pDomainSampler->NrtStarveBoostKHz))
         {
-            // Multiplying threshold has the same effect as dividing target
-            // to reduce margin
-            LowCornerDomainKHz +=
-                (LowCornerDomainKHz >> pDomainParam->RelAdjustBits);
+            if ((*pDomainKHz) == pDomainSampler->BumpedAverageKHz)
+                LowCornerDomainKHz +=
+                    (LowCornerDomainKHz >> pDomainParam->RelAdjustBits);
+            else if (g_Lp2Policy != NvRmLp2Policy_EnterInLowCorner)
+                LowCornerDomainKHz = NV_MAX(DomainBusyKHz, LowCornerDomainKHz);
         }
-        if ( ((*pDomainKHz) > 
+
+        if ( ((*pDomainKHz) >
               (LowCornerDomainKHz + pDomainParam->NrtStarveParam.BoostStepKHz))
              || (((*pDomainKHz) > LowCornerDomainKHz) && (!pDfs->LowCornerHit))
             )
@@ -1233,7 +1239,7 @@ DfsGetTargetFrequencies(
 
         /*
          * Update PM request. Set return value if CPU power state change
-         * is requested. 
+         * is requested.
          */
         if (i == NvRmDfsClockId_Cpu)
         {
@@ -1274,11 +1280,11 @@ AddSampleInterval(
 {
     /*
      * Add current sampling interval to the sampling window (i.e., replace the
-     * first/"oldest" interval with the new one and update window size). 
-     */ 
+     * first/"oldest" interval with the new one and update window size).
+     */
     NvBool WrapAround = NV_FALSE;
 
-    NvU32* pFirst = pSampleWindow->pLastInterval + 1; 
+    NvU32* pFirst = pSampleWindow->pLastInterval + 1;
     if (pFirst >= &pSampleWindow->IntervalsMs[
         NV_ARRAY_SIZE(pSampleWindow->IntervalsMs)])
     {
@@ -1301,8 +1307,8 @@ AddActivitySample(
 {
     /*
      * Add new activity sample to the cicular buffer(i.e., replace the
-     * first/"oldest" sample with the new one) and update total cycle count 
-     */ 
+     * first/"oldest" sample with the new one) and update total cycle count
+     */
     NvU32* pFirst = pDomainSampler->pLastSample + 1;
     if (pFirst >= &pDomainSampler->Cycles[
         NV_ARRAY_SIZE(pDomainSampler->Cycles)])
@@ -1348,7 +1354,7 @@ static void DfsIsr(void* args)
 
     if (pDfs->DfsRunState > NvRmDfsRunState_Stopped)
     {
-        // If DFS is running re-start monitors, execute DFS algorithm, and 
+        // If DFS is running re-start monitors, execute DFS algorithm, and
         // determine new target frequencies for the clock control thread
         DfsStartMonitors(pDfs, &DfsKHz, msec);
         ClockChange = DfsGetTargetFrequencies(&IdleData, pDfs, &DfsKHz);
@@ -1378,7 +1384,6 @@ static NvRmPmRequest DfsThread(NvRmDfs* pDfs)
 {
     static NvRmDfsFrequencies LastKHz = {{0}};
 
-    NvRmPowerEvent PowerEvent;
     NvRmDfsRunState DfsRunState;
     NvRmDfsFrequencies DfsKHz, HighKHz;
     NvBool LowCornerHit, LowCornerReport, NeedClockUpdate;
@@ -1413,46 +1418,6 @@ static NvRmPmRequest DfsThread(NvRmDfs* pDfs)
         NvOsIntrMutexUnlock(pDfs->hIntrMutex);
 
         /*
-         * On exit from low power state re-initialize DFS h/w, samplers, and
-         * start monitors provided DFS is running. If DFS is stopped just get
-         * DFS h/w ready. 
-         */
-        NV_ASSERT_SUCCESS(NvRmPowerGetEvent(
-            pDfs->hRm, pDfs->PowerClientId, &PowerEvent));
-        if (PowerEvent != NvRmPowerEvent_NoEvent)
-        {
-            // Full h/w re-initialization after LP0
-            if (PowerEvent == NvRmPowerEvent_WakeLP0)
-            {
-                DfsHwDeinit(pDfs);
-                NV_ASSERT_SUCCESS(DfsHwInit(pDfs));
-            }
-            // Re-initialize samplers if DVFS was running, but stopped on
-            // entry to LPx; keep sampling history, if DVFS was not stopped;
-            // restart monitors in either case
-            NvRmPrivLockSharedPll();
-            if (pDfs->DfsLPxSavedState > NvRmDfsRunState_Stopped)
-            {
-                DfsClockFreqGet(pDfs->hRm, &DfsKHz);
-
-                NvOsIntrMutexLock(pDfs->hIntrMutex);
-                if (pDfs->DfsRunState <= NvRmDfsRunState_Stopped)
-                {
-                    pDfs->DfsRunState = pDfs->DfsLPxSavedState;
-                    DfsSamplersInit(&DfsKHz, pDfs);
-                }
-                NV_ASSERT(pDfs->DfsRunState == pDfs->DfsLPxSavedState);
-                pDfs->CurrentKHz = DfsKHz;
-                DfsStartMonitors(
-                    pDfs, &DfsKHz, pDfs->SamplingWindow.MinIntervalMs);
-                NvOsIntrMutexUnlock(pDfs->hIntrMutex);
-            }
-            NvRmPrivDvsRun();   // enable v-scaling even if DFS is stopped
-            NvRmPrivUnlockSharedPll();
-            return PmRequest;
-        }
-
-        /*
          * Advance busy hint state machine if DFS thread has been signaled by
          * synchronous busy hint.
          */
@@ -1471,7 +1436,7 @@ static NvRmPmRequest DfsThread(NvRmDfs* pDfs)
         {
             NeedClockUpdate = NV_FALSE;
             BusyCheckDelayMs = NVRM_DFS_BUSY_PURGE_MS;
-            
+
             for (i = 1; i < NvRmDfsClockId_Num; i++)
             {
                 NvRmFreqKHz NewBusyKHz;
@@ -1541,7 +1506,7 @@ static NvRmPmRequest DfsThread(NvRmDfs* pDfs)
         }
         else
         {
-            // DFS is stopped - thread is signaled by API, always update clock 
+            // DFS is stopped - thread is signaled by API, always update clock
             NeedClockUpdate = NV_TRUE;
         }
 
@@ -1571,7 +1536,7 @@ static NvRmPmRequest DfsThread(NvRmDfs* pDfs)
             }
             NvRmPrivUnlockSharedPll();
 
-            // Complete synchronous busy hint processing. 
+            // Complete synchronous busy hint processing.
             if (pDfs->BusySyncState == NvRmDfsBusySyncState_Execute)
             {
                 pDfs->BusySyncState = NvRmDfsBusySyncState_Idle;
@@ -1643,7 +1608,7 @@ DfsClockFreqGet(
     NvRmDfsFrequencies* pDfsKHz)
 {
     NvU32 i;
- 
+
     switch (s_Platform)
     {
         case ExecPlatform_Soc:
@@ -1761,7 +1726,7 @@ DttClockUpdate(
 
     // Check if thermal throttling is supported
     if (NVRM_DTT_DISABLED || (!pDtt->hOdmTcore))
-        return NV_FALSE; 
+        return NV_FALSE;
 
     if (pDtt->TcorePolicy.UpdateFlag)
     {
@@ -1936,7 +1901,7 @@ NvError NvRmPrivDfsInit(NvRmDeviceHandle hRmDeviceHandle)
         goto failed;
     }
     // Register DFS as power client and obtain client id
-    error = NvRmPowerRegister(hRmDeviceHandle, pDfs->hSemaphore, &pDfs->PowerClientId);
+    error = NvRmPowerRegister(hRmDeviceHandle, NULL, &pDfs->PowerClientId);
     if (error != NvSuccess)
     {
         goto failed;
@@ -1954,7 +1919,7 @@ NvError NvRmPrivDfsInit(NvRmDeviceHandle hRmDeviceHandle)
         goto failed;
     }
 
-    /* 
+    /*
      * Get DFS modules capbilities, check which activity monitors are
      * supported, and initialize monitor access function pointers. Then
      * initialize DFS samples and H/w monitors
@@ -1977,20 +1942,20 @@ NvError NvRmPrivDfsInit(NvRmDeviceHandle hRmDeviceHandle)
      * trigger DFS algorithm execution
      */
     {
-        pDfs->IrqNumber = NvRmGetIrqForLogicalInterrupt(hRmDeviceHandle, 
-                NVRM_MODULE_ID(NvRmModuleID_SysStatMonitor, 0), 
+        pDfs->IrqNumber = NvRmGetIrqForLogicalInterrupt(hRmDeviceHandle,
+                NVRM_MODULE_ID(NvRmModuleID_SysStatMonitor, 0),
                 0);
     }
     if (!pDfs->DfsInterruptHandle)
     {
         NvU32 IrqList = (NvU32)pDfs->IrqNumber;
         NvOsInterruptHandler hDfsIsr = DfsIsr;
-        error = NvRmInterruptRegister(hRmDeviceHandle, 1, 
+        error = NvRmInterruptRegister(hRmDeviceHandle, 1,
                 &IrqList, &hDfsIsr, pDfs, &pDfs->DfsInterruptHandle, NV_TRUE);
         if (error != NvSuccess)
         {
             // Set IRQ invalid to avoid deregistration of other module interrupt
-            pDfs->IrqNumber = NVRM_IRQ_INVALID;  
+            pDfs->IrqNumber = NVRM_IRQ_INVALID;
             goto failed;
         }
     }
@@ -2026,7 +1991,7 @@ void NvRmPrivDfsDeinit(NvRmDeviceHandle hRmDeviceHandle)
     NvOsMutexDestroy(pDfs->hSyncBusyMutex);
     NvRmPowerUnRegister(hRmDeviceHandle, pDfs->PowerClientId);
     NvOsSemaphoreDestroy(pDfs->hSemaphore);
-    NvOsIntrMutexDestroy(pDfs->hIntrMutex); 
+    NvOsIntrMutexDestroy(pDfs->hIntrMutex);
     NvOsMemset(pDfs, 0, sizeof(NvRmDfs));
 }
 
@@ -2110,13 +2075,13 @@ void NvRmPrivStarvationHintPrintf(
     {
         NvU32 i;
         char ClientName[sizeof(ClientTag)+ 1];
-        ClientTagToString(ClientTag, ClientName); 
+        ClientTagToString(ClientTag, ClientName);
 
         for (i = 0; i < NumHints; i++)
         {
             const NvRmDfsStarvationHint* pHint = &pMultiHint[i];
             NvOsDebugPrintf("%s starvation hint: %s from client %3d (%s)\n",
-                            s_DfsDomainNames[pHint->ClockId], 
+                            s_DfsDomainNames[pHint->ClockId],
                             (pHint->Starving ? "TRUE " : "FALSE"),
                             ClientId, ClientName);
         }
@@ -2157,7 +2122,7 @@ void NvRmPrivBusyHintPrintf(
     {
         NvU32 i;
         char ClientName[sizeof(ClientTag)+ 1];
-        ClientTagToString(ClientTag, ClientName); 
+        ClientTagToString(ClientTag, ClientName);
 
         for (i = 0; i < NumHints; i++)
         {
@@ -2415,7 +2380,7 @@ void NvRmPrivVoltageScale(
     NvRmDfs* pDfs = &s_Dfs;
     NvRmDvs* pDvs = &s_Dfs.VoltageScaler;
     NvBool DedicatedCpuRail = NvRmPrivIsCpuRailDedicated(pDfs->hRm);
-    
+
     /* Some systems(ex. FPGA) does have power rail control. */
     if (!pDvs->RtcRailAddress || !pDvs->CoreRailAddress)
         return;
@@ -2454,7 +2419,7 @@ void NvRmPrivVoltageScale(
 
         // Increase voltage before changing frequency, and vice versa;
         // Change core 1st before changing frequency, and vice versa
-        // (to guarantee required margin of core voltage over CPU voltage) 
+        // (to guarantee required margin of core voltage over CPU voltage)
         if (BeforeFreqChange)
         {
             if (pDvs->Lp2SyncOTPFlag)
@@ -2507,11 +2472,17 @@ void NvRmPrivDvsRequest(NvRmMilliVolts TargetMv)
     if (!pDvs->RtcRailAddress || !pDvs->CoreRailAddress)
         return;
 
+    // Just set update flag if voltage can be lowered
+    if (TargetMv <= pDvs->LowCornerCoreMv)
+    {
+        if (pDvs->LowCornerCoreMv < pDvs->CurrentCoreMv)
+             pDvs->UpdateFlag = NV_TRUE;
+        return;
+    }
+
     // Clip new target voltage to core voltage limits
     if (TargetMv > pDvs->NominalCoreMv)
         TargetMv = pDvs->NominalCoreMv;
-    else if (TargetMv < pDvs->LowCornerCoreMv)
-        TargetMv = pDvs->LowCornerCoreMv;
 
     // If new target voltage is above current - update immediately. If target
     // is below current voltage - just set update flag, so that next DFS ISR
@@ -2577,11 +2548,66 @@ static void NvRmPrivDvsStopAtNominal(void)
         DvsChangeCpuVoltage(pDfs->hRm, pDvs, pDvs->NominalCpuMv);
 }
 
-static void NvRmPrivDvsRun(void)
+void NvRmPrivDvsStop(void)
+{
+    NvRmDvs* pDvs = &s_Dfs.VoltageScaler;
+    pDvs->StopFlag = NV_TRUE;
+}
+
+void NvRmPrivDvsRun(void)
 {
     NvRmDvs* pDvs = &s_Dfs.VoltageScaler;
     pDvs->UpdateFlag = NV_TRUE;
     pDvs->StopFlag = NV_FALSE;
+}
+
+void NvRmPrivDfsResume(void)
+{
+    NvRmDfs* pDfs = &s_Dfs;
+    NvRmPowerEvent PowerEvent;
+    NvRmDfsFrequencies DfsKHz;
+
+    /*
+     * On exit from low power state re-initialize DFS h/w, samplers, and
+     * start monitors provided DFS is running. If DFS is stopped just get
+     * DFS h/w ready.
+     */
+    NV_ASSERT_SUCCESS(NvRmPowerGetEvent(
+        pDfs->hRm, pDfs->PowerClientId, &PowerEvent));
+
+    // Full h/w re-initialization after LP0
+    if (PowerEvent == NvRmPowerEvent_WakeLP0)
+    {
+        DfsHwDeinit(pDfs);
+        NV_ASSERT_SUCCESS(DfsHwInit(pDfs));
+
+        // Some PMUs do not restore core voltage after LP0
+        NvRmPmuGetVoltage(pDfs->hRm,
+            pDfs->VoltageScaler.CoreRailAddress,
+            &pDfs->VoltageScaler.CurrentCoreMv);
+    }
+
+    // After LPx or aborted suspend re-initialize samplers if DFS was
+    // running
+    NvRmPrivLockSharedPll();
+    DfsClockFreqGet(pDfs->hRm, &DfsKHz);
+
+    NvOsIntrMutexLock(pDfs->hIntrMutex);
+    pDfs->DfsRunState = pDfs->DfsLPxSavedState;
+    pDfs->CurrentKHz = DfsKHz;
+    if (pDfs->DfsLPxSavedState > NvRmDfsRunState_Stopped)
+    {
+        DfsSamplersInit(&DfsKHz, pDfs);
+        DfsStartMonitors(pDfs, &DfsKHz, pDfs->SamplingWindow.MinIntervalMs);
+    }
+    NvRmPrivDvsRun();   // enable v-scaling even if DFS is stopped
+    NvOsIntrMutexUnlock(pDfs->hIntrMutex);
+
+    // Resume thermal monitoring
+    if (pDfs->ThermalThrottler.hOdmTcore)
+        NvOdmTmonResume(pDfs->ThermalThrottler.hOdmTcore);
+
+    NvRmPrivUnlockSharedPll();
 }
 
 void NvRmPrivDfsSuspend(NvOdmSocPowerState state)
@@ -2602,9 +2628,9 @@ void NvRmPrivDfsSuspend(NvOdmSocPowerState state)
                 pDfs->hRm, NVRM_AP20_SUSPEND_CORE_MV, &pDfs->SuspendKHz);
         else
             pDfs->SuspendKHz = pDfs->LowCornerKHz; // Low corner by default
-        pDfs->SuspendKHz.Domains[0] = NvRmFreqMaximum;   
+        pDfs->SuspendKHz.Domains[0] = NvRmFreqMaximum;
     }
-    
+
     NvRmPrivLockSharedPll();
     if (state == NvOdmSocPowerState_DeepSleep)
     {
@@ -2619,7 +2645,7 @@ void NvRmPrivDfsSuspend(NvOdmSocPowerState state)
         NvRmPrivDvsStopAtNominal();
         pDfs->VoltageScaler.StopFlag = NV_TRUE;
     }
-    else if (state == NvOdmSocPowerState_Suspend)
+    else// if (state == NvOdmSocPowerState_Suspend): any other treat as LP1
     {
         // On entry to suspend (LP1): set target frequencies for all DFS
         // clock domains, stop DFS monitors, and then configure clocks and
@@ -2670,6 +2696,11 @@ void NvRmPrivDfsSuspend(NvOdmSocPowerState state)
 
         pDfs->VoltageScaler.StopFlag = NV_TRUE;
     }
+
+    // Suspend thermal monitoring
+    if (pDfs->ThermalThrottler.hOdmTcore)
+        NvOdmTmonSuspend(pDfs->ThermalThrottler.hOdmTcore);
+
     NvRmPrivUnlockSharedPll();
 }
 
@@ -2719,7 +2750,7 @@ void NvRmPrivDttInit(NvRmDeviceHandle hRmDeviceHandle)
         !pDtt->TcoreHighLimitCaps.OdmProtected)
     {
         // Sanity checks to make sure out-of-limit interrupt is available in
-        // the entire temperature range 
+        // the entire temperature range
         NV_ASSERT(pDtt->TcoreLowLimitCaps.MinValue <= pDtt->TcoreCaps.Tmin);
         NV_ASSERT(pDtt->TcoreHighLimitCaps.MinValue <= pDtt->TcoreCaps.Tmin);
         NV_ASSERT(pDtt->TcoreLowLimitCaps.MaxValue >= pDtt->TcoreCaps.Tmax);
@@ -2773,10 +2804,10 @@ NvRmDfsSetState(
     NvRmDfsFrequencies DfsKHz;
     NvError error = NvSuccess;
     NvRmDfs* pDfs = &s_Dfs;
-    
+
     NV_ASSERT(hRmDeviceHandle);
     NV_ASSERT(pDfs->hIntrMutex);
-    NV_ASSERT((0 < NewDfsRunState) && (NewDfsRunState < NvRmDfsRunState_Num)); 
+    NV_ASSERT((0 < NewDfsRunState) && (NewDfsRunState < NvRmDfsRunState_Num));
 
     NvRmPrivLockSharedPll();
     DfsClockFreqGet(hRmDeviceHandle, &DfsKHz);
@@ -2790,7 +2821,7 @@ NvRmDfsSetState(
 
     /*
      * State transition procedures
-     */ 
+     */
     switch (NewDfsRunState)
     {
         // On transition to running states from stopped state samplers are
@@ -2836,7 +2867,7 @@ NvRmDfsSetLowCorner(
 {
     NvU32 i;
     NvRmDfs* pDfs = &s_Dfs;
-    
+
     NV_ASSERT(hRmDeviceHandle);
     NV_ASSERT(pDfs->hIntrMutex);
     NV_ASSERT(DfsFreqListCount == NvRmDfsClockId_Num);
@@ -2928,7 +2959,7 @@ NvRmDfsSetAvHighCorner(
         DfsAvSystemHighKHz = pDfs->HighCornerKHz.Domains[NvRmDfsClockId_System];
     else if (DfsAvSystemHighKHz > pDfs->DfsParameters[NvRmDfsClockId_System].MaxKHz)
         DfsAvSystemHighKHz = pDfs->DfsParameters[NvRmDfsClockId_System].MaxKHz;
-    else    
+    else
     {   // System high boundary must be above all AV low boundaries
         for (i = 1; i < NvRmDfsClockId_Num; i++)
         {
@@ -3208,7 +3239,7 @@ NvRmDfsSetEmcEnvelope(
 }
 
 NvError
-NvRmDfsSetTarget( 
+NvRmDfsSetTarget(
     NvRmDeviceHandle hRmDeviceHandle,
     NvU32 DfsFreqListCount,
     const NvRmFreqKHz* pDfsTargetFreqList)
@@ -3276,17 +3307,19 @@ NvRmDfsGetClockUtilization(
     NV_ASSERT(pClockUsage);
     NV_ASSERT((0 < ClockId) && (ClockId < NvRmDfsClockId_Num));
 
-    NvRmPrivLockSharedPll();
-    DfsClockFreqGet(hRmDeviceHandle, &DfsKHz);
-
-    NvOsIntrMutexLock(pDfs->hIntrMutex);
-
     // If DFS is not running - update current frequencies directly from h/w
     if (pDfs->DfsRunState <= NvRmDfsRunState_Stopped)
     {
+        DfsClockFreqGet(hRmDeviceHandle, &DfsKHz);
+
+        NvOsIntrMutexLock(pDfs->hIntrMutex);
         pDfs->CurrentKHz = DfsKHz;
         if (pDfs->Samplers[ClockId].MonitorPresent)
             pDfs->Samplers[ClockId].AverageKHz = DfsKHz.Domains[ClockId];
+    }
+    else
+    {
+        NvOsIntrMutexLock(pDfs->hIntrMutex);
     }
     // Update clock info
     pClockUsage->MinKHz = pDfs->DfsParameters[ClockId].MinKHz;
@@ -3294,15 +3327,14 @@ NvRmDfsGetClockUtilization(
     pClockUsage->LowCornerKHz = pDfs->LowCornerKHz.Domains[ClockId];
     pClockUsage->HighCornerKHz = pDfs->HighCornerKHz.Domains[ClockId];
     pClockUsage->CurrentKHz = pDfs->CurrentKHz.Domains[ClockId];
-    pClockUsage->AverageKHz = pDfs->Samplers[ClockId].AverageKHz; 
+    pClockUsage->AverageKHz = pDfs->Samplers[ClockId].AverageKHz;
 
     NvOsIntrMutexUnlock(pDfs->hIntrMutex);
-    NvRmPrivUnlockSharedPll();
     return NvSuccess;
 }
 
 NvError
-NvRmDfsGetProfileData( 
+NvRmDfsGetProfileData(
     NvRmDeviceHandle hRmDeviceHandle,
     NvU32 DfsProfileCount,
     NvU32* pSamplesNoList,
@@ -3362,7 +3394,7 @@ NvRmDfsLogStart(NvRmDeviceHandle hRmDeviceHandle)
     pDfs->SamplingWindow.CumulativeLogMs = 0;
     pDfs->SamplingWindow.CumulativeLp2TimeMs = 0;
     pDfs->SamplingWindow.CumulativeLp2Entries = 0;
-    
+
 #if DFS_LOGGING_SECONDS
     s_DfsLogWrIndex = 0;
     s_DfsLogStarvationWrIndex = 0;
@@ -3402,7 +3434,7 @@ NvRmDfsLogGetMeanFrequencies(
     msec = pDfs->SamplingWindow.CumulativeLogMs;
     for (i = 1; i < LogMeanFreqListCount; i++)
     {
-        pLogMeanFreqList[i] = 
+        pLogMeanFreqList[i] =
             (NvU32)NvDiv64(pDfs->Samplers[i].CumulativeLogCycles, msec);
     }
     // TODO: update if condition SystemKHz = AvpKHz changes
@@ -3418,7 +3450,7 @@ NvRmDfsLogGetMeanFrequencies(
 }
 
 NvError
-NvRmDfsLogActivityGetEntry( 
+NvRmDfsLogActivityGetEntry(
     NvRmDeviceHandle hRmDeviceHandle,
     NvU32 EntryIndex,
     NvU32 LogDomainsCount,
@@ -3476,7 +3508,7 @@ NvRmDfsLogActivityGetEntry(
 }
 
 NvError
-NvRmDfsLogStarvationGetEntry( 
+NvRmDfsLogStarvationGetEntry(
     NvRmDeviceHandle hRmDeviceHandle,
     NvU32 EntryIndex,
     NvU32* pSampleIndex,
@@ -3524,7 +3556,7 @@ NvRmDfsLogStarvationGetEntry(
 }
 
 NvError
-NvRmDfsLogBusyGetEntry( 
+NvRmDfsLogBusyGetEntry(
     NvRmDeviceHandle hRmDeviceHandle,
     NvU32 EntryIndex,
     NvU32* pSampleIndex,
@@ -3643,7 +3675,7 @@ NvRmDfsSetLowVoltageThreshold(
 /*****************************************************************************/
 
 NvError
-NvRmDiagGetTemperature( 
+NvRmDiagGetTemperature(
     NvRmDeviceHandle hRmDeviceHandle,
     NvRmTmonZoneId ZoneId,
     NvS32* pTemperatureC)
@@ -3666,5 +3698,3 @@ NvRmDiagGetTemperature(
             return NvError_NotSupported;
     }
 }
-
-/*****************************************************************************/

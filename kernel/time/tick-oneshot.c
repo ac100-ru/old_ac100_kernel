@@ -50,9 +50,9 @@ int tick_dev_program_event(struct clock_event_device *dev, ktime_t expires,
 				dev->min_delta_ns += dev->min_delta_ns >> 1;
 
 			printk(KERN_WARNING
-			       "CE: %s increasing min_delta_ns to %lu nsec\n",
+			       "CE: %s increasing min_delta_ns to %llu nsec\n",
 			       dev->name ? dev->name : "?",
-			       dev->min_delta_ns << 1);
+			       (unsigned long long) dev->min_delta_ns << 1);
 
 			i = 0;
 		}
@@ -126,6 +126,23 @@ int tick_switch_to_oneshot(void (*handler)(struct clock_event_device *))
 	clockevents_set_mode(dev, CLOCK_EVT_MODE_ONESHOT);
 	tick_broadcast_switch_to_oneshot();
 	return 0;
+}
+
+/**
+ * tick_check_oneshot_mode - check whether the system is in oneshot mode
+ *
+ * returns 1 when either nohz or highres are enabled. otherwise 0.
+ */
+int tick_oneshot_mode_active(void)
+{
+	unsigned long flags;
+	int ret;
+
+	local_irq_save(flags);
+	ret = __get_cpu_var(tick_cpu_device).mode == TICKDEV_MODE_ONESHOT;
+	local_irq_restore(flags);
+
+	return ret;
 }
 
 #ifdef CONFIG_HIGH_RES_TIMERS

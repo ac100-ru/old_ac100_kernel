@@ -20,20 +20,19 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define NV_DEBUG 0
+
 #include <linux/platform_device.h>
 #include <linux/irq.h>
-#include <linux/tegra_devices.h>
+#include <linux/gpio.h>
 
-#include "mach/nvrm_linux.h"
-#include "nvodm_query.h"
-#include "nvodm_query_gpio.h"
-#include "nvodm_query_discovery.h"
+#include <mach/usb-hcd.h>
+#include <mach/nvrm_linux.h>
 #include "nvrm_pmu.h"
 #include "nvrm_analog.h"
 #include "nvassert.h"
 #include "nvrm_interrupt.h"
 #include "nvrm_power.h"
-#include "nvodm_pmu.h"
 #include "nvrm_hardware_access.h"
 #include "nvddk_usbphy.h"
 
@@ -59,7 +58,7 @@ static void tegra_ehci_busy_hint_work(struct work_struct* work)
 	struct tegra_hcd_platform_data *pdata =
 				container_of(work, struct tegra_hcd_platform_data, work);
 	NvDdkUsbPhyIoctl_UsbBusyHintsOnOffInputArgs busyhint;
-	busyhint.OnOff = NV_TRUE;
+	busyhint.OnOff = true;
 
 	/* USB transfers will be done with in 1 sec, this need to be *
 	* fine tuned (if required). with safe limit set to 2 sec    */
@@ -77,7 +76,7 @@ static void tegra_ehci_power_up(struct usb_hcd *hcd)
 
 	pdata = hcd->self.controller->platform_data;
 
-	NV_ASSERT_SUCCESS(NvDdkUsbPhyPowerUp(pdata->hUsbPhy, NV_TRUE, 0));
+	NV_ASSERT_SUCCESS(NvDdkUsbPhyPowerUp(pdata->hUsbPhy, true, 0));
 	ehci->host_resumed = 1;
 }
 
@@ -88,7 +87,7 @@ static void tegra_ehci_power_down(struct usb_hcd *hcd)
 
 	pdata = hcd->self.controller->platform_data;
 
-	NV_ASSERT_SUCCESS(NvDdkUsbPhyPowerDown(pdata->hUsbPhy, NV_TRUE, 0));
+	NV_ASSERT_SUCCESS(NvDdkUsbPhyPowerDown(pdata->hUsbPhy, true, 0));
 	ehci->host_resumed = 0;
 }
 
@@ -112,7 +111,7 @@ static int tegra_ehci_hub_control (
 	pdata = hcd->self.controller->platform_data;
 
 	/* if hardware is not accessable then don't read the registers */
-	if (!test_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags)) {
+	if (!test_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags) || !ehci->host_resumed) {
 		if (buf)
 			memset (buf, 0, wLength);
 		return retval;
@@ -136,19 +135,17 @@ static int tegra_ehci_hub_control (
 	 * HUB events are cleared by checking the lower four bits
 	 * (PORT_CONNECT | PORT_CSC | PORT_PE | PORT_PEC) */
 #ifdef CONFIG_USB_OTG_UTILS
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_OTG)
-		&& ehci->transceiver) {
+	if (pdata->otg_mode && ehci->transceiver) {
 		if (ehci->transceiver->state == OTG_STATE_A_SUSPEND) {
 			temp = ehci_readl(ehci, status_reg);
 			if (!(temp & (PORT_CONNECT | PORT_CSC | PORT_PE | PORT_PEC))
 				&& ehci->host_reinited) {
 				/* indicate hcd flags, that hardware is not accessable now */
-                                clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
+				clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
+				ehci_halt(ehci);
 				tegra_ehci_power_down(hcd);
 				ehci->transceiver->state = OTG_STATE_UNDEFINED;
 				ehci->host_reinited = 0;
-				/* indicate hcd flags, that hardware is not accessable now */
-				//clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 			}
 		}
 	}
@@ -157,6 +154,7 @@ static int tegra_ehci_hub_control (
 	return retval;
 }
 
+#if defined(CONFIG_USB_OTG_UTILS) || defined(CONFIG_PM)
 static void tegra_ehci_restart (struct usb_hcd *hcd)
 {
 	unsigned int temp;
@@ -179,6 +177,12 @@ static void tegra_ehci_restart (struct usb_hcd *hcd)
 	ehci->command |= CMD_RUN;
 	ehci_writel(ehci, ehci->command, &ehci->regs->command);
 
+	/* Enable the root Port Power */
+	if (HCS_PPC (ehci->hcs_params)) {
+		temp = ehci_readl(ehci, &ehci->regs->port_status[0]);
+		ehci_writel(ehci, temp | PORT_POWER, &ehci->regs->port_status[0]);
+	}
+
 	down_write(&ehci_cf_port_reset_rwsem);
 	hcd->state = HC_STATE_RUNNING;
 	/* unblock posted writes */
@@ -189,10 +193,10 @@ static void tegra_ehci_restart (struct usb_hcd *hcd)
 	/* Turn On Interrupts */
 	ehci_writel(ehci, INTR_MASK, &ehci->regs->intr_enable);
 }
+#endif
 
 static void tegra_ehci_shutdown (struct usb_hcd *hcd)
 {
-#if 0
 	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
 
 	if (ehci->host_resumed) {
@@ -201,14 +205,6 @@ static void tegra_ehci_shutdown (struct usb_hcd *hcd)
 		/* we are ready to shut down, powerdown the phy */
 		tegra_ehci_power_down(hcd);
 	}
-#endif
-	/* ehci_shutdown touches the USB controller registers, make sure
-	 * controller has clocks to it */
-	tegra_ehci_power_up(hcd);
-	/* call ehci shut down */
-	ehci_shutdown(hcd);
-	/* we are ready to shut down, powerdown the phy */
-	tegra_ehci_power_down(hcd);
 }
 
 /*
@@ -226,24 +222,34 @@ static void tegra_ehci_irq_work(struct work_struct* irq_work)
 	struct usb_hcd *hcd = ehci_to_hcd(ehci);
 	struct tegra_hcd_platform_data *pdata;
 	u32 status;
+	bool kick_rhub = false;
 
 	pdata = hcd->self.controller->platform_data;
 
 #ifdef CONFIG_USB_OTG_UTILS
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_OTG)
-		&& ehci->transceiver) {
+	if (pdata->otg_mode && ehci->transceiver) {
 		if (ehci->transceiver->state == OTG_STATE_A_HOST) {
 			if (!ehci->host_reinited) {
 				ehci->host_reinited = 1;
 				tegra_ehci_power_up(hcd);
+				if (hcd->state == HC_STATE_SUSPENDED)
+					kick_rhub = true;
 				tegra_ehci_restart(hcd);
+			}
+		} else if (ehci->transceiver->state == OTG_STATE_A_SUSPEND) {
+			if (ehci->host_reinited) {
+				/* indicate hcd flags, that hardware is not accessible now */
+				clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
+				ehci_halt(ehci);
+				tegra_ehci_power_down(hcd);
+				ehci->transceiver->state = OTG_STATE_UNDEFINED;
+				ehci->host_reinited = 0;
 			}
 		}
 	} else
 #endif
 	{
-		if (pdata->pUsbProperty->IdPinDetectionType ==
-			NvOdmUsbIdPinType_CableId) {
+		if (pdata->id_detect == ID_PIN_CABLE_ID) {
 			/* read otgsc register for ID pin status change */
 			status = readl(hcd->regs + TEGRA_USB_PHY_WAKEUP_REG_OFFSET);
 			/* Check pin status and enable/disable the power */
@@ -251,8 +257,15 @@ static void tegra_ehci_irq_work(struct work_struct* irq_work)
 				tegra_ehci_power_down(hcd);
 			} else {
 				tegra_ehci_power_up(hcd);
+				if (hcd->state == HC_STATE_SUSPENDED)
+					kick_rhub = true;
 			}
 		}
+	}
+
+	if (kick_rhub) {
+		hcd->state = HC_STATE_SUSPENDED;
+		usb_hcd_resume_root_hub(hcd);
 	}
 }
 
@@ -269,14 +282,19 @@ static irqreturn_t tegra_ehci_irq (struct usb_hcd *hcd)
 	spin_lock (&ehci->lock);
 
 #ifdef CONFIG_USB_OTG_UTILS
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_OTG)
-		&& ehci->transceiver) {
+	if (pdata->otg_mode && ehci->transceiver) {
 		if (ehci->transceiver->state == OTG_STATE_A_HOST) {
 			if (!ehci->host_reinited) {
 				schedule_work(&ehci->irq_work);
+				spin_unlock (&ehci->lock);
+				return IRQ_HANDLED;
 			}
 		} else if (ehci->transceiver->state == OTG_STATE_A_SUSPEND) {
 			if (!ehci->host_reinited) {
+				spin_unlock (&ehci->lock);
+				return IRQ_HANDLED;
+			} else {
+				schedule_work(&ehci->irq_work);
 				spin_unlock (&ehci->lock);
 				return IRQ_HANDLED;
 			}
@@ -287,8 +305,7 @@ static irqreturn_t tegra_ehci_irq (struct usb_hcd *hcd)
 	} else
 #endif
 	{
-		if (pdata->pUsbProperty->IdPinDetectionType ==
-			NvOdmUsbIdPinType_CableId) {
+		if (pdata->id_detect == ID_PIN_CABLE_ID) {
 			/* read otgsc register for ID pin status change */
 			status = readl(hcd->regs + TEGRA_USB_PHY_WAKEUP_REG_OFFSET);
 			writel(status, (hcd->regs + TEGRA_USB_PHY_WAKEUP_REG_OFFSET));
@@ -296,6 +313,8 @@ static irqreturn_t tegra_ehci_irq (struct usb_hcd *hcd)
 			/* Check if there is any ID pin interrupt */
 			if (status & TEGRA_USB_ID_INT_STATUS) {
 				schedule_work(&ehci->irq_work);
+				spin_unlock (&ehci->lock);
+				return IRQ_HANDLED;
 			}
 		}
 	}
@@ -303,25 +322,6 @@ static irqreturn_t tegra_ehci_irq (struct usb_hcd *hcd)
 	spin_unlock (&ehci->lock);
 
 	return ehci_irq(hcd);
-}
-
-
-static int tegra_ehci_reinit(struct usb_hcd *hcd)
-{
-	struct tegra_hcd_platform_data *pdata;
-	NvError e;
-
-	pdata = hcd->self.controller->platform_data;
-
-	NV_CHECK_ERROR_CLEANUP(NvDdkUsbPhyOpen(s_hRmGlobal,
-		pdata->instance, &pdata->hUsbPhy));
-	tegra_ehci_power_up(hcd);
-
-	return 0;
-
-fail:
-	printk( KERN_INFO " tegra_ehci_reinit failed\n");
-	return -EINVAL;
 }
 
 static int tegra_ehci_setup(struct usb_hcd *hcd)
@@ -365,7 +365,7 @@ static int tegra_ehci_setup(struct usb_hcd *hcd)
 	return retval;
 }
 
-
+#if defined(CONFIG_PM)
 static int tegra_ehci_bus_suspend(struct usb_hcd *hcd)
 {
 	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
@@ -376,18 +376,18 @@ static int tegra_ehci_bus_suspend(struct usb_hcd *hcd)
 	pdata = hcd->self.controller->platform_data;
 
 #ifdef CONFIG_USB_OTG_UTILS
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_OTG)
-		&& ehci->transceiver) {
+	if (pdata->otg_mode && ehci->transceiver) {
 		if (ehci->transceiver->state != OTG_STATE_A_HOST) {
 			/* we are not in host mode, return */
 			return 0;
+		} else {
+			ehci->transceiver->state = OTG_STATE_A_SUSPEND;
+			ehci->host_reinited = 0;
 		}
 	}
 #endif
 
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_Host)
-		&& (pdata->pUsbProperty->IdPinDetectionType ==
-			NvOdmUsbIdPinType_CableId)) {
+	if (!pdata->otg_mode && pdata->id_detect==ID_PIN_CABLE_ID) {
 		u32 status;
 		/* check for ID pin status */
 		status = readl(hcd->regs + TEGRA_USB_PHY_WAKEUP_REG_OFFSET);
@@ -415,8 +415,7 @@ static int tegra_ehci_bus_resume(struct usb_hcd *hcd)
 	pdata = hcd->self.controller->platform_data;
 
 #ifdef CONFIG_USB_OTG_UTILS
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_OTG)
-		&& ehci->transceiver) {
+	if (pdata->otg_mode && ehci->transceiver) {
 		if (ehci->transceiver->state != OTG_STATE_A_HOST) {
 			/* we are not in host mode, return */
 			return 0;
@@ -424,9 +423,7 @@ static int tegra_ehci_bus_resume(struct usb_hcd *hcd)
 	}
 #endif
 
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_Host)
-		&& (pdata->pUsbProperty->IdPinDetectionType ==
-			NvOdmUsbIdPinType_CableId)) {
+	if (!pdata->otg_mode && pdata->id_detect==ID_PIN_CABLE_ID) {
 		u32 status;
 		/* read ID pin status */
 		status = readl(hcd->regs + TEGRA_USB_PHY_WAKEUP_REG_OFFSET);
@@ -442,6 +439,7 @@ static int tegra_ehci_bus_resume(struct usb_hcd *hcd)
 
 	return ehci_bus_resume(hcd);
 }
+#endif
 
 static int tegra_ehci_urb_enqueue(
 	struct usb_hcd	*hcd,
@@ -496,9 +494,11 @@ static const struct hc_driver tegra_ehci_hc_driver = {
 	.urb_enqueue		= tegra_ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
+	.endpoint_reset		= ehci_endpoint_reset,
 	.get_frame_number	= ehci_get_frame,
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= tegra_ehci_hub_control,
+	.clear_tt_buffer_complete = ehci_clear_tt_buffer_complete,
 #if defined(CONFIG_PM)
 	.bus_suspend		= tegra_ehci_bus_suspend,
 	.bus_resume 		= tegra_ehci_bus_resume,
@@ -508,74 +508,74 @@ static const struct hc_driver tegra_ehci_hc_driver = {
 };
 static int tegra_ehci_probe(struct platform_device *pdev)
 {
-	int instance = pdev->id;
 	struct resource *res;
-	struct tegra_hcd_platform_data *pdata;
+	struct tegra_hcd_platform_data *pdata = pdev->dev.platform_data;
 	struct usb_hcd *hcd;
 	int e = 0;
 	int irq;
 	unsigned int temp;
-	static u64 dummy_mask = DMA_32BIT_MASK;
 	struct ehci_hcd *ehci;
-	pdata = (struct tegra_hcd_platform_data *)pdev->dev.platform_data;
+
 	if (!pdata) {
-		dev_err(&pdev->dev, "Cannot run without platform data\n");
+		dev_err(&pdev->dev, "platform data must be specified\n");
+		return -EINVAL;
 	}
 
-	/* FIXME These are needed to enable DMA mode! Don't know why? */
-	pdev->dev.coherent_dma_mask = ~0;
-	pdev->dev.dma_mask = &dummy_mask;
+	WARN_ON(!pdev->dev.coherent_dma_mask || !pdev->dev.dma_mask);
 
 	hcd = usb_create_hcd(&tegra_ehci_hc_driver, &pdev->dev,
 					dev_name(&pdev->dev));
-	if (!hcd) {
-		e = -ENOMEM;
-		goto fail;
+	if (IS_ERR_OR_NULL(hcd)) {
+		dev_err(&pdev->dev, "Unable to create HCD\n");
+		return -ENOMEM;
 	}
 
-	if (pdata->pUsbProperty->IdPinDetectionType == NvOdmUsbIdPinType_Gpio
-		&& (instance == 0 || instance == 1)) {
+	if (pdata->id_detect == ID_PIN_GPIO) {
+		e = gpio_request(pdata->gpio_nr, dev_name(&pdev->dev));
+		if (e < 0) {
+			dev_err(&pdev->dev, "request ID pin GPIO failed\n");
+			goto fail_hcd;
+		}
 
-		const NvOdmGpioPinInfo *pGpioPinInfo;
-		NvU32 GpioPinCount = 0;
-
-		pGpioPinInfo = NvOdmQueryGpioPinMap(NvOdmGpioPinGroup_Usb,
-			instance, &GpioPinCount);
-		/* If the ODM says ID type is GPIO, they better provide the
-		 * GPIO port and pin for that */
-		BUG_ON(GpioPinCount == 0);
-
-		NV_ASSERT_SUCCESS(NvRmGpioAcquirePinHandle(s_hGpioGlobal,
-			pGpioPinInfo[NvOdmGpioPin_UsbCableId].Port,
-			pGpioPinInfo[NvOdmGpioPin_UsbCableId].Pin,
-			&pdata->hGpioIDpin));
-
-		/* Configure Cable ID Pin as Input Pin */
-		NV_ASSERT_SUCCESS(NvRmGpioConfigPins(s_hGpioGlobal,
-			&pdata->hGpioIDpin, 1, NvRmGpioPinMode_InputData));
-	} else {
-
+		e = gpio_direction_input(pdata->gpio_nr);
+		if (e < 0) {
+			dev_err(&pdev->dev, "failed to set ID pin as input\n");
+			goto fail_gpio;
+		}
 	}
 
 	INIT_WORK(&pdata->work, tegra_ehci_busy_hint_work);
 
 	/* Init the tegra USB phy */
-	e = tegra_ehci_reinit(hcd);
-	if (e) {
-		printk("%s: failed with error (0x%x)\n", __func__, e);
-		goto fail;
+	if (NvDdkUsbPhyOpen(s_hRmGlobal, pdata->instance,
+			    &pdata->hUsbPhy) != NvSuccess) {
+		dev_err(&pdev->dev, "failed to open USB phy DDK\n");
+		e = -ENODEV;
+		goto fail_gpio;
 	}
+	tegra_ehci_power_up(hcd);
+
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
+		dev_err(&pdev->dev, "failed to get I/O memory\n");
 		e = -ENXIO;
-		goto fail;
+		goto fail_phy;
+	}
+	if (!pdata->otg_mode) {
+		res = request_mem_region(res->start, resource_size(res),
+					 dev_name(&pdev->dev));
+		if (!res) {
+			dev_err(&pdev->dev, "resource in use\n");
+			e = -EBUSY;
+			goto fail_phy;
+		}
 	}
 	hcd->rsrc_start = res->start;
 	hcd->rsrc_len = resource_size(res);
 	hcd->regs = ioremap(res->start, resource_size(res));
 	if (!hcd->regs) {
 		e = -ENOMEM;
-		goto fail;
+		goto fail_mem;
 	}
 
 	/* Set to Host mode by setting bit 0-1 of USB device mode register */
@@ -585,7 +585,7 @@ static int tegra_ehci_probe(struct platform_device *pdev)
 	irq = platform_get_irq(pdev, 0);
 	if (!irq) {
 		e = -ENODEV;
-		goto fail;
+		goto fail_iomap;
 	}
 
 	set_irq_flags(irq, IRQF_VALID);
@@ -593,43 +593,51 @@ static int tegra_ehci_probe(struct platform_device *pdev)
 	ehci = hcd_to_ehci(hcd);
 	INIT_WORK(&ehci->irq_work, tegra_ehci_irq_work);
 
-	e  = usb_add_hcd(hcd, irq, IRQF_DISABLED | IRQF_SHARED);
-	if (e != 0)
-		goto fail;
+	e = usb_add_hcd(hcd, irq, IRQF_DISABLED | IRQF_SHARED);
+	if (e != 0) {
+		dev_err(&pdev->dev, "failed to add HCD\n");
+		goto fail_iomap;
+	}
 	platform_set_drvdata(pdev, hcd);
 
+#ifdef CONFIG_DMABOUNCE
+	e = dmabounce_register_dev(&pdev->dev, 1024, 32768);
+	if (e != 0) {
+		dev_err(&pdev->dev, "failed to register DMA bounce\n");
+		goto fail_add;
+	}
+#endif
+
 #ifdef CONFIG_USB_OTG_UTILS
-	if (pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_OTG) {
+	if (pdata->otg_mode) {
 		ehci->transceiver = otg_get_transceiver();
-		if (ehci->transceiver) {
-			otg_set_host(ehci->transceiver, (struct usb_bus *)hcd);
-			/* Stop the controller and power down the phy, OTG will
-			 * start the host driver based on the ID pin
-			 * detection */
-			ehci_halt(ehci);
-			/* reset the host and put the controller in idle mode */
-			temp = ehci_readl(ehci, &ehci->regs->command);
-			temp |= CMD_RESET;
-			ehci_writel(ehci, temp, &ehci->regs->command);
-			temp = readl(hcd->regs + TEGRA_USB_USBMODE_REG_OFFSET);
-			writel((temp & ~TEGRA_USB_USBMODE_HOST),
-				(hcd->regs + TEGRA_USB_USBMODE_REG_OFFSET));
-			/* indicate hcd flags, that hardware is not accessable now in host mode*/
-			clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
-			tegra_ehci_power_down(hcd);
-			ehci->host_reinited = 0;
-			/* indicate hcd flags, that hardware is not accessable now in host mode*/
-			// clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
-		} else {
-			dev_err(&pdev->dev, "Cannot get OTG transceiver\n");
+		if (!ehci->transceiver) {
+			dev_err(&pdev->dev, "Failed to get OTG transceiver\n");
 			e = -ENODEV;
-			goto fail;
+			goto fail_dmabounce;
 		}
+
+		otg_set_host(ehci->transceiver, (struct usb_bus *)hcd);
+		/* Stop the controller and power down the phy, OTG will
+		 * start the host driver based on the ID pin
+		 * detection */
+		ehci_halt(ehci);
+		/* reset the host and put the controller in idle mode */
+		temp = ehci_readl(ehci, &ehci->regs->command);
+		temp |= CMD_RESET;
+		ehci_writel(ehci, temp, &ehci->regs->command);
+		temp = readl(hcd->regs + TEGRA_USB_USBMODE_REG_OFFSET);
+		writel((temp & ~TEGRA_USB_USBMODE_HOST),
+			(hcd->regs + TEGRA_USB_USBMODE_REG_OFFSET));
+		/* indicate hcd flags, that hardware is not accessable now
+		 * in host mode*/
+		clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
+		tegra_ehci_power_down(hcd);
+		ehci->host_reinited = 0;
 	} else
 #endif
 	{
-		if (pdata->pUsbProperty->IdPinDetectionType ==
-			NvOdmUsbIdPinType_CableId) {
+		if (pdata->id_detect == ID_PIN_CABLE_ID) {
 			/* enable the cable ID interrupt */
 			temp = readl(hcd->regs + TEGRA_USB_PHY_WAKEUP_REG_OFFSET);
 			temp |= TEGRA_USB_ID_INT_ENABLE;
@@ -645,8 +653,26 @@ static int tegra_ehci_probe(struct platform_device *pdev)
 		}
 	}
 
-	return e;
-fail:
+	return 0;
+
+fail_dmabounce:
+#ifdef CONFIG_DMABOUNCE
+	dmabounce_unregister_dev(&pdev->dev);
+#endif
+fail_add:
+	usb_remove_hcd(hcd);
+fail_iomap:
+	iounmap(hcd->regs);
+fail_mem:
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	release_mem_region(res->start, resource_size(res));
+fail_phy:
+	NvDdkUsbPhyClose(pdata->hUsbPhy);
+fail_gpio:
+	if (pdata->gpio_nr)
+		gpio_free(pdata->gpio_nr);
+fail_hcd:
+	usb_put_hcd(hcd);
 	return e;
 }
 
@@ -665,8 +691,7 @@ static int tegra_ehci_resume(struct platform_device * pdev)
 	status = readl(hcd->regs + TEGRA_USB_PHY_WAKEUP_REG_OFFSET);
 
 #ifdef CONFIG_USB_OTG_UTILS
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_OTG)
-		&& ehci->transceiver) {
+	if (pdata->otg_mode && ehci->transceiver) {
 		/* check if ID pin is high then no host return */
 		if (status & TEGRA_USB_ID_PIN_STATUS) {
 			return 0;
@@ -680,9 +705,7 @@ static int tegra_ehci_resume(struct platform_device * pdev)
 	}
 #endif
 
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_Host)
-		&& (pdata->pUsbProperty->IdPinDetectionType ==
-			NvOdmUsbIdPinType_CableId)) {
+	if (!pdata->otg_mode && pdata->id_detect==ID_PIN_CABLE_ID) {
 		/* If no Id pin then return */
 		if (status & TEGRA_USB_ID_PIN_STATUS) {
 			return 0;
@@ -691,7 +714,9 @@ static int tegra_ehci_resume(struct platform_device * pdev)
 
 	if (!ehci->host_resumed) {
 		tegra_ehci_power_up(hcd);
-		tegra_ehci_restart(hcd);
+		/* restart the controller in OTG mode only */
+		if(pdata->otg_mode)
+			tegra_ehci_restart(hcd);
 	}
 
 	return 0;
@@ -706,8 +731,7 @@ static int tegra_ehci_suspend(struct platform_device *pdev, pm_message_t state)
 	struct tegra_hcd_platform_data *pdata;
 	/* initialize the platform data pointer */
 	pdata = hcd->self.controller->platform_data;
-	if ((pdata->pUsbProperty->UsbMode == NvOdmUsbModeType_OTG)
-		&& ehci->transceiver) {
+	if (pdata->otg_mode && ehci->transceiver) {
 		if (ehci->transceiver->state != OTG_STATE_A_HOST) {
 			/* we are not in host mode, return */
 			return 0;
@@ -715,7 +739,6 @@ static int tegra_ehci_suspend(struct platform_device *pdev, pm_message_t state)
 		else {
 			ehci->transceiver->state = OTG_STATE_UNDEFINED;
 			ehci->host_reinited = 0;
-			ehci_halt(ehci);
 			/* indicate hcd flags, that hardware is not accessable now */
 			clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 		}
@@ -723,6 +746,7 @@ static int tegra_ehci_suspend(struct platform_device *pdev, pm_message_t state)
 #endif
 
 	if (ehci->host_resumed) {
+		/* halt the controller before powering down the phy */
 		ehci_halt(ehci);
 		tegra_ehci_power_down(hcd);
 	}
@@ -739,15 +763,20 @@ static int tegra_ehci_remove(struct platform_device *pdev)
 	if (pdata == NULL || hcd == NULL)
 		return -EINVAL;
 
+	usb_remove_hcd(hcd);
+	usb_put_hcd(hcd);
+
+#ifdef CONFIG_DMABOUNCE
+	dmabounce_unregister_dev(&pdev->dev);
+#endif
+
 	NvDdkUsbPhyClose(pdata->hUsbPhy);
 
 	iounmap(hcd->regs);
 
-	usb_remove_hcd(hcd);
-	usb_put_hcd(hcd);
 
-	if (pdata->hGpioIDpin)
-		NvRmGpioReleasePinHandles(s_hGpioGlobal, &pdata->hGpioIDpin, 1);
+	if (pdata->gpio_nr)
+		gpio_free(pdata->gpio_nr);
 
 	return 0;
 }

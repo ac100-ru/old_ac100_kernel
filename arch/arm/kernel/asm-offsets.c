@@ -12,6 +12,7 @@
  */
 #include <linux/sched.h>
 #include <linux/mm.h>
+#include <linux/dma-mapping.h>
 #include <asm/mach/arch.h>
 #include <asm/thread_info.h>
 #include <asm/memory.h>
@@ -79,11 +80,7 @@ int main(void)
   DEFINE(S_LR,			offsetof(struct pt_regs, ARM_lr));
   DEFINE(S_PC,			offsetof(struct pt_regs, ARM_pc));
   DEFINE(S_PSR,			offsetof(struct pt_regs, ARM_cpsr));
-#ifdef CONFIG_CPU_V7M
-  DEFINE(S_EXC_LR,		offsetof(struct pt_regs, ARM_EXC_lr));
-#else
   DEFINE(S_OLD_R0,		offsetof(struct pt_regs, ARM_ORIG_r0));
-#endif
   DEFINE(S_FRAME_SIZE,		sizeof(struct pt_regs));
   BLANK();
 #ifdef CONFIG_CPU_HAS_ASID
@@ -116,5 +113,9 @@ int main(void)
 #ifdef MULTI_PABORT
   DEFINE(PROCESSOR_PABT_FUNC,	offsetof(struct processor, _prefetch_abort));
 #endif
+  BLANK();
+  DEFINE(DMA_BIDIRECTIONAL,	DMA_BIDIRECTIONAL);
+  DEFINE(DMA_TO_DEVICE,		DMA_TO_DEVICE);
+  DEFINE(DMA_FROM_DEVICE,	DMA_FROM_DEVICE);
   return 0; 
 }

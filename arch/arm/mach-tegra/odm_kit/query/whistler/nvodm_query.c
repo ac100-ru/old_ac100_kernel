@@ -1,42 +1,21 @@
 /*
+ * arch/arm/mach-tegra/odm_kit/query/whistler/nvodm_query.c
+ *
  * Copyright (c) 2009 NVIDIA Corporation.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * Neither the name of the NVIDIA Corporation nor the names of its contributors
- * may be used to endorse or promote products derived from this software
- * without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
- */
-
-/**
- * @file
- * <b>NVIDIA APX ODM Kit:
- *         Implementation of the ODM Query API</b>
- *
- * @b Description: Implements the query functions for ODMs that may be
- *                 accessed at boot-time, runtime, or anywhere in between.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include "nvodm_query.h"
@@ -51,6 +30,7 @@
 
 #define BOARD_ID_WHISTLER_E1108 0x0B08
 #define BOARD_ID_WHISTLER_E1109 0x0B09
+#define BOARD_ID_WHISTLER_E1112 0x0B0C
 #define BOARD_ID_WHISTLER_PMU_E1116 0x0B10
 #define BOARD_ID_WHISTLER_MOTHERBOARD_E1120 0xB14
 #define BOARD_ID_VOYAGER_MAINBOARD_E1215    0xC0F
@@ -82,9 +62,9 @@ s_NvOdmQueryDownloadTransportSetting = NvOdmDownloadTransport_None;
 static NvOdmQuerySdioInterfaceProperty s_NvOdmQuerySdioInterfaceProperty_Whistler[4] =
 {
     { NV_FALSE, 10, NV_FALSE, 0x6, NvOdmQuerySdioSlotUsage_unused },
-    {  NV_TRUE, 10,  NV_TRUE, 0xF, NvOdmQuerySdioSlotUsage_wlan   },
-    { NV_FALSE, 10, NV_FALSE, 0x4, NvOdmQuerySdioSlotUsage_Media  },
-    {  NV_TRUE, 10,  NV_TRUE, 0x6, NvOdmQuerySdioSlotUsage_Boot   },
+    {  NV_FALSE, 10,  NV_TRUE, 0xC, NvOdmQuerySdioSlotUsage_wlan   },
+    { NV_TRUE, 10, NV_FALSE, 0x4, NvOdmQuerySdioSlotUsage_Media  },
+    {  NV_FALSE, 10,  NV_TRUE, 0x6, NvOdmQuerySdioSlotUsage_Boot   },
 };
 
 static NvOdmQuerySdioInterfaceProperty s_NvOdmQuerySdioInterfaceProperty_Voyager[4] =
@@ -561,6 +541,990 @@ static const NvOdmSdramControllerConfigAdv s_NvOdmE1108HynixEmcConfigTable[] =
     }
 };
 
+static const NvOdmSdramControllerConfigAdv s_NvOdmE1108ElpidaEmcConfigTable[] =
+{
+    {
+                  0x20,   /* Rev 2.0 */
+                 18000,   /* SDRAM frquency */
+                   900,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000002,   /* RC */
+            0x00000006,   /* RFC */
+            0x00000003,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000004,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x00000038,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000003,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x0000004b,   /* TREFBW */
+            0x00000000,   /* QUSE_EXTRA */
+            0x00000002,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xA06A04AE,   /* CFG_DIG_DLL */
+            0x007FE010,   /* DLL_XFORM_DQS */
+            0x00003010,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x00000002,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                 27000,   /* SDRAM frquency */
+                   950,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000002,   /* RC */
+            0x00000006,   /* RFC */
+            0x00000003,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000004,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x00000054,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000004,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x00000071,   /* TREFBW */
+            0x00000000,   /* QUSE_EXTRA */
+            0x00000002,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xA06A04AE,   /* CFG_DIG_DLL */
+            0x007FE010,   /* DLL_XFORM_DQS */
+            0x00003010,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x00000003,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                 54000,   /* SDRAM frquency */
+                  1000,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000004,   /* RC */
+            0x00000008,   /* RFC */
+            0x00000003,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000005,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x000000a8,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000008,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x000000e1,   /* TREFBW */
+            0x00000000,   /* QUSE_EXTRA */
+            0x00000000,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xA06A04AE,   /* CFG_DIG_DLL */
+            0x007FE010,   /* DLL_XFORM_DQS */
+            0x00003010,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x00000005,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                108000,   /* SDRAM frquency */
+                  1000,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000007,   /* RC */
+            0x0000000f,   /* RFC */
+            0x00000005,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000005,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x0000017f,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000010,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x000001c2,   /* TREFBW */
+            0x00000000,   /* QUSE_EXTRA */
+            0x00000001,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xA06A04AE,   /* CFG_DIG_DLL */
+            0x007FE010,   /* DLL_XFORM_DQS */
+            0x00003010,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x0000000a,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                150000,   /* SDRAM frquency */
+                  1000,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000009,   /* RC */
+            0x00000014,   /* RFC */
+            0x00000007,   /* RAS */
+            0x00000004,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000005,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x0000021f,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000004,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000015,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x00000270,   /* TREFBW */
+            0x00000000,   /* QUSE_EXTRA */
+            0x00000001,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xA04C04AE,   /* CFG_DIG_DLL */
+            0x007FE010,   /* DLL_XFORM_DQS */
+            0x00003010,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x0000000e,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                300000,   /* SDRAM frquency */
+                  1200,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000012,   /* RC */
+            0x00000027,   /* RFC */
+            0x0000000D,   /* RAS */
+            0x00000007,   /* RP */
+            0x00000007,   /* R2W */
+            0x00000005,   /* W2R */
+            0x00000003,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000006,   /* RD_RCD */
+            0x00000006,   /* WR_RCD */
+            0x00000003,   /* RRD */
+            0x00000003,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000006,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000009,   /* QSAFE */
+            0x0000000c,   /* RDV */
+            0x0000045f,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000004,   /* PDEX2WR */
+            0x00000004,   /* PDEX2RD */
+            0x00000007,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000e,   /* RW2PDEN */
+            0x0000002A,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x0000000F,   /* TFAW */
+            0x00000008,   /* TRPAB */
+            0x00000005,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x000004E1,   /* TREFBW */
+            0x00000005,   /* QUSE_EXTRA */
+            0x00000002,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000282,   /* FBIO_CFG5 */
+            0xE03C048B,   /* CFG_DIG_DLL */
+            0x007FE010,   /* DLL_XFORM_DQS */
+            0x00003010,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x0000001B,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    }
+};
+
+static const NvOdmSdramControllerConfigAdv s_NvOdmE1112SamsungEmcConfigTable[] =
+{
+    {
+                  0x20,   /* Rev 2.0 */
+                 18000,   /* SDRAM frquency */
+                   900,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000002,   /* RC */
+            0x00000006,   /* RFC */
+            0x00000003,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x0000000b,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000003,   /* WDV */
+            0x00000005,   /* QUSE */
+            0x00000004,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000c,   /* RDV */
+            0x00000038,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000b,   /* RW2PDEN */
+            0x00000003,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000008,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x0000004b,   /* TREFBW */
+            0x00000004,   /* QUSE_EXTRA */
+            0x00000003,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa06804ae,   /* CFG_DIG_DLL */
+            0x00004810,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x00000002,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                 27000,   /* SDRAM frquency */
+                   950,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000002,   /* RC */
+            0x00000006,   /* RFC */
+            0x00000003,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x0000000b,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000003,   /* WDV */
+            0x00000005,   /* QUSE */
+            0x00000004,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000c,   /* RDV */
+            0x00000054,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000b,   /* RW2PDEN */
+            0x00000004,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000008,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x00000071,   /* TREFBW */
+            0x00000004,   /* QUSE_EXTRA */
+            0x00000003,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa06804ae,   /* CFG_DIG_DLL */
+            0x00004810,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x00000003,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                 54000,   /* SDRAM frquency */
+                  1000,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000004,   /* RC */
+            0x00000008,   /* RFC */
+            0x00000003,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x0000000b,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000003,   /* WDV */
+            0x00000006,   /* QUSE */
+            0x00000004,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000c,   /* RDV */
+            0x000000a8,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000b,   /* RW2PDEN */
+            0x00000008,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000008,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x000000e1,   /* TREFBW */
+            0x00000005,   /* QUSE_EXTRA */
+            0x00000000,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa06804ae,   /* CFG_DIG_DLL */
+            0x00004810,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x00000005,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                108000,   /* SDRAM frquency */
+                  1000,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000007,   /* RC */
+            0x0000000f,   /* RFC */
+            0x00000005,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x0000000b,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000003,   /* WDV */
+            0x00000006,   /* QUSE */
+            0x00000004,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000c,   /* RDV */
+            0x0000017f,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000b,   /* RW2PDEN */
+            0x00000010,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000008,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x000001c2,   /* TREFBW */
+            0x00000005,   /* QUSE_EXTRA */
+            0x00000001,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa06804ae,   /* CFG_DIG_DLL */
+            0x007f9010,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x0000000a,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                150000,   /* SDRAM frquency */
+                  1000,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000009,   /* RC */
+            0x00000014,   /* RFC */
+            0x00000007,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x0000000b,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000003,   /* WDV */
+            0x00000006,   /* QUSE */
+            0x00000004,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000c,   /* RDV */
+            0x0000021f,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000b,   /* RW2PDEN */
+            0x00000015,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000008,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x00000270,   /* TREFBW */
+            0x00000005,   /* QUSE_EXTRA */
+            0x00000001,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa04c04ae,   /* CFG_DIG_DLL */
+            0x007fe010,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x0000000e,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                300000,   /* SDRAM frquency */
+                  1200,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000012,   /* RC */
+            0x00000027,   /* RFC */
+            0x0000000d,   /* RAS */
+            0x00000006,   /* RP */
+            0x00000007,   /* R2W */
+            0x00000005,   /* W2R */
+            0x00000003,   /* R2P */
+            0x0000000b,   /* W2P */
+            0x00000006,   /* RD_RCD */
+            0x00000006,   /* WR_RCD */
+            0x00000003,   /* RRD */
+            0x00000003,   /* REXT */
+            0x00000003,   /* WDV */
+            0x00000007,   /* QUSE */
+            0x00000004,   /* QRST */
+            0x00000009,   /* QSAFE */
+            0x0000000d,   /* RDV */
+            0x0000045f,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000004,   /* PDEX2WR */
+            0x00000004,   /* PDEX2RD */
+            0x00000006,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000f,   /* RW2PDEN */
+            0x0000002a,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x0000000f,   /* TFAW */
+            0x00000007,   /* TRPAB */
+            0x00000007,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x000004e0,   /* TREFBW */
+            0x00000006,   /* QUSE_EXTRA */
+            0x00000002,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000282,   /* FBIO_CFG5 */
+            0xe03c048b,   /* CFG_DIG_DLL */
+            0x00000010,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x0000001b,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    }
+};
+
+static const NvOdmSdramControllerConfigAdv s_NvOdmE1112ElpidaEmcConfigTable[] =
+{
+    {
+                  0x20,   /* Rev 2.0 */
+                 18000,   /* SDRAM frquency */
+                   900,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000002,   /* RC */
+            0x00000006,   /* RFC */
+            0x00000003,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000004,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x00000038,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000003,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x0000004b,   /* TREFBW */
+            0x00000003,   /* QUSE_EXTRA */
+            0x00000003,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa06804ae,   /* CFG_DIG_DLL */
+            0x007f3810,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x00000002,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                 27000,   /* SDRAM frquency */
+                   950,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000002,   /* RC */
+            0x00000006,   /* RFC */
+            0x00000003,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000004,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x00000054,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000004,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x00000071,   /* TREFBW */
+            0x00000003,   /* QUSE_EXTRA */
+            0x00000003,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa06804ae,   /* CFG_DIG_DLL */
+            0x007f3810,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x00000003,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                 54000,   /* SDRAM frquency */
+                  1000,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000004,   /* RC */
+            0x00000008,   /* RFC */
+            0x00000003,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000005,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x000000a8,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000008,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x000000e1,   /* TREFBW */
+            0x00000004,   /* QUSE_EXTRA */
+            0x00000000,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa06804ae,   /* CFG_DIG_DLL */
+            0x007f3810,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x00000005,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                108000,   /* SDRAM frquency */
+                  1000,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000007,   /* RC */
+            0x0000000f,   /* RFC */
+            0x00000005,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000005,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x0000017f,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000010,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x000001c2,   /* TREFBW */
+            0x00000004,   /* QUSE_EXTRA */
+            0x00000001,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa06804ae,   /* CFG_DIG_DLL */
+            0x007f6010,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x0000000a,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                150000,   /* SDRAM frquency */
+                  1000,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000009,   /* RC */
+            0x00000014,   /* RFC */
+            0x00000007,   /* RAS */
+            0x00000003,   /* RP */
+            0x00000006,   /* R2W */
+            0x00000004,   /* W2R */
+            0x00000002,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000003,   /* RD_RCD */
+            0x00000003,   /* WR_RCD */
+            0x00000002,   /* RRD */
+            0x00000002,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000005,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000008,   /* QSAFE */
+            0x0000000b,   /* RDV */
+            0x0000021f,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000003,   /* PDEX2WR */
+            0x00000003,   /* PDEX2RD */
+            0x00000003,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000a,   /* RW2PDEN */
+            0x00000015,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x00000008,   /* TFAW */
+            0x00000004,   /* TRPAB */
+            0x00000006,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x00000270,   /* TREFBW */
+            0x00000004,   /* QUSE_EXTRA */
+            0x00000001,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000082,   /* FBIO_CFG5 */
+            0xa04c04ae,   /* CFG_DIG_DLL */
+            0x007fb010,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x0000000e,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    },
+    {
+                  0x20,   /* Rev 2.0 */
+                300000,   /* SDRAM frquency */
+                  1200,   /* EMC core voltage */
+                    46,   /* Number of EMC parameters below */
+        {
+            0x00000012,   /* RC */
+            0x00000027,   /* RFC */
+            0x0000000d,   /* RAS */
+            0x00000006,   /* RP */
+            0x00000007,   /* R2W */
+            0x00000005,   /* W2R */
+            0x00000003,   /* R2P */
+            0x00000009,   /* W2P */
+            0x00000006,   /* RD_RCD */
+            0x00000006,   /* WR_RCD */
+            0x00000003,   /* RRD */
+            0x00000003,   /* REXT */
+            0x00000002,   /* WDV */
+            0x00000006,   /* QUSE */
+            0x00000003,   /* QRST */
+            0x00000009,   /* QSAFE */
+            0x0000000c,   /* RDV */
+            0x0000045f,   /* REFRESH */
+            0x00000000,   /* BURST_REFRESH_NUM */
+            0x00000004,   /* PDEX2WR */
+            0x00000004,   /* PDEX2RD */
+            0x00000006,   /* PCHG2PDEN */
+            0x00000008,   /* ACT2PDEN */
+            0x00000001,   /* AR2PDEN */
+            0x0000000e,   /* RW2PDEN */
+            0x0000002a,   /* TXSR */
+            0x00000003,   /* TCKE */
+            0x0000000f,   /* TFAW */
+            0x00000007,   /* TRPAB */
+            0x00000005,   /* TCLKSTABLE */
+            0x00000002,   /* TCLKSTOP */
+            0x000004e0,   /* TREFBW */
+            0x00000005,   /* QUSE_EXTRA */
+            0x00000002,   /* FBIO_CFG6 */
+            0x00000000,   /* ODT_WRITE */
+            0x00000000,   /* ODT_READ */
+            0x00000282,   /* FBIO_CFG5 */
+            0xe03c048b,   /* CFG_DIG_DLL */
+            0x007fd010,   /* DLL_XFORM_DQS */
+            0x00000000,   /* DLL_XFORM_QUSE */
+            0x00000000,   /* ZCAL_REF_CNT */
+            0x0000001b,   /* ZCAL_WAIT_CNT */
+            0x00000000,   /* AUTO_CAL_INTERVAL */
+            0x00000000,   /* CFG_CLKTRIM_0 */
+            0x00000000,   /* CFG_CLKTRIM_1 */
+            0x00000000,   /* CFG_CLKTRIM_2 */
+        }
+    }
+};
+
 
 // Wake Events
 static NvOdmWakeupPadInfo s_NvOdmWakeupPadInfo[] =
@@ -572,7 +1536,11 @@ static NvOdmWakeupPadInfo s_NvOdmWakeupPadInfo[] =
     {NV_FALSE,  4, NvOdmWakeupPadPolarity_High},    // Wake Event  4 - hdmi_int (HDMI_HPD)
     {NV_FALSE,  5, NvOdmWakeupPadPolarity_High},    // Wake Event  5 - vgp[6] (VI_GP6, Flash_EN2)
     {NV_FALSE,  6, NvOdmWakeupPadPolarity_High},    // Wake Event  6 - gp3_pu[5] (GPS_ON_OFF, GPS_IRQ)
+#ifdef CONFIG_BT_BLUESLEEP
+    {NV_TRUE,  7, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event  7 - gp3_pu[6] (GPS_INT, BT_IRQ)
+#else
     {NV_FALSE,  7, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event  7 - gp3_pu[6] (GPS_INT, BT_IRQ)
+#endif
     {NV_FALSE,  8, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event  8 - gmi_wp_n (MICRO SD_CD)
     {NV_FALSE,  9, NvOdmWakeupPadPolarity_High},    // Wake Event  9 - gp3_ps[2] (KB_COL10)
     {NV_FALSE, 10, NvOdmWakeupPadPolarity_High},    // Wake Event 10 - gmi_ad21 (Accelerometer_TH/TAP)
@@ -581,9 +1549,9 @@ static NvOdmWakeupPadInfo s_NvOdmWakeupPadInfo[] =
     {NV_FALSE, 13, NvOdmWakeupPadPolarity_Low},     // Wake Event 13 - sdio1_dat1
     {NV_FALSE, 14, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event 14 - gp3_pv[6] (WLAN_INT)
     {NV_FALSE, 15, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event 15 - gmi_ad16  (SPI3_DOUT, DTV_SPI4_CS1)
-    {NV_FALSE, 16, NvOdmWakeupPadPolarity_High},    // Wake Event 16 - rtc_irq
+    {NV_TRUE,  16, NvOdmWakeupPadPolarity_High},    // Wake Event 16 - rtc_irq
     {NV_TRUE,  17, NvOdmWakeupPadPolarity_High},    // Wake Event 17 - kbc_interrupt
-    {NV_FALSE, 18, NvOdmWakeupPadPolarity_Low},     // Wake Event 18 - pwr_int (PMIC_INT)
+    {NV_TRUE,  18, NvOdmWakeupPadPolarity_Low},     // Wake Event 18 - pwr_int (PMIC_INT)
     {NV_FALSE, 19, NvOdmWakeupPadPolarity_AnyEdge}, // Wake Event 19 - usb_vbus_wakeup[0]
     {NV_FALSE, 20, NvOdmWakeupPadPolarity_High},    // Wake Event 20 - usb_vbus_wakeup[1]
     {NV_FALSE, 21, NvOdmWakeupPadPolarity_Low},     // Wake Event 21 - usb_iddig[0]
@@ -592,7 +1560,7 @@ static NvOdmWakeupPadInfo s_NvOdmWakeupPadInfo[] =
     {NV_FALSE, 24, NvOdmWakeupPadPolarity_High},    // Wake Event 24 - gp3_pv[2] (BB_MOD, MODEM WAKEUP_AP15, SPI-SS)
     {NV_FALSE, 25, NvOdmWakeupPadPolarity_High},    // Wake Event 25 - gp3_ps[4] (KB_COL12)
     {NV_FALSE, 26, NvOdmWakeupPadPolarity_High},    // Wake Event 26 - gp3_ps[5] (KB_COL10)
-    {NV_FALSE, 27, NvOdmWakeupPadPolarity_High},    // Wake Event 27 - gp3_ps[0] (KB_COL8)
+    {NV_TRUE,  27, NvOdmWakeupPadPolarity_Low},    // Wake Event 27 - gp3_ps[0] (KB_COL8) / SDIO2_DAT1 (WLAN_WAKE)
     {NV_FALSE, 28, NvOdmWakeupPadPolarity_Low},     // Wake Event 28 - gp3_pq[6] (KB_ROW6)
     {NV_FALSE, 29, NvOdmWakeupPadPolarity_Low},     // Wake Event 29 - gp3_pq[7] (KB_ROW6)
     {NV_FALSE, 30, NvOdmWakeupPadPolarity_High}     // Wake Event 30 - dap1_dout (DAP1_DOUT)
@@ -648,6 +1616,48 @@ static NvBool NvOdmIsE1108Hynix(void)
     };
     return NvOdmIsBoardPresent(s_WhistlerE1108Hynix,
                                NV_ARRAY_SIZE(s_WhistlerE1108Hynix));
+}
+
+static NvBool NvOdmIsE1108Elpida(void)
+{
+    // A list of Whistler E1108 processor boards with Elpida LPDDR2
+    // charcterized by s_NvOdmE1108ElpidaEmcConfigTable (fill in
+    // ID/SKU/FAB fields, revision fields are ignored)
+    static const NvOdmBoardInfo s_WhistlerE1108Elpida[] =
+    {
+        // ID                      SKU     FAB   Rev            Minor Rev
+        { BOARD_ID_WHISTLER_E1108, 0x0D00, 0x03, BOARD_REV_ALL, BOARD_REV_ALL}
+    };
+    return NvOdmIsBoardPresent(s_WhistlerE1108Elpida,
+                               NV_ARRAY_SIZE(s_WhistlerE1108Elpida));
+}
+
+static NvBool NvOdmIsE1112Samsung(void)
+{
+    // A list of Whistler E1112 processor boards with Samsung LPDDR2
+    // charcterized by s_NvOdmE1112SamsungEmcConfigTable (fill in
+    // ID/SKU/FAB fields, revision fields are ignored)
+    static const NvOdmBoardInfo s_WhistlerE1112Samsung[] =
+    {
+        // ID                      SKU     FAB   Rev            Minor Rev
+        { BOARD_ID_WHISTLER_E1112, 0x0B00, 0x00, BOARD_REV_ALL, BOARD_REV_ALL}
+    };
+    return NvOdmIsBoardPresent(s_WhistlerE1112Samsung,
+                               NV_ARRAY_SIZE(s_WhistlerE1112Samsung));
+}
+
+static NvBool NvOdmIsE1112Elpida(void)
+{
+    // A list of Whistler E1112 processor boards with Elpida LPDDR2
+    // charcterized by s_NvOdmE1112ElpidaEmcConfigTable (fill in
+    // ID/SKU/FAB fields, revision fields are ignored)
+    static const NvOdmBoardInfo s_WhistlerE1112Elpida[] =
+    {
+        // ID                      SKU     FAB   Rev            Minor Rev
+        { BOARD_ID_WHISTLER_E1112, 0x0A00, 0x00, BOARD_REV_ALL, BOARD_REV_ALL}
+    };
+    return NvOdmIsBoardPresent(s_WhistlerE1112Elpida,
+                               NV_ARRAY_SIZE(s_WhistlerE1112Elpida));
 }
 #endif
 
@@ -880,6 +1890,7 @@ NvOdmQueryDapPortGetProperty(
     switch (NV_DRF_VAL(TEGRA_DEVKIT, BCT_CUSTOPT, RIL, CustOpt))
     {
     case TEGRA_DEVKIT_BCT_CUSTOPT_0_RIL_EMP_RAINBOW:
+    case TEGRA_DEVKIT_BCT_CUSTOPT_0_RIL_EMP_RAINBOW_ULPI:
     case TEGRA_DEVKIT_BCT_CUSTOPT_0_RIL_IFX:
         if (DapPortId && DapPortId<NV_ARRAY_SIZE(s_Property_Ril_Emp_Rainbow))
             return &s_Property_Ril_Emp_Rainbow[DapPortId];
@@ -910,9 +1921,8 @@ NvOdmQueryDapPortGetConnectionTable(
 
         // Voicecall without Bluetooth
         { NvOdmDapConnectionIndex_VoiceCall_NoBlueTooth,
-          3, { {NvOdmDapPort_Dap3, NvOdmDapPort_Dap2, NV_FALSE},
-               {NvOdmDapPort_Dap2, NvOdmDapPort_Dap3, NV_TRUE},
-               {NvOdmDapPort_Dap2, NvOdmDapPort_I2s2, NV_TRUE} } },
+          2, { {NvOdmDapPort_Dap3, NvOdmDapPort_Dap2, NV_FALSE},
+               {NvOdmDapPort_Dap2, NvOdmDapPort_Dap3, NV_TRUE} } },
 
         // Voicecall with Bluetooth
         { NvOdmDapConnectionIndex_VoiceCall_WithBlueTooth,
@@ -926,6 +1936,7 @@ NvOdmQueryDapPortGetConnectionTable(
     switch (NV_DRF_VAL(TEGRA_DEVKIT, BCT_CUSTOPT, RIL, CustOpt))
     {
     case TEGRA_DEVKIT_BCT_CUSTOPT_0_RIL_EMP_RAINBOW:
+    case TEGRA_DEVKIT_BCT_CUSTOPT_0_RIL_EMP_RAINBOW_ULPI:
     case TEGRA_DEVKIT_BCT_CUSTOPT_0_RIL_IFX:
         {
             for( TableIndex = 0;
@@ -1013,6 +2024,30 @@ NvOdmQuerySdramControllerConfigGet(NvU32 *pEntries, NvU32 *pRevision)
             *pEntries = NV_ARRAY_SIZE(s_NvOdmE1108HynixEmcConfigTable);
         return (const void*)s_NvOdmE1108HynixEmcConfigTable;
     }
+    else if (NvOdmIsE1108Elpida())
+    {
+        if (pRevision)
+            *pRevision = s_NvOdmE1108ElpidaEmcConfigTable[0].Revision;
+        if (pEntries)
+            *pEntries = NV_ARRAY_SIZE(s_NvOdmE1108ElpidaEmcConfigTable);
+        return (const void*)s_NvOdmE1108ElpidaEmcConfigTable;
+    }
+    else if (NvOdmIsE1112Samsung())
+    {
+        if (pRevision)
+            *pRevision = s_NvOdmE1112SamsungEmcConfigTable[0].Revision;
+        if (pEntries)
+            *pEntries = NV_ARRAY_SIZE(s_NvOdmE1112SamsungEmcConfigTable);
+        return (const void*)s_NvOdmE1112SamsungEmcConfigTable;
+    }
+    else if (NvOdmIsE1112Elpida())
+    {
+        if (pRevision)
+            *pRevision = s_NvOdmE1112ElpidaEmcConfigTable[0].Revision;
+        if (pEntries)
+            *pEntries = NV_ARRAY_SIZE(s_NvOdmE1112ElpidaEmcConfigTable);
+        return (const void*)s_NvOdmE1112ElpidaEmcConfigTable;
+    }
 #endif
     if (pEntries)
         *pEntries = 0;
@@ -1040,9 +2075,11 @@ const NvOdmWakeupPadInfo *NvOdmQueryGetWakeupPadTable(NvU32 *pSize)
     {
     case TEGRA_DEVKIT_BCT_CUSTOPT_0_RIL_EMP_RAINBOW:
         s_NvOdmWakeupPadInfo[24].enable = NV_TRUE;
+        s_NvOdmWakeupPadInfo[24].Polarity = NvOdmWakeupPadPolarity_Low;
         break;
     case TEGRA_DEVKIT_BCT_CUSTOPT_0_RIL_IFX:
         s_NvOdmWakeupPadInfo[13].enable = NV_TRUE;
+        s_NvOdmWakeupPadInfo[13].Polarity = NvOdmWakeupPadPolarity_High;
         break;
     default:
         break;
@@ -1097,9 +2134,12 @@ const NvU8* NvOdmQueryProjectName(void)
    { NvOdmPinRegister_Ap20_PullUpDown_C,
      NVODM_QUERY_PIN_AP20_PULLUPDOWN_C(0x1, 0x1, 0x1, 0x1, 0x2, 0x1, 0x2, 0x1, 0x2, 0x2, 0x2, 0x2, 0x2, 0x0, 0x0) },
 
+   { NvOdmPinRegister_Ap20_PullUpDown_D,
+     NVODM_QUERY_PIN_AP20_PULLUPDOWN_D(0x2, 0x2, 0x0, 0x2, 0x2, 0x2, 0x1, 0x1, 0x1, 0x1, 0x2, 0x0, 0x1, 0x0, 0x2, 0x2) },
+
     // Pull ups for the kbc pins
     { NvOdmPinRegister_Ap20_PullUpDown_E,
-      NVODM_QUERY_PIN_AP20_PULLUPDOWN_E(0x2, 0x2, 0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x2, 0x2, 0x2, 0x2, 0x2) },
+      NVODM_QUERY_PIN_AP20_PULLUPDOWN_E(0x2, 0x2, 0x0, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x2, 0x2, 0x2, 0x2, 0x2, 0x2) },
 
     // Set pad control for the sdio2 - - AOCFG1 and AOCFG2 pad control register
     { NvOdmPinRegister_Ap20_PadCtrl_AOCFG1PADCTRL,
@@ -1186,7 +2226,9 @@ NvBool NvOdmQueryGetPmuProperty(NvOdmPmuProperty* pPmuProperty)
         pPmuProperty->VCpuOTPOnWakeup = NV_FALSE;
     else
         pPmuProperty->VCpuOTPOnWakeup = NV_TRUE;
-
+    /* Setting Power off count for 100 ms  -32KHz clock rate*/
+    pPmuProperty->PowerOffCount = 0xc00;
+    pPmuProperty->CpuPowerOffUs = 1000;
     return NV_TRUE;
 }
 
@@ -1213,7 +2255,7 @@ const NvOdmSocPowerStateInfo* NvOdmQueryLowestSocPowerState(void)
             LPStateSelection = NV_DRF_VAL(TEGRA_DEVKIT, BCT_CUSTOPT, LPSTATE, LPStateSelection);
         }
         // Lowest power state controlled by the flashed custom option.
-        PowerStateInfo.LowestPowerState =  ((LPStateSelection != TEGRA_DEVKIT_BCT_CUSTOPT_0_LPSTATE_LP1)?
+        PowerStateInfo.LowestPowerState =  ((LPStateSelection == TEGRA_DEVKIT_BCT_CUSTOPT_0_LPSTATE_LP1)?
                                             NvOdmSocPowerState_Suspend : NvOdmSocPowerState_DeepSleep);
         pPowerStateInfo = (const NvOdmSocPowerStateInfo*) &PowerStateInfo;
     }
@@ -1327,9 +2369,6 @@ NvOdmQueryGetUsbProperty(NvOdmIoModule OdmIoModule,
 
 const NvOdmQuerySdioInterfaceProperty* NvOdmQueryGetSdioInterfaceProperty(NvU32 Instance)
 {
-    NvU32 CustomerOption = 0;
-    NvU32 Personality = 0;
-    NvOdmServicesKeyListHandle hKeyList;
     static NvBool s_IsVoyagerBoard = NV_FALSE;
     NvOdmBoardInfo BoardInfo;
     static NvBool s_IsBoardInfoDone = NV_FALSE;
@@ -1342,28 +2381,8 @@ const NvOdmQuerySdioInterfaceProperty* NvOdmQueryGetSdioInterfaceProperty(NvU32 
         s_IsBoardInfoDone = NV_TRUE;
     }
 
-    hKeyList = NvOdmServicesKeyListOpen();
-    if (hKeyList)
-    {
-        CustomerOption =
-            NvOdmServicesGetKeyValue(hKeyList,
-                                     NvOdmKeyListId_ReservedBctCustomerOption);
-        NvOdmServicesKeyListClose(hKeyList);
-        Personality =
-            NV_DRF_VAL(TEGRA_DEVKIT, BCT_CUSTOPT, PERSONALITY, CustomerOption);
-    }
-
-    if (!Personality)
-        Personality = TEGRA_DEVKIT_DEFAULT_PERSONALITY;
-
     if (s_IsVoyagerBoard)
         return &s_NvOdmQuerySdioInterfaceProperty_Voyager[Instance];
-
-    if (Personality == TEGRA_DEVKIT_BCT_CUSTOPT_0_PERSONALITY_75 ||
-        Personality == TEGRA_DEVKIT_BCT_CUSTOPT_0_PERSONALITY_15 ||
-        Personality == TEGRA_DEVKIT_BCT_CUSTOPT_0_PERSONALITY_05 ||
-        Personality == TEGRA_DEVKIT_BCT_CUSTOPT_0_PERSONALITY_C3)
-        s_NvOdmQuerySdioInterfaceProperty_Whistler[2].IsCardRemovable = NV_TRUE;
 
     return &s_NvOdmQuerySdioInterfaceProperty_Whistler[Instance];
 }

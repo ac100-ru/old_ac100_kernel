@@ -204,10 +204,12 @@ print_tickdevice(struct seq_file *m, struct tick_device *td, int cpu)
 		return;
 	}
 	SEQ_printf(m, "%s\n", dev->name);
-	SEQ_printf(m, " max_delta_ns:   %lu\n", dev->max_delta_ns);
-	SEQ_printf(m, " min_delta_ns:   %lu\n", dev->min_delta_ns);
-	SEQ_printf(m, " mult:           %lu\n", dev->mult);
-	SEQ_printf(m, " shift:          %d\n", dev->shift);
+	SEQ_printf(m, " max_delta_ns:   %llu\n",
+		   (unsigned long long) dev->max_delta_ns);
+	SEQ_printf(m, " min_delta_ns:   %llu\n",
+		   (unsigned long long) dev->min_delta_ns);
+	SEQ_printf(m, " mult:           %u\n", dev->mult);
+	SEQ_printf(m, " shift:          %u\n", dev->shift);
 	SEQ_printf(m, " mode:           %d\n", dev->mode);
 	SEQ_printf(m, " next_event:     %Ld nsecs\n",
 		   (unsigned long long) ktime_to_ns(dev->next_event));
@@ -275,7 +277,7 @@ static int timer_list_open(struct inode *inode, struct file *filp)
 	return single_open(filp, timer_list_show, NULL);
 }
 
-static struct file_operations timer_list_fops = {
+static const struct file_operations timer_list_fops = {
 	.open		= timer_list_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
@@ -286,7 +288,7 @@ static int __init init_timer_list_procfs(void)
 {
 	struct proc_dir_entry *pe;
 
-	pe = proc_create("timer_list", 0644, NULL, &timer_list_fops);
+	pe = proc_create("timer_list", 0444, NULL, &timer_list_fops);
 	if (!pe)
 		return -ENOMEM;
 	return 0;

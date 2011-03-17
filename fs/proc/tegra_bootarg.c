@@ -20,13 +20,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define NV_DEBUG 0
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <asm/uaccess.h>
-#include <linux/tegra_devices.h>
 #include "nvos.h"
 #include "nvcommon.h"
 #include "nvassert.h"
@@ -111,7 +112,6 @@ static int __init tegra_bootarg_init(void)
 		pr_err("%s: mkdir _proc_bootarg failure\n", __func__);
 		return rv;
 	}
-	tegra_bootarg_dir->owner = THIS_MODULE;
 
 	/*build up a display boot argument directory*/
 	disp_dir = proc_mkdir(MODULE_DISP, tegra_bootarg_dir);
@@ -121,15 +121,13 @@ static int __init tegra_bootarg_init(void)
 		remove_proc_entry(BOOT_ARGUMENTS, NULL);
 		return rv;
 	}
-	disp_dir->owner = THIS_MODULE;
 
 	/*build up each field of display boot argument as a different file*/
 
 	/* 1. DISP_CONTROLLER*/
 	/*0444 is from S_IRUSR|S_IRGRP|S_IROTH*/
-	disp_arg_controller =
-		create_proc_read_entry(DISP_CONTROLLER, 0444, disp_dir,
-			proc_read_disp_controller, NULL);
+	disp_arg_controller = create_proc_read_entry(DISP_CONTROLLER, 0444,
+				     disp_dir, proc_read_disp_controller, NULL);
 	if (disp_arg_controller == NULL) {
 		rv = -ENOMEM;
 		pr_err("%s: read entry failure of disp_arg_controller\n", __func__);
@@ -137,12 +135,10 @@ static int __init tegra_bootarg_init(void)
 		remove_proc_entry(BOOT_ARGUMENTS, NULL);
 		return rv;
 	}
-	disp_arg_controller->owner = THIS_MODULE;
 
 	/* 2. DISP_DEV_INDEX*/
-	disp_arg_dev_index =
-		create_proc_read_entry(DISP_DEV_INDEX, 0444, disp_dir,
-			proc_read_dev_index, NULL);
+	disp_arg_dev_index = create_proc_read_entry(DISP_DEV_INDEX, 0444,
+				    disp_dir, proc_read_dev_index, NULL);
 	if (disp_arg_dev_index == NULL) {
 		rv = -ENOMEM;
 		pr_err("%s: read entry failure of disp_arg_dev_index\n", __func__);
@@ -150,12 +146,10 @@ static int __init tegra_bootarg_init(void)
 		remove_proc_entry(BOOT_ARGUMENTS, NULL);
 		return rv;
 	}
-	disp_arg_dev_index->owner = THIS_MODULE;
 
 	/* 3. DISP_BENABLED*/
-	disp_arg_benabled =
-		create_proc_read_entry(DISP_BENABLED, 0444, disp_dir,
-			proc_read_benabled, NULL);
+	disp_arg_benabled = create_proc_read_entry(DISP_BENABLED, 0444,
+				   disp_dir, proc_read_benabled, NULL);
 	if (disp_arg_benabled == NULL) {
 		rv = -ENOMEM;
 		pr_err("%s: read entry failure of disp_arg_benabled\n", __func__);
@@ -163,7 +157,6 @@ static int __init tegra_bootarg_init(void)
 		remove_proc_entry(BOOT_ARGUMENTS, NULL);
 		return rv;
 	}
-	disp_arg_benabled->owner = THIS_MODULE;
 
 	/*If everything is OK, return zero*/
 	return 0;

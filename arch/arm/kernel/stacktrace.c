@@ -21,7 +21,7 @@
  * Note that with framepointer enabled, even the leaf functions have the same
  * prologue and epilogue, therefore we can ignore the LR value in this case.
  */
-int unwind_frame(struct stackframe *frame)
+int notrace unwind_frame(struct stackframe *frame)
 {
 	unsigned long high, low;
 	unsigned long fp = frame->fp;
@@ -43,7 +43,7 @@ int unwind_frame(struct stackframe *frame)
 }
 #endif
 
-void walk_stackframe(struct stackframe *frame,
+void notrace walk_stackframe(struct stackframe *frame,
 		     int (*fn)(struct stackframe *, void *), void *data)
 {
 	while (1) {
@@ -107,7 +107,7 @@ void save_stack_trace_tsk(struct task_struct *tsk, struct stack_trace *trace)
 #endif
 	} else {
 		register unsigned long current_sp asm ("sp");
-		
+
 		data.no_sched_functions = 0;
 		frame.fp = (unsigned long)__builtin_frame_address(0);
 		frame.sp = current_sp;

@@ -11,6 +11,7 @@
 #define LINUX_MMC_HOST_H
 
 #include <linux/leds.h>
+#include <linux/sched.h>
 
 #include <linux/mmc/core.h>
 
@@ -153,7 +154,6 @@ struct mmc_host {
 #define MMC_CAP_DISABLE		(1 << 7)	/* Can the host be disabled */
 #define MMC_CAP_NONREMOVABLE	(1 << 8)	/* Nonremovable e.g. eMMC */
 #define MMC_CAP_WAIT_WHILE_BUSY	(1 << 9)	/* Waits while card is busy */
-#define MMC_CAP_ERASE		(1 << 10)	/* Allow erase/trim commands */
 
 	/* host specific block data */
 	unsigned int		max_seg_size;	/* see blk_queue_max_segment_size */
@@ -188,6 +188,8 @@ struct mmc_host {
 	struct mmc_card		*card;		/* device attached to this host */
 
 	wait_queue_head_t	wq;
+	struct task_struct	*claimer;	/* task that has host claimed */
+	int			claim_cnt;	/* "claim" nesting count */
 
 	struct delayed_work	detect;
 
@@ -258,6 +260,9 @@ extern int mmc_resume_bus(struct mmc_host *host);
 extern int mmc_suspend_host(struct mmc_host *, pm_message_t);
 extern int mmc_resume_host(struct mmc_host *);
 
+extern void mmc_power_save_host(struct mmc_host *host);
+extern void mmc_power_restore_host(struct mmc_host *host);
+
 extern void mmc_detect_change(struct mmc_host *, unsigned long delay);
 extern void mmc_request_done(struct mmc_host *, struct mmc_request *);
 
@@ -266,6 +271,11 @@ static inline void mmc_signal_sdio_irq(struct mmc_host *host)
 	host->ops->enable_sdio_irq(host, 0);
 	wake_up_process(host->sdio_irq_thread);
 }
+
+struct regulator;
+
+int mmc_regulator_get_ocrmask(struct regulator *supply);
+int mmc_regulator_set_ocr(struct regulator *supply, unsigned short vdd_bit);
 
 int mmc_card_awake(struct mmc_host *host);
 int mmc_card_sleep(struct mmc_host *host);

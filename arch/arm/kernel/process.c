@@ -83,7 +83,7 @@ static int __init hlt_setup(char *__unused)
 __setup("nohlt", nohlt_setup);
 __setup("hlt", hlt_setup);
 
-void arm_machine_restart(char mode)
+void arm_machine_restart(char mode, const char *cmd)
 {
 	/*
 	 * Clean and disable cache, and turn off interrupts
@@ -100,7 +100,7 @@ void arm_machine_restart(char mode)
 	/*
 	 * Now call the architecture specific reboot code.
 	 */
-	arch_reset(mode);
+	arch_reset(mode, cmd);
 
 	/*
 	 * Whoops - the architecture was unable to reboot.
@@ -114,13 +114,10 @@ void arm_machine_restart(char mode)
 /*
  * Function pointers to optional machine specific functions
  */
-void (*pm_idle)(void);
-EXPORT_SYMBOL(pm_idle);
-
 void (*pm_power_off)(void);
 EXPORT_SYMBOL(pm_power_off);
 
-void (*arm_pm_restart)(char str) = arm_machine_restart;
+void (*arm_pm_restart)(char str, const char *cmd) = arm_machine_restart;
 EXPORT_SYMBOL_GPL(arm_pm_restart);
 
 
@@ -130,21 +127,20 @@ EXPORT_SYMBOL_GPL(arm_pm_restart);
  */
 void default_idle(void)
 {
-	if (hlt_counter)
-		cpu_relax();
-	else {
-		local_irq_disable();
-		if (!need_resched())
-			arch_idle();
-		local_irq_enable();
-	}
+	if (!need_resched())
+		arch_idle();
+	local_irq_enable();
 }
 EXPORT_SYMBOL(default_idle);
 
+void (*pm_idle)(void) = default_idle;
+EXPORT_SYMBOL(pm_idle);
+
 /*
- * The idle thread.  We try to conserve power, while trying to keep
- * overall latency low.  The architecture specific idle is passed
- * a value to indicate the level of "idleness" of the system.
+ * The idle thread, has rather strange semantics for calling pm_idle,
+ * but this is what x86 does and we need to do the same, so that
+ * things like cpuidle get called in the same way.  The only difference
+ * is that we always respect 'hlt_counter' to prevent low power idle.
  */
 void cpu_idle(void)
 {
@@ -152,21 +148,31 @@ void cpu_idle(void)
 
 	/* endless idle loop with no priority at all */
 	while (1) {
-		void (*idle)(void) = pm_idle;
-
+		tick_nohz_stop_sched_tick(1);
+		leds_event(led_idle_start);
+		while (!need_resched()) {
 #ifdef CONFIG_HOTPLUG_CPU
-		if (cpu_is_offline(smp_processor_id())) {
-			leds_event(led_idle_start);
-			cpu_die();
-		}
+			if (cpu_is_offline(smp_processor_id()))
+				cpu_die();
 #endif
 
-		if (!idle)
-			idle = default_idle;
-		leds_event(led_idle_start);
-		tick_nohz_stop_sched_tick(1);
-		while (!need_resched())
-			idle();
+			local_irq_disable();
+			if (hlt_counter) {
+				local_irq_enable();
+				cpu_relax();
+			} else {
+				stop_critical_timings();
+				pm_idle();
+				start_critical_timings();
+				/*
+				 * This will eventually be removed - pm_idle
+				 * functions should always return with IRQs
+				 * enabled.
+				 */
+				WARN_ON(irqs_disabled());
+				local_irq_enable();
+			}
+		}
 		leds_event(led_idle_end);
 		tick_nohz_restart_sched_tick();
 		preempt_enable_no_resched();
@@ -209,9 +215,9 @@ void machine_power_off(void)
 		pm_power_off();
 }
 
-void machine_restart(char * __unused)
+void machine_restart(char *cmd)
 {
-	arm_pm_restart(reboot_mode);
+	arm_pm_restart(reboot_mode, cmd);
 }
 
 /*
@@ -355,16 +361,17 @@ void show_regs(struct pt_regs * regs)
 	__backtrace();
 }
 
+ATOMIC_NOTIFIER_HEAD(thread_notify_head);
+
+EXPORT_SYMBOL_GPL(thread_notify_head);
+
 /*
  * Free current thread data structures etc..
  */
 void exit_thread(void)
 {
+	thread_notify(THREAD_NOTIFY_EXIT, current_thread_info());
 }
-
-ATOMIC_NOTIFIER_HEAD(thread_notify_head);
-
-EXPORT_SYMBOL_GPL(thread_notify_head);
 
 void flush_thread(void)
 {
@@ -380,15 +387,12 @@ void flush_thread(void)
 
 void release_thread(struct task_struct *dead_task)
 {
-	struct thread_info *thread = task_thread_info(dead_task);
-
-	thread_notify(THREAD_NOTIFY_RELEASE, thread);
 }
 
 asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
 
 int
-copy_thread(int nr, unsigned long clone_flags, unsigned long stack_start,
+copy_thread(unsigned long clone_flags, unsigned long stack_start,
 	    unsigned long stk_sz, struct task_struct *p, struct pt_regs *regs)
 {
 	struct thread_info *thread = task_thread_info(p);
@@ -409,6 +413,15 @@ copy_thread(int nr, unsigned long clone_flags, unsigned long stack_start,
 }
 
 /*
+ * Fill in the task's elfregs structure for a core dump.
+ */
+int dump_task_regs(struct task_struct *t, elf_gregset_t *elfregs)
+{
+	elf_core_copy_regs(elfregs, task_pt_regs(t));
+	return 1;
+}
+
+/*
  * fill in the fpe structure for a core dump...
  */
 int dump_fpu (struct pt_regs *regs, struct user_fp *fp)
@@ -422,16 +435,6 @@ int dump_fpu (struct pt_regs *regs, struct user_fp *fp)
 	return used_math != 0;
 }
 EXPORT_SYMBOL(dump_fpu);
-
-/*
- * Capture the user space registers if the task is not running (in user space)
- */
-int dump_task_regs(struct task_struct *tsk, elf_gregset_t *regs)
-{
-	struct pt_regs ptregs = *task_pt_regs(tsk);
-	elf_core_copy_regs(regs, &ptregs);
-	return 1;
-}
 
 /*
  * Shuffle the argument into the correct register before calling the
@@ -480,10 +483,6 @@ pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 	regs.ARM_r3 = (unsigned long)kernel_thread_exit;
 	regs.ARM_pc = (unsigned long)kernel_thread_helper;
 	regs.ARM_cpsr = SVC_MODE | PSR_ENDSTATE | PSR_ISETSTATE;
-#ifdef CONFIG_CPU_V7M
-	/* Return to Handler mode */
-	regs.ARM_EXC_lr = 0xfffffff1L;
-#endif
 
 	return do_fork(flags|CLONE_VM|CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
 }

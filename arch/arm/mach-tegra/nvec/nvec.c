@@ -38,6 +38,7 @@
 #include "nvec_transport.h"
 #include "nvec_private.h"
 
+
 #define DEBUG_NVEC 0
 #define DISP_MESSAGE(x) do { if (DEBUG_NVEC) { NvOsDebugPrintf x ; } } while (0)
 
@@ -214,7 +215,7 @@ NvEcPrivPowerSuspendHook(
 	if ( resp.Status != NvEcStatus_Success )
 		return NvError_InvalidState;
 #endif
-    
+
     // instruct EC to go to sleep
 
     DISP_MESSAGE(("NvEcPrivPowerSuspendHook: Go to sleep\n"));

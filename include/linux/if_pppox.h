@@ -99,16 +99,16 @@ struct pppoe_tag {
 } __attribute ((packed));
 
 /* Tag identifiers */
-#define PTT_EOL		__constant_htons(0x0000)
-#define PTT_SRV_NAME	__constant_htons(0x0101)
-#define PTT_AC_NAME	__constant_htons(0x0102)
-#define PTT_HOST_UNIQ	__constant_htons(0x0103)
-#define PTT_AC_COOKIE	__constant_htons(0x0104)
-#define PTT_VENDOR 	__constant_htons(0x0105)
-#define PTT_RELAY_SID	__constant_htons(0x0110)
-#define PTT_SRV_ERR     __constant_htons(0x0201)
-#define PTT_SYS_ERR  	__constant_htons(0x0202)
-#define PTT_GEN_ERR  	__constant_htons(0x0203)
+#define PTT_EOL		__cpu_to_be16(0x0000)
+#define PTT_SRV_NAME	__cpu_to_be16(0x0101)
+#define PTT_AC_NAME	__cpu_to_be16(0x0102)
+#define PTT_HOST_UNIQ	__cpu_to_be16(0x0103)
+#define PTT_AC_COOKIE	__cpu_to_be16(0x0104)
+#define PTT_VENDOR 	__cpu_to_be16(0x0105)
+#define PTT_RELAY_SID	__cpu_to_be16(0x0110)
+#define PTT_SRV_ERR     __cpu_to_be16(0x0201)
+#define PTT_SYS_ERR  	__cpu_to_be16(0x0202)
+#define PTT_GEN_ERR  	__cpu_to_be16(0x0203)
 
 struct pppoe_hdr {
 #if defined(__LITTLE_ENDIAN_BITFIELD)
@@ -150,12 +150,15 @@ struct pppolac_opt {
 	__u32	remote;
 	__u16	sequence;
 	__u8	sequencing;
+	int	(*backlog_rcv)(struct sock *sk_udp, struct sk_buff *skb);
 };
 
 struct pppopns_opt {
 	__u16	local;
 	__u16	remote;
 	__u32	sequence;
+	void	(*data_ready)(struct sock *sk_raw, int length);
+	int	(*backlog_rcv)(struct sock *sk_raw, struct sk_buff *skb);
 };
 
 #include <net/sock.h>

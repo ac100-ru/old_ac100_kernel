@@ -58,7 +58,7 @@ extern "C"
  */
 #define NVRM_DFS_PARAM_CPU_AP20 \
     NvRmFreqMaximum, /* Maximum domain frequency set to h/w limit */ \
-    40000,  /* Minimum domain frequency 40 MHz */ \
+    216000, /* Minimum domain frequency 216 MHz */ \
     1000,   /* Frequency change upper band 1 MHz */ \
     1000,   /* Frequency change lower band 1 MHz */ \
     {          /* RT starvation control parameters */ \
@@ -71,7 +71,7 @@ extern "C"
         255,   /* Proportional frequency boost increase 255/256 ~ 100% */ \
         32,    /* Proportional frequency boost decrease 32/256 ~ 12% */  \
     },\
-    3,      /* Relative adjustement of average freqiency 1/2^3 ~ 12% */ \
+    2,      /* Relative adjustement of average freqiency 1/2^2 ~ 25% */ \
     1,      /* Number of smaple intervals with NRT to trigger boost = 2 */ \
     1       /* NRT idle cycles threshold = 1 */ 
 
@@ -146,7 +146,7 @@ extern "C"
  */
 #define NVRM_DFS_PARAM_APB_AP20 \
     NVRM_AP20_APB_MAX_KHZ, /* AP20 APB limit is lower than other buses */ \
-    24000,  /* Minimum domain frequency 24 MHz */ \
+    36000,  /* Minimum domain frequency 36 MHz */ \
     1000,   /* Frequency change upper band 1 MHz */ \
     1000,   /* Frequency change lower band 1 MHz */ \
     {          /* RT starvation control parameters */ \
@@ -236,17 +236,48 @@ extern "C"
 /**
  * Defines CPU frequency threshold for slave CPU1 power management:
  * - CPU1 is turned Off when cpu clock is below ON_MIN for
- *   ON_PENDING DFS ticks (10ms) in a row
+ *   ON_PENDING time in a row
  * - CPU1 is turned On when cpu clock is above OFF_MAX for
- *   OFF_PENDING DFS ticks (10ms) in a row
+ *   OFF_PENDING time in a row
  * If thresholds are set to 0, the values are derived at run time from the
  * characterization data
  */
 #define NVRM_CPU1_ON_MIN_KHZ (0)
 #define NVRM_CPU1_OFF_MAX_KHZ (0)
 
-#define NVRM_CPU1_ON_PENDING_CNT (250)
-#define NVRM_CPU1_OFF_PENDING_CNT (100)
+#define NVRM_CPU1_ON_PENDING_MS (1500)
+#define NVRM_CPU1_OFF_PENDING_MS (1000)
+
+/**
+ * Defines AP20 Thermal policy parameters.
+ *
+ * Low and high thresholds specify 3 temperature ranges.
+ * If temperature is below low threshold:
+ *   - no throttling,
+ *   - slow polling (if interrupt mode is not supported by ODM)
+ * If temperature is above low threshold, but below high threshold:
+ *   - limit CPU voltage to THROTTLE_MV (no throttling if set to
+ *     NvRmVoltsMaximum)
+ *   - fast polling (if interrupt mode is not supported by ODM)
+ * If temperature is above high threshold:
+ *   - throttle CPU frequency with CPU_DELTA_KHZ/POLL_MS_CRITICAL
+ *     gradient until maximum throttling ratio is reached
+ *   - critical polling (if interrupt mode is not supported by ODM)
+ *
+ * ODM should also set a critical threshold to trigger h/w shutdown
+ * mechanism.
+ */
+#define NVRM_DTT_DEGREES_HIGH           (85L)
+#define NVRM_DTT_DEGREES_LOW            (60L)
+#define NVRM_DTT_DEGREES_HYSTERESIS     (5L)
+
+#define NVRM_DTT_VOLTAGE_THROTTLE_MV    (NvRmVoltsMaximum)
+#define NVRM_DTT_CPU_DELTA_KHZ          (100000UL)
+#define NVRM_DTT_RATIO_MAX              (2)
+
+#define NVRM_DTT_POLL_MS_CRITICAL       (2000UL)
+#define NVRM_DTT_POLL_MS_FAST           (4000UL)
+#define NVRM_DTT_POLL_MS_SLOW           (8000UL)
 
 /// Default low corners for core and dedicated CPU voltages
 #define NVRM_AP20_LOW_CORE_MV (950)

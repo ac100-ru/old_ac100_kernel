@@ -55,7 +55,7 @@
  * 64-bit value (8-character code) that uniquely identifies each peripheral,
  * i.e., each peripheral will have exactly one GUID, and each GUID will refer
  * to exactly one peripheral.
- *
+ * 
  * The implementation of this API is similar to a simple database: tables are
  * provided by the ODMs that, for every peripheral, define the peripheral's
  * GUID, and specify the bus, or set of buses, to which the peripheral is
@@ -141,6 +141,9 @@ extern "C"
 #define NV_PMU_TRANSPORT_ODM_ID (NV_ODM_GUID('N','V','P','M','U','T','R','N'))
 
 #define NV_VDD_FUSE_ODM_ID (NV_ODM_GUID('N','V','D','D','F','U','S','E'))
+
+#define NV_VDD_HDMI_INT_ID      (NV_ODM_GUID('N','V','D','D','H','P','D','0'))
+
 /**
  * Some of the NVIDIA driver libraries enumerate peripherals based on the
  * logical functionality that the peripheral performs, rather than by the
@@ -173,10 +176,10 @@ typedef enum
     NvOdmPeripheralClass_Force32 = 0x7fffffffUL
 } NvOdmPeripheralClass;
 
-/**
+/** 
  * Defines the unique address on a bus where a peripheral is connected.
  */
-typedef struct
+typedef struct 
 {
     /// Specifies the type of bus or I/O (I2C, DAP, GPIO) for this connection.
     NvOdmIoModule Interface;
@@ -195,7 +198,7 @@ typedef struct
 
     /**
      * Some buses, such as I2C and SPI, support multiple slave devices on
-     * a single bus, through the use of peripheral addresses and/or chip
+     * a single bus, through the use of peripheral addresses and/or chip 
      * select signals. This value specifies the appropriate address or chip
      * select required to communicate with the peripheral.
      *
@@ -207,13 +210,22 @@ typedef struct
      *       address 0 should refer to the main panel, and 1 to the sub-panel.
      */
     NvU32 Address;
+
+    /**
+     * Specifies purpose of address definition as an adaptation local ID.
+     * ODM adaptations can use this member to parse connectivity tables
+     * from ODM query, by enumerating all addresses they expect under their
+     * GUID, and populating this member with an enum value. Use is optional.
+     */
+    NvU32 Purpose;
+
 } NvOdmIoAddress;
 
 /**
  * Defines the full bus connectivity for peripherals connected to the
  * application processor.
  */
-typedef struct
+typedef struct 
 {
     /// The ODM-defined 64-bit GUID that identifies this peripheral.
     NvU64 Guid;
@@ -233,7 +245,7 @@ typedef struct
 
 
 /// Defines different criteria for searching through the peripheral database.
-typedef enum
+typedef enum 
 {
     /// Searches for peripherals that are members of the specified class.
     NvOdmPeripheralSearch_PeripheralClass,
@@ -241,7 +253,7 @@ typedef enum
     /// Searches for peripherals connected to the specified I/O module.
     NvOdmPeripheralSearch_IoModule,
 
-    /**
+    /** 
      * Searches for peripherals connected to the specified bus instance.
      *
      * @note This value will be compared against all entries in \a addressList.
@@ -260,7 +272,7 @@ typedef enum
     NvOdmPeripheralSearch_Force32 = 0x7fffffffUL
 } NvOdmPeripheralSearch;
 
-/**
+/** 
  * Defines the data structure that describes each sub-assembly of the
  * development platform.  This data is read from EEPROMs on each of the sub-
  * assemblies, which is saved with the following format:
@@ -270,13 +282,13 @@ typedef enum
  *
  * Where:
  *
- * - xxxx is the board ID number 0-9999 (2 byte number)
- * - yyyy is the SKU number 0-9999 (2 byte number)
- * - zz is the FAB number 0-99 (1 byte number)
+ * - xxxx is the board ID number 0-9999 (2 byte number) 
+ * - yyyy is the SKU number 0-9999 (2 byte number) 
+ * - zz is the FAB number 0-99 (1 byte number) 
  * - X is the major revision, (1 byte ASCII character), e.g., 'A', 'B', etc.
  * - N is the minor revision, (1 byte number, 0 - 9)
  */
-typedef struct
+typedef struct 
 {
     /// Specifies the board number.
     NvU16 BoardID;
@@ -328,10 +340,10 @@ NvOdmPeripheralEnumerate(
 
 /**
  * Searches through the database of connected peripherals for the peripheral
- * matching the specified GUID and returns that peripheral's connectivity
+ * matching the specified GUID and returns that peripheral's connectivity 
  * structure.
  *
- * @note If the ODM system supports hot-pluggable peripherals (e.g., an
+ * @note If the ODM system supports hot-pluggable peripherals (e.g., an 
  * external TV-out display), the connectivity structure should only be returned
  * when the peripheral is useable by the NVIDIA driver libraries. If hot-plug
  * detection is not supported, the peripheral's connectivity structure may
@@ -349,13 +361,13 @@ NvOdmPeripheralGetGuid(NvU64 searchGuid);
 
 /**
  * Gets the ::NvOdmBoardInfo data structure values for the given board ID.
- *
+ * 
  * @param BoardId Identifies the board for which the BoardInfo data is to be retrieved.
  *  @note The \a BoardId is in Binary Encoded Decimal (BCD) format. For example,
  *  E920 is identified by a \a BoardId of 0x0920 and E9820 would be 0x9820.
  * @param pBoardInfo A pointer to the location where the requested \a BoardInfo data
  *  shall be saved.
- *
+ * 
  * @return NV_TRUE if successful, or NV_FALSE otherwise.
  */
 NvBool
@@ -368,4 +380,5 @@ NvOdmPeripheralGetBoardInfo(
 #endif
 
 /** @} */
+
 #endif // INCLUDED_NVODM_QUERY_DISCOVERY_H

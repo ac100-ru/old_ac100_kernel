@@ -1517,7 +1517,6 @@ acquirelock:
 		 * Wait till all the CPUs have quit
 		 * from the debugger.
 		 */
-		smp_mb();
 		for_each_online_cpu(i) {
 			while (atomic_read(&cpu_in_kgdb[i]))
 				cpu_relax();
@@ -1584,8 +1583,8 @@ static void sysrq_handle_gdb(int key, struct tty_struct *tty)
 
 static struct sysrq_key_op sysrq_gdb_op = {
 	.handler	= sysrq_handle_gdb,
-	.help_msg	= "Gdb",
-	.action_msg	= "GDB",
+	.help_msg	= "debug(G)",
+	.action_msg	= "DEBUG",
 };
 #endif
 

@@ -109,12 +109,15 @@ abort:
 		wake_unlock(&main_wake_lock);
 	spin_unlock_irqrestore(&state_lock, irqflags);
 }
-
+void notify_daemon(const char* notice);
 static void late_resume(struct work_struct *work)
 {
 	struct early_suspend *pos;
 	unsigned long irqflags;
 	int abort = 0;
+//display on
+//       printk("Henry>>%s display on\n",__FUNCTION__);
+       notify_daemon("PM_DISPLAY_ON");
 
 	mutex_lock(&early_suspend_lock);
 	spin_lock_irqsave(&state_lock, irqflags);

@@ -123,13 +123,6 @@ static int mmc_decode_csd(struct mmc_card *card)
 		csd->r2w_factor = UNSTUFF_BITS(resp, 26, 3);
 		csd->write_blkbits = UNSTUFF_BITS(resp, 22, 4);
 		csd->write_partial = UNSTUFF_BITS(resp, 21, 1);
-
-		if (UNSTUFF_BITS(resp, 46, 1)) {
-			csd->erase_size = 1;
-		} else if (csd->write_blkbits >= 9) {
-			csd->erase_size = UNSTUFF_BITS(resp, 39, 7) + 1;
-			csd->erase_size <<= csd->write_blkbits - 9;
-		}
 		break;
 	case 1:
 		/*
@@ -138,7 +131,6 @@ static int mmc_decode_csd(struct mmc_card *card)
 		 * values. To avoid getting tripped by buggy cards,
 		 * we assume those fixed values ourselves.
 		 */
-		mmc_card_set_blockaddr(card);
 
 		csd->tacc_ns	 = 0; /* Unused */
 		csd->tacc_clks	 = 0; /* Unused */
@@ -164,15 +156,12 @@ static int mmc_decode_csd(struct mmc_card *card)
 		csd->r2w_factor = 4; /* Unused */
 		csd->write_blkbits = 9;
 		csd->write_partial = 0;
-		csd->erase_size = 1;
 		break;
 	default:
 		printk(KERN_ERR "%s: unrecognised CSD structure version %d\n",
 			mmc_hostname(card->host), csd_struct);
 		return -EINVAL;
 	}
-
-	card->erase_size = csd->erase_size;
 
 	return 0;
 }
@@ -199,65 +188,7 @@ static int mmc_decode_scr(struct mmc_card *card)
 	scr->sda_vsn = UNSTUFF_BITS(resp, 56, 4);
 	scr->bus_widths = UNSTUFF_BITS(resp, 48, 4);
 
-	if (UNSTUFF_BITS(resp, 55, 1))
-		card->erased_byte = 0xFF;
-	else
-		card->erased_byte = 0x0;
-
 	return 0;
-}
-
-/*
- * Fetch and process SD Status register.
- */
-static int mmc_read_ssr(struct mmc_card *card)
-{
-	unsigned int au, es, et, eo;
-	int err, i;
-	u32 *ssr;
-
-	if (!(card->csd.cmdclass & CCC_APP_SPEC)) {
-		printk(KERN_WARNING "%s: card lacks mandatory SD Status "
-			"function.\n", mmc_hostname(card->host));
-		return 0;
-	}
-
-	ssr = kmalloc(64, GFP_KERNEL);
-	if (!ssr)
-		return -ENOMEM;
-
-	err = mmc_app_sd_status(card, ssr);
-	if (err) {
-		printk(KERN_WARNING "%s: problem reading SD Status "
-			"register.\n", mmc_hostname(card->host));
-		err = 0;
-		goto out;
-	}
-
-	for (i = 0; i < 16; i++)
-		ssr[i] = be32_to_cpu(ssr[i]);
-
-	/*
-	 * UNSTUFF_BITS only works with four u32s so we have to offset the
-	 * bitfield positions accordingly.
-	 */
-	au = UNSTUFF_BITS(ssr, 428 - 384, 4);
-	if (au > 0 || au <= 9) {
-		card->ssr.au = 1 << (au + 4);
-		es = UNSTUFF_BITS(ssr, 408 - 384, 16);
-		et = UNSTUFF_BITS(ssr, 402 - 384, 6);
-		eo = UNSTUFF_BITS(ssr, 400 - 384, 2);
-		if (es && et) {
-			card->ssr.erase_timeout = (et * 1000) / es;
-			card->ssr.erase_offset = eo * 1000;
-		}
-	} else {
-		printk(KERN_WARNING "%s: SD Status: Invalid Allocation Unit "
-			"size.\n", mmc_hostname(card->host));
-	}
-out:
-	kfree(ssr);
-	return err;
 }
 
 /*
@@ -289,11 +220,11 @@ static int mmc_read_switch(struct mmc_card *card)
 
 	err = mmc_sd_switch(card, 0, 0, 1, status);
 	if (err) {
-		/*
-		 * We all hosts that cannot perform the command
-		 * to fail more gracefully
-		 */
-		if (err != -EINVAL)
+		/* If the host or the card can't do the switch,
+		 * fail more gracefully. */
+		if ((err != -EINVAL)
+		 && (err != -ENOSYS)
+		 && (err != -EFAULT))
 			goto out;
 
 		printk(KERN_WARNING "%s: problem reading switch "
@@ -367,8 +298,6 @@ MMC_DEV_ATTR(csd, "%08x%08x%08x%08x\n", card->raw_csd[0], card->raw_csd[1],
 	card->raw_csd[2], card->raw_csd[3]);
 MMC_DEV_ATTR(scr, "%08x%08x\n", card->raw_scr[0], card->raw_scr[1]);
 MMC_DEV_ATTR(date, "%02d/%04d\n", card->cid.month, card->cid.year);
-MMC_DEV_ATTR(erase_size, "%u\n", card->erase_size << 9);
-MMC_DEV_ATTR(preferred_erase_size, "%u\n", card->pref_erase << 9);
 MMC_DEV_ATTR(fwrev, "0x%x\n", card->cid.fwrev);
 MMC_DEV_ATTR(hwrev, "0x%x\n", card->cid.hwrev);
 MMC_DEV_ATTR(manfid, "0x%06x\n", card->cid.manfid);
@@ -382,8 +311,6 @@ static struct attribute *sd_std_attrs[] = {
 	&dev_attr_csd.attr,
 	&dev_attr_scr.attr,
 	&dev_attr_date.attr,
-	&dev_attr_erase_size.attr,
-	&dev_attr_preferred_erase_size.attr,
 	&dev_attr_fwrev.attr,
 	&dev_attr_hwrev.attr,
 	&dev_attr_manfid.attr,
@@ -397,7 +324,7 @@ static struct attribute_group sd_std_attr_group = {
 	.attrs = sd_std_attrs,
 };
 
-static struct attribute_group *sd_attr_groups[] = {
+static const struct attribute_group *sd_attr_groups[] = {
 	&sd_std_attr_group,
 	NULL,
 };
@@ -419,6 +346,7 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	int err;
 	u32 cid[4];
 	unsigned int max_dtr;
+	u32 rocr;
 #ifdef CONFIG_MMC_PARANOID_SD_INIT
 	int retries;
 #endif
@@ -443,18 +371,9 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	if (!err)
 		ocr |= 1 << 30;
 
-	err = mmc_send_app_op_cond(host, ocr, NULL);
+	err = mmc_send_app_op_cond(host, ocr, &rocr);
 	if (err)
 		goto err;
-
-	/*
-	 * For SPI, enable CRC as appropriate.
-	 */
-	if (mmc_host_is_spi(host)) {
-		err = mmc_spi_set_crc(host, use_spi_crc);
-		if (err)
-			goto err;
-	}
 
 	/*
 	 * Fetch CID from card.
@@ -485,6 +404,11 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 
 		card->type = MMC_TYPE_SD;
 		memcpy(card->raw_cid, cid, sizeof(card->raw_cid));
+		/* Set the block addressing mode based on the
+		 * access mode bit in the OCR register */
+		if (rocr & MMC_CARD_ACCESS_MODE)
+			mmc_card_set_blockaddr(card);
+		host->card = card;
 	}
 
 	/*
@@ -534,16 +458,6 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		if (err < 0)
 			goto free_card;
 		/*
-		 * Fetch and process SD Status register.
-		 */
-		err = mmc_read_ssr(card);
-		if (err)
-			return err;
-
-		/* Erase init depends on CSD and SSR */
-		mmc_init_erase(card);
-
-		/*
 		 * Fetch switch information from card.
 		 */
 #ifdef CONFIG_MMC_PARANOID_SD_INIT
@@ -566,6 +480,18 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_read_switch(card);
 #endif
 
+		if (err)
+			goto free_card;
+	}
+
+	/*
+	 * For SPI, enable CRC as appropriate.
+	 * This CRC enable is located AFTER the reading of the
+	 * card registers because some SDHC cards are not able
+	 * to provide valid CRCs for non-512-byte blocks.
+	 */
+	if (mmc_host_is_spi(host)) {
+		err = mmc_spi_set_crc(host, use_spi_crc);
 		if (err)
 			goto free_card;
 	}
@@ -618,14 +544,12 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		}
 	}
 
-	if (!oldcard)
-		host->card = card;
-
 	return 0;
 
 free_card:
 	if (!oldcard)
 		mmc_remove_card(card);
+	host->card = NULL;
 err:
 
 	return err;
@@ -692,7 +616,7 @@ static void mmc_sd_detect(struct mmc_host *host)
 /*
  * Suspend callback from host.
  */
-static void mmc_sd_suspend(struct mmc_host *host)
+static int mmc_sd_suspend(struct mmc_host *host)
 {
 	BUG_ON(!host);
 	BUG_ON(!host->card);
@@ -702,6 +626,8 @@ static void mmc_sd_suspend(struct mmc_host *host)
 		mmc_deselect_cards(host);
 	host->card->state &= ~MMC_STATE_HIGHSPEED;
 	mmc_release_host(host);
+
+	return 0;
 }
 
 /*
@@ -710,7 +636,7 @@ static void mmc_sd_suspend(struct mmc_host *host)
  * This function tries to determine if the same card is still present
  * and, if so, restore all state to it.
  */
-static void mmc_sd_resume(struct mmc_host *host)
+static int mmc_sd_resume(struct mmc_host *host)
 {
 	int err;
 #ifdef CONFIG_MMC_PARANOID_SD_INIT
@@ -740,14 +666,15 @@ static void mmc_sd_resume(struct mmc_host *host)
 #endif
 	mmc_release_host(host);
 
-	if (err) {
-		mmc_sd_remove(host);
+	return err;
+}
 
-		mmc_claim_host(host);
-		mmc_detach_bus(host);
-		mmc_release_host(host);
-	}
-
+static void mmc_sd_power_restore(struct mmc_host *host)
+{
+	host->card->state &= ~MMC_STATE_HIGHSPEED;
+	mmc_claim_host(host);
+	mmc_sd_init_card(host, host->ocr, host->card);
+	mmc_release_host(host);
 }
 
 #ifdef CONFIG_MMC_UNSAFE_RESUME
@@ -757,6 +684,7 @@ static const struct mmc_bus_ops mmc_sd_ops = {
 	.detect = mmc_sd_detect,
 	.suspend = mmc_sd_suspend,
 	.resume = mmc_sd_resume,
+	.power_restore = mmc_sd_power_restore,
 };
 
 static void mmc_sd_attach_bus_ops(struct mmc_host *host)
@@ -771,6 +699,7 @@ static const struct mmc_bus_ops mmc_sd_ops = {
 	.detect = mmc_sd_detect,
 	.suspend = NULL,
 	.resume = NULL,
+	.power_restore = mmc_sd_power_restore,
 };
 
 static const struct mmc_bus_ops mmc_sd_ops_unsafe = {
@@ -778,6 +707,7 @@ static const struct mmc_bus_ops mmc_sd_ops_unsafe = {
 	.detect = mmc_sd_detect,
 	.suspend = mmc_sd_suspend,
 	.resume = mmc_sd_resume,
+	.power_restore = mmc_sd_power_restore,
 };
 
 static void mmc_sd_attach_bus_ops(struct mmc_host *host)

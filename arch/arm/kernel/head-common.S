@@ -13,6 +13,7 @@
 
 #define ATAG_CORE 0x54410001
 #define ATAG_CORE_SIZE ((2*4 + 3*4) >> 2)
+#define ATAG_CORE_SIZE_EMPTY ((2*4) >> 2)
 
 	.align	2
 	.type	__switch_data, %object
@@ -25,11 +26,7 @@ __switch_data:
 	.long	processor_id			@ r4
 	.long	__machine_arch_type		@ r5
 	.long	__atags_pointer			@ r6
-#ifdef CONFIG_CPU_CP15
 	.long	cr_alignment			@ r7
-#else
-	.long	0				@ r7
-#endif
 	.long	init_thread_union + THREAD_START_SP @ sp
 
 /*
@@ -46,7 +43,6 @@ __mmap_switched:
 
 	ldmia	r3!, {r4, r5, r6, r7}
 	cmp	r4, r5				@ Copy data segment if needed
-	itttt	ne
 1:	cmpne	r5, r6
 	ldrne	fp, [r4], #4
 	strne	fp, [r5], #4
@@ -54,7 +50,6 @@ __mmap_switched:
 
 	mov	fp, #0				@ Clear BSS (and zero fp)
 1:	cmp	r6, r7
-	itt	cc
 	strcc	fp, [r6],#4
 	bcc	1b
 
@@ -102,7 +97,7 @@ __error_a:
 	bl	printhex8
 	adr	r0, str_a2
 	bl	printascii
-	adr	r3, 3f
+	adr	r3, 4f
 	ldmia	r3, {r4, r5, r6}		@ get machine desc list
 	sub	r4, r3, r4			@ get offset between virt&phys
 	add	r5, r5, r4			@ convert virt addresses to
@@ -219,7 +214,6 @@ __lookup_machine_type:
 	sub	r3, r3, r4			@ get offset between virt&phys
 	add	r5, r5, r3			@ convert virt addresses to
 	add	r6, r6, r3			@ physical address space
-#ifndef CONFIG_NAKED_BOOT
 1:	ldr	r3, [r5, #MACHINFO_TYPE]	@ get machine type
 	teq	r3, r1				@ matches loader number?
 	beq	2f				@ found
@@ -228,10 +222,6 @@ __lookup_machine_type:
 	blo	1b
 	mov	r5, #0				@ unknown machine
 2:	mov	pc, lr
-#else
-	ldr	r1, [r5, #MACHINFO_TYPE]	@ force our only machine type
-	mov	pc, lr				@ and we're done
-#endif
 ENDPROC(__lookup_machine_type)
 
 /*
@@ -262,7 +252,8 @@ __vet_atags:
 	bne	1f
 
 	ldr	r5, [r2, #0]			@ is first tag ATAG_CORE?
-	subs	r5, r5, #ATAG_CORE_SIZE
+	cmp	r5, #ATAG_CORE_SIZE
+	cmpne	r5, #ATAG_CORE_SIZE_EMPTY
 	bne	1f
 	ldr	r5, [r2, #4]
 	ldr	r6, =ATAG_CORE

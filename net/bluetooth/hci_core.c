@@ -39,6 +39,7 @@
 #include <linux/skbuff.h>
 #include <linux/interrupt.h>
 #include <linux/notifier.h>
+#include <linux/rfkill.h>
 #include <net/sock.h>
 
 #include <asm/system.h>
@@ -476,6 +477,11 @@ int hci_dev_open(__u16 dev)
 
 	hci_req_lock(hdev);
 
+	if (hdev->rfkill && rfkill_blocked(hdev->rfkill)) {
+		ret = -ERFKILL;
+		goto done;
+	}
+
 	if (test_bit(HCI_UP, &hdev->flags)) {
 		ret = -EALREADY;
 		goto done;
@@ -813,6 +819,24 @@ int hci_get_dev_info(void __user *arg)
 
 /* ---- Interface to HCI drivers ---- */
 
+static int hci_rfkill_set_block(void *data, bool blocked)
+{
+	struct hci_dev *hdev = data;
+
+	BT_DBG("%p name %s blocked %d", hdev, hdev->name, blocked);
+
+	if (!blocked)
+		return 0;
+
+	hci_dev_do_close(hdev);
+
+	return 0;
+}
+
+static const struct rfkill_ops hci_rfkill_ops = {
+	.set_block = hci_rfkill_set_block,
+};
+
 /* Alloc HCI device */
 struct hci_dev *hci_alloc_dev(void)
 {
@@ -844,7 +868,8 @@ int hci_register_dev(struct hci_dev *hdev)
 	struct list_head *head = &hci_dev_list, *p;
 	int i, id = 0;
 
-	BT_DBG("%p name %s type %d owner %p", hdev, hdev->name, hdev->type, hdev->owner);
+	BT_DBG("%p name %s type %d owner %p", hdev, hdev->name,
+						hdev->type, hdev->owner);
 
 	if (!hdev->open || !hdev->close || !hdev->destruct)
 		return -EINVAL;
@@ -886,7 +911,7 @@ int hci_register_dev(struct hci_dev *hdev)
 		hdev->reassembly[i] = NULL;
 
 	init_waitqueue_head(&hdev->req_wait_q);
-	init_MUTEX(&hdev->req_lock);
+	mutex_init(&hdev->req_lock);
 
 	inquiry_cache_init(hdev);
 
@@ -899,6 +924,15 @@ int hci_register_dev(struct hci_dev *hdev)
 	write_unlock_bh(&hci_dev_list_lock);
 
 	hci_register_sysfs(hdev);
+
+	hdev->rfkill = rfkill_alloc(hdev->name, &hdev->dev,
+				RFKILL_TYPE_BLUETOOTH, &hci_rfkill_ops, hdev);
+	if (hdev->rfkill) {
+		if (rfkill_register(hdev->rfkill) < 0) {
+			rfkill_destroy(hdev->rfkill);
+			hdev->rfkill = NULL;
+		}
+	}
 
 	hci_notify(hdev, HCI_DEV_REG);
 
@@ -923,6 +957,11 @@ int hci_unregister_dev(struct hci_dev *hdev)
 		kfree_skb(hdev->reassembly[i]);
 
 	hci_notify(hdev, HCI_DEV_UNREG);
+
+	if (hdev->rfkill) {
+		rfkill_unregister(hdev->rfkill);
+		rfkill_destroy(hdev->rfkill);
+	}
 
 	hci_unregister_sysfs(hdev);
 
@@ -1125,6 +1164,9 @@ static int hci_send_frame(struct sk_buff *skb)
 	/* Get rid of skb owner, prior to sending to the driver. */
 	skb_orphan(skb);
 
+	/* Notify the registered devices about a new send */
+	hci_notify(hdev, HCI_DEV_WRITE);
+
 	return hdev->send(skb);
 }
 
@@ -1200,7 +1242,7 @@ int hci_send_acl(struct hci_conn *conn, struct sk_buff *skb, __u16 flags)
 
 	skb->dev = (void *) hdev;
 	bt_cb(skb)->pkt_type = HCI_ACLDATA_PKT;
-	hci_add_acl_hdr(skb, conn->handle, flags | ACL_START);
+	hci_add_acl_hdr(skb, conn->handle, flags);
 
 	if (!(list = skb_shinfo(skb)->frag_list)) {
 		/* Non fragmented */
@@ -1217,12 +1259,14 @@ int hci_send_acl(struct hci_conn *conn, struct sk_buff *skb, __u16 flags)
 		spin_lock_bh(&conn->data_q.lock);
 
 		__skb_queue_tail(&conn->data_q, skb);
+		flags &= ~ACL_PB_MASK;
+		flags |= ACL_CONT;
 		do {
 			skb = list; list = list->next;
 
 			skb->dev = (void *) hdev;
 			bt_cb(skb)->pkt_type = HCI_ACLDATA_PKT;
-			hci_add_acl_hdr(skb, conn->handle, flags | ACL_CONT);
+			hci_add_acl_hdr(skb, conn->handle, flags);
 
 			BT_DBG("%s frag %p len %d", hdev->name, skb, skb->len);
 

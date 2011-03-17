@@ -41,7 +41,7 @@ extern void show_ipi_list(struct seq_file *p);
 asmlinkage void do_IPI(struct pt_regs *regs);
 
 /*
- * Setup the SMP cpu_possible_map
+ * Setup the set of possible CPUs (via set_cpu_possible)
  */
 extern void smp_init_cpus(void);
 
@@ -53,17 +53,7 @@ extern void smp_store_cpu_info(unsigned int cpuid);
 /*
  * Raise an IPI cross call on CPUs in callmap.
  */
-extern void smp_cross_call(cpumask_t callmap);
-
-/*
- * Broadcast a timer interrupt to the other CPUs.
- */
-extern void smp_send_timer(void);
-
-/*
- * Broadcast a clock event to other CPUs.
- */
-extern void smp_timer_broadcast(cpumask_t mask);
+extern void smp_cross_call(const struct cpumask *mask);
 
 /*
  * Boot a secondary CPU, and assign it the specified idle task.
@@ -102,7 +92,7 @@ extern int platform_cpu_kill(unsigned int cpu);
 extern void platform_cpu_enable(unsigned int cpu);
 
 extern void arch_send_call_function_single_ipi(int cpu);
-extern void arch_send_call_function_ipi(cpumask_t mask);
+extern void arch_send_call_function_ipi_mask(const struct cpumask *mask);
 
 /*
  * show local interrupt info

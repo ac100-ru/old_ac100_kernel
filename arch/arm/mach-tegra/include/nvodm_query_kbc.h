@@ -60,14 +60,11 @@ typedef enum
 {
     NvOdmKbcParameter_NumOfRows=1,
     NvOdmKbcParameter_NumOfColumns,
-
-    /* The debaunce time in terms of number of clocks. Clock frequency is
-     * 32 KHz */
     NvOdmKbcParameter_DebounceTime,
-
-    /* The repeat cycle in milliseconds. The next scan start after waiting
-     * of repeat cycle time */
     NvOdmKbcParameter_RepeatCycleTime,
+    /* Amount of time in MilliSecond to continue the scanning of key
+     * once key is pressed. */
+    NvOdmKbcParameter_KeyScanTimeout,
     NvOdmKbcParameter_Force32 = 0x7FFFFFFF
 } NvOdmKbcParameter;
 

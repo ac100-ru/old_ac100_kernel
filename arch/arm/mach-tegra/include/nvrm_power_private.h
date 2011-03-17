@@ -104,6 +104,66 @@ typedef enum
 } NvRmPmRequest;
 
 /**
+ * Defines RM power manager policies for turning CPU power Off
+ * when it is idle (LP2 state)
+ */
+typedef enum
+{
+    // LP2 entry is disabled
+    NvRmLp2Policy_Disabled = 0,
+
+    // LP2 is entered and DVFS tick interrupt is masked only when DVFS
+    // is in low corner
+    NvRmLp2Policy_EnterInLowCorner,
+
+    // LP2 is entered independently of DVFS low corner, but DVFS tick
+    // interrupt is masked only in low corner
+    NvRmLp2Policy_MaskInLowCorner,
+
+    // LP2 is entered and DVFS tick interrupt is masked independently
+    // of DVFS low corner
+    NvRmLp2Policy_IgnoreLowCorner,
+
+    NvRmLp2Policy_Num,
+    NvRmLp2Policy_Force32 = 0x7FFFFFFF
+} NvRmLp2Policy;
+
+#ifdef CONFIG_TEGRA_LP2POLICY_DISABLED
+#define NVRM_DEFAULT_LP2POLICY (NvRmLp2Policy_Disabled)
+#endif
+
+#ifdef CONFIG_TEGRA_LP2POLICY_ENTER_IN_LC
+#define NVRM_DEFAULT_LP2POLICY (NvRmLp2Policy_EnterInLowCorner)
+#endif
+
+#ifdef CONFIG_TEGRA_LP2POLICY_PERSIST_IN_LC
+#define NVRM_DEFAULT_LP2POLICY (NvRmLp2Policy_MaskInLowCorner)
+#endif
+
+#ifdef CONFIG_TEGRA_LP2POLICY_IGNORE_LC
+#define NVRM_DEFAULT_LP2POLICY (NvRmLp2Policy_IgnoreLowCorner)
+#endif
+
+#ifndef NVRM_DEFAULT_LP2POLICY
+#define NVRM_DEFAULT_LP2POLICY (NvRmLp2Policy_IgnoreLowCorner)
+#endif
+
+extern NvRmLp2Policy g_Lp2Policy;
+
+/**
+ * Gets lowest power state, taking into the account run-time core lock.
+ */
+extern bool core_lock_on;
+static inline NvOdmSocPowerState NvRmPowerLowestStateGet(void)
+{
+    NvOdmSocPowerState state =
+        NvOdmQueryLowestSocPowerState()->LowestPowerState;
+    if ((state == NvOdmSocPowerState_DeepSleep) && core_lock_on)
+        state = NvOdmSocPowerState_Suspend;
+    return state;
+}
+
+/**
  * NVRM PM function called within OS shim high priority thread
  */
 NvRmPmRequest NvRmPrivPmThread(void);
@@ -417,6 +477,18 @@ void NvRmPrivPowerGroupSuspend(NvRmDeviceHandle hRmDeviceHandle);
 void NvRmPrivPowerGroupResume(NvRmDeviceHandle hRmDeviceHandle);
 
 /**
+ * Configures PMU on entry/exit to/from low power state.
+ *
+ * @param hRmDevice The RM device handle
+ * @param state - Low Power state the SoC is entering to, or exiting from
+ * @param enter - Set NV_TRUE on entry, and NV_FALSE on exit
+ */
+void NvRmPrivPmuLPxStateConfig(
+    NvRmDeviceHandle hRmDevice,
+    NvOdmSocPowerState state,
+    NvBool enter);
+
+/**
  * Controls power state and clamping for PCIEXCLK/PLLE (chip-specific).
  *
  * @param hRmDevice The RM device handle.
@@ -502,6 +574,7 @@ void NvRmPrivDfsResync(void);
  *
  */
 void NvRmPrivDfsSuspend(NvOdmSocPowerState state);
+void NvRmPrivDfsResume(void);
 
 /**
  * Restore clock sources after exit from low power state.

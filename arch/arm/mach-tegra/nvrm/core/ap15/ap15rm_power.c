@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2009 NVIDIA Corporation.
+ * Copyright (c) 2007-2010 NVIDIA Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -66,14 +66,13 @@
 /*****************************************************************************/
 /*****************************************************************************/
 
-#define NV_POWER_GATE_TD    (1)
+#define NV_POWER_GATE_TD    (0)
 #define NV_POWER_GATE_PCIE  (1)
 //  TODO: check VDE/BSEV/NSEA voltage control calls before enabling
 #define NV_POWER_GATE_VDE   (0)
 //  TODO: check MPE voltage control calls before enabling
 #define NV_POWER_GATE_MPE   (0)
 
-#define NV_TD_PWRGATE_WORKAROUND_688639 1
 // Power Group -to- Power Gating Ids mapping
 static const NvU32* s_PowerGroupIds = NULL;
 static NvBool s_UngateOnResume[NV_POWERGROUP_MAX] = {0};
@@ -113,7 +112,6 @@ static NvBool IsSuspendPowerGateForced(NvU32 PowerGroup)
     // now check s/w support
     switch (PowerGroup)
     {
-        case NV_POWERGROUP_TD:
         case NV_POWERGROUP_PCIE:
         case NV_POWERGROUP_VDE:
         case NV_POWERGROUP_VE:
@@ -226,14 +224,6 @@ PowerGroupPowerControl(
     if (Enable == (Status != 0x0))
         return;
 
-#if NV_TD_PWRGATE_WORKAROUND_688639
-    //Don't turn off the TD partition.
-    //Turning it on is ok.
-    if (PowerGroup == NV_POWERGROUP_TD && !Enable)
-    {
-        return;
-    }
-#endif
     /*
      * Gating procedure:
      * - assert resets to all modules in power group
@@ -245,8 +235,8 @@ PowerGroupPowerControl(
      * - enable clocks to all modules in power group
      * - reset propagation delay
      * - remove clamping
-     * - de-assert reset to all modules in power group
      * - disable clocks to all modules in power group
+     * - de-assert reset to all modules in power group
      *
      * Special note on toggle timers( shared with OAL which does CPU power
      * gating): per convention with OAL default settings are never changed.
@@ -284,8 +274,8 @@ PowerGroupPowerControl(
             if (reg == 0)
                 break;
         }
-        PowerGroupResetControl(hRmDeviceHandle, PowerGroup, NV_FALSE);
         PowerGroupClockControl(hRmDeviceHandle, PowerGroup, NV_FALSE);
+        PowerGroupResetControl(hRmDeviceHandle, PowerGroup, NV_FALSE);
     }
 }
 
@@ -494,7 +484,7 @@ void NvRmPrivIoPowerDetectStart(
     if ((hRmDeviceHandle->ChipId.Id == 0x15) ||
         (hRmDeviceHandle->ChipId.Id == 0x16))
     {
-        // On AP15/AP16 set/clear reset bit in PMC scratch0 
+        // On AP15/AP16 set/clear reset bit in PMC scratch0
         NvRmPrivAp15IoPowerDetectReset(hRmDeviceHandle);
 
         // For AP15 A01 chip the above reset does nothing, therefore
@@ -667,6 +657,3 @@ void NvRmPrivCoreVoltageInit(NvRmDeviceHandle hRmDevice)
     if (NvOdmPeripheralGetGuid(NV_VDD_DDR_RX_ODM_ID))
         NvRmPrivPmuRailControl(hRmDevice, NV_VDD_DDR_RX_ODM_ID, NV_TRUE);
 }
-
-/*****************************************************************************/
-

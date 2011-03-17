@@ -25,14 +25,12 @@ struct mmc_cid {
 };
 
 struct mmc_csd {
-	unsigned char		structure;
 	unsigned char		mmca_vsn;
 	unsigned short		cmdclass;
 	unsigned short		tacc_clks;
 	unsigned int		tacc_ns;
 	unsigned int		r2w_factor;
 	unsigned int		max_dtr;
-	unsigned int		erase_size;		/* In sectors */
 	unsigned int		read_blkbits;
 	unsigned int		write_blkbits;
 	unsigned int		capacity;
@@ -44,16 +42,9 @@ struct mmc_csd {
 
 struct mmc_ext_csd {
 	u8			rev;
-	u8			erase_group_def;
-	u8			sec_feature_support;
 	unsigned int		sa_timeout;		/* Units: 100ns */
 	unsigned int		hs_max_dtr;
 	unsigned int		sectors;
-	unsigned int		hc_erase_size;		/* In sectors */
-	unsigned int		hc_erase_timeout;	/* In milliseconds */
-	unsigned int		sec_trim_mult;	/* Secure trim multiplier  */
-	unsigned int		sec_erase_mult;	/* Secure erase multiplier */
-	unsigned int		trim_timeout;		/* In milliseconds */
 };
 
 struct sd_scr {
@@ -61,12 +52,6 @@ struct sd_scr {
 	unsigned char		bus_widths;
 #define SD_SCR_BUS_WIDTH_1	(1<<0)
 #define SD_SCR_BUS_WIDTH_4	(1<<2)
-};
-
-struct sd_ssr {
-	unsigned int		au;			/* In sectors */
-	unsigned int		erase_timeout;		/* In milliseconds */
-	unsigned int		erase_offset;		/* In milliseconds */
 };
 
 struct sd_switch_caps {
@@ -80,7 +65,8 @@ struct sdio_cccr {
 				low_speed:1,
 				wide_bus:1,
 				high_power:1,
-				high_speed:1;
+				high_speed:1,
+				disable_cd:1;
 };
 
 struct sdio_cis {
@@ -112,11 +98,8 @@ struct mmc_card {
 #define MMC_STATE_READONLY	(1<<1)		/* card is read-only */
 #define MMC_STATE_HIGHSPEED	(1<<2)		/* card is in high speed mode */
 #define MMC_STATE_BLOCKADDR	(1<<3)		/* card uses block-addressing */
-
-	unsigned int		erase_size;	/* erase size in sectors */
- 	unsigned int		erase_shift;	/* if erase unit is power 2 */
- 	unsigned int		pref_erase;	/* in sectors */
- 	u8			erased_byte;	/* value of erased bytes */
+	unsigned int		quirks; 	/* card quirks */
+#define MMC_QUIRK_LENIENT_FN0	(1<<0)		/* allow SDIO FN0 writes outside of the VS CCCR range */
 
 	u32			raw_cid[4];	/* raw card CID */
 	u32			raw_csd[4];	/* raw card CSD */
@@ -125,7 +108,6 @@ struct mmc_card {
 	struct mmc_csd		csd;		/* card specific */
 	struct mmc_ext_csd	ext_csd;	/* mmc v4 extended card specific */
 	struct sd_scr		scr;		/* extra SD information */
-	struct sd_ssr		ssr;		/* yet more SD information */
 	struct sd_switch_caps	sw_caps;	/* switch (CMD6) caps */
 
 	unsigned int		sdio_funcs;	/* number of SDIO functions */
@@ -153,6 +135,11 @@ struct mmc_card {
 #define mmc_card_set_readonly(c) ((c)->state |= MMC_STATE_READONLY)
 #define mmc_card_set_highspeed(c) ((c)->state |= MMC_STATE_HIGHSPEED)
 #define mmc_card_set_blockaddr(c) ((c)->state |= MMC_STATE_BLOCKADDR)
+
+static inline int mmc_card_lenient_fn0(const struct mmc_card *c)
+{
+	return c->quirks & MMC_QUIRK_LENIENT_FN0;
+}
 
 #define mmc_card_name(c)	((c)->cid.prod_name)
 #define mmc_card_id(c)		(dev_name(&(c)->dev))

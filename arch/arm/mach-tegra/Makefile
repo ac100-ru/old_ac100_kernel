@@ -1,82 +1,58 @@
-ccflags-y += -DNV_IS_AVP=0
-ccflags-y += -DNV_OAL=0
-ccflags-y += -DNV_USE_FUSE_CLOCK_ENABLE=0
-ifeq ($(CONFIG_MACH_TEGRA_GENERIC_DEBUG),y)
-ccflags-y += -DNV_DEBUG=1
-else
-ccflags-y += -DNV_DEBUG=0
+obj-y                                   += common.o
+obj-$(CONFIG_ARCH_TEGRA_2x_SOC)         += common-t2.o
+obj-y					+= cortex-a9.o
+obj-y					+= board-common.o
+obj-y                                   += io.o
+obj-y                                   += irq.o
+ifneq ($(CONFIG_TEGRA_NVRM),y)
+obj-y                                   += clock.o
+obj-$(CONFIG_ARCH_TEGRA_2x_SOC)         += tegra2_clocks.o
 endif
-ccflags-y += -Iarch/arm/mach-tegra/nvrm/core/common
-
-# Mandatory components
-obj-y					+= clock.o
-obj-y					+= io.o
-obj-y					+= irq.o
-obj-y					+= gpio.o
-obj-y					+= pinmux-t2-tables.o
+obj-y                                   += timer.o
+obj-y                                   += gpio.o
+obj-y					+= suspend.o
+obj-$(CONFIG_ARCH_TEGRA_2x_SOC)		+= suspend-t2.o
 obj-y					+= pinmux.o
-obj-y					+= timer.o
-obj-y					+= tegra_sysmap.o
-obj-y					+= sysfs-fuse.o
-
-# IOVMM support
-obj-$(CONFIG_TEGRA_IOVMM_GART)		+= iovmm-gart.o
-obj-$(CONFIG_TEGRA_IOVMM)		+= iovmm.o
-
-# Tegra suspend operation
-obj-$(CONFIG_PM)		+= suspend_ops.o
-
-# Export symbols used by loadable modules
-obj-y					+= tegra_exports.o
-
-# Linux CPU frequency scaling interface
+obj-$(CONFIG_ARCH_TEGRA_2x_SOC)		+= pinmux-t2-tables.o
+obj-y                                   += delay.o
+ifeq ($(CONFIG_SMP),y)
+obj-y					+= platsmp.o localtimer.o headsmp.o
+obj-$(CONFIG_ARCH_TEGRA_2x_SOC)		+= headsmp-t2.o
+endif
+obj-$(CONFIG_ARCH_TEGRA_2x_SOC)		+= tegra2_save.o
+obj-$(CONFIG_ARCH_TEGRA_2x_SOC)		+= fuse-cache.o
+obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= board-generic.o
 obj-$(CONFIG_CPU_FREQ)			+= cpufreq.o
 obj-$(CONFIG_CPU_IDLE)			+= cpuidle.o
-
-# Dynamic voltage and frequency scaling support
-obj-$(CONFIG_ARCH_TEGRA_2x_SOC)		+= idle-t2.o
-obj-$(CONFIG_ARCH_TEGRA_1x_SOC)		+= idle-t1.o
-
-# SMP
-obj-$(CONFIG_SMP)			+= headsmp.o
-obj-$(CONFIG_SMP)			+= platsmp.o
-
-obj-$(CONFIG_LOCAL_TIMERS)		+= localtimer.o
-
-obj-$(CONFIG_ARCH_TEGRA_2x_SOC)		+= power-t2.o
-obj-$(CONFIG_ARCH_TEGRA_2x_SOC)		+= power-context-t2.o
-obj-$(CONFIG_ARCH_TEGRA_2x_SOC)		+= power-lp.o
-
-# System DMA
+obj-$(CONFIG_TEGRA_IOVMM)		+= iovmm.o
+obj-$(CONFIG_TEGRA_IOVMM_GART)		+= iovmm-gart.o
 obj-$(CONFIG_TEGRA_SYSTEM_DMA)		+= dma.o
+obj-$(CONFIG_TEGRA_PCI)			+= pci.o
+obj-$(CONFIG_TEGRA_PCI)			+= pci-enum.o
 
-# NvOs / NvRm-based kernel implementation
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= nvddk/
-# NvOs / NvRm-based kernel implementation
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= nvrm/
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= nvreftrack/
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= nvos/
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= nvodm/
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= odm_kit/
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= nvos_user.o
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= nvrm_user.o
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= nvrpc_user.o
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= init_common.o
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= board_nvodm.o
-obj-$(CONFIG_MACH_TEGRA_GENERIC)	+= odm_to_plat.o
 
-# Misc drivers
-obj-$(CONFIG_TEGRA_ODM_RFKILL)		+= tegra_rfkill_odm.o
-obj-$(CONFIG_TEGRA_ODM_VIBRATE)		+= tegra_vibrate.o
+ccflags-$(CONFIG_TEGRA_NVOS)		+= -DNV_DEBUG=0
+ccflags-$(CONFIG_TEGRA_NVOS)		+= -DNV_OAL=0
+ccflags-$(CONFIG_TEGRA_NVOS)		+= -DNV_IS_AVP=0
+ccflags-$(CONFIG_TEGRA_NVOS)		+= -DNV_USE_FUSE_CLOCK_ENABLE=0
+obj-$(CONFIG_TEGRA_NVOS)		+= nvos_user.o
+obj-$(CONFIG_TEGRA_NVOS)		+= nvos/
 
-# NvEc
-obj-$(CONFIG_TEGRA_NVEC)			+= nvec/
-obj-$(CONFIG_TEGRA_NVEC_USER)		+= nvec_user.o
+obj-$(CONFIG_TEGRA_NVRM)		+= board-nvodm.o
+obj-$(CONFIG_TEGRA_NVRM)		+= nvrm/
+obj-$(CONFIG_TEGRA_NVRM)		+= nvodm/
+obj-$(CONFIG_TEGRA_NVRM)		+= odm_kit/
+obj-$(CONFIG_TEGRA_NVRM)		+= nvreftrack/
+obj-$(CONFIG_TEGRA_NVRM)		+= nvrm_user.o
+obj-$(CONFIG_TEGRA_NVRM)		+= clock_nvrm.o
+obj-$(CONFIG_TEGRA_NVRM)		+= nvrpc_user.o
+obj-$(CONFIG_TEGRA_NVRM)		+= tegra_exports.o
+obj-y					+= nvddk/
 
-# PCIe support
-obj-$(CONFIG_TEGRA_PCI)				+= pci.o
-obj-$(CONFIG_TEGRA_PCI)				+= pci-enum.o
+obj-$(CONFIG_TEGRA_NVEC)		+= nvec_user.o
+obj-$(CONFIG_TEGRA_NVEC)		+= nvec/
 
-# AES
+obj-$(CONFIG_TEGRA_FUSE)		+= sysfs-fuse.o
+obj-$(CONFIG_TEGRA_ODM_VIBRATE)		+= vibrate.o
 obj-$(CONFIG_TEGRA_AES_USER)		+= nvaes_user.o
-
+obj-$(CONFIG_MACH_VENTANA)		+= board-ventana-wifi.o

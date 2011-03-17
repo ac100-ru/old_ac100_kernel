@@ -12,7 +12,7 @@ config W1_MASTER_MATROX
 	  using Matrox's G400 GPIO pins.
 
 	  This support is also available as a module.  If so, the module
-	  will be called matrox_w1.ko.
+	  will be called matrox_w1.
 
 config W1_MASTER_DS2490
 	tristate "DS2490 USB <-> W1 transport layer for 1-wire"
@@ -22,7 +22,7 @@ config W1_MASTER_DS2490
 	  for example DS9490*.
 
   	  This support is also available as a module.  If so, the module
-	  will be called ds2490.ko.
+	  will be called ds2490.
 
 config W1_MASTER_DS2482
 	tristate "Maxim DS2482 I2C to 1-Wire bridge"
@@ -40,13 +40,6 @@ config W1_MASTER_MXC
 	help
 	  Say Y here to enable MXC 1-wire host
 
-config W1_MASTER_TEGRA
-	boolean "NVIDIA Tegra internal 1-wire controller"
-	depends on W1 && ARCH_TEGRA
-	help
-	  If you say yes to this option, support will be included for the
-          1-wire controller embedded in NVIDIA Tegra SOCs
-
 config W1_MASTER_DS1WM
 	tristate "Maxim DS1WM 1-wire busmaster"
 	depends on W1 && ARM && HAVE_CLK
@@ -54,6 +47,13 @@ config W1_MASTER_DS1WM
 	  Say Y here to enable the DS1WM 1-wire driver, such as that
 	  in HP iPAQ devices like h5xxx, h2200, and ASIC3-based like
 	  hx4700.
+
+config W1_MASTER_TEGRA
+	boolean "NVIDIA Tegra internal 1-wire controller"
+	depends on W1 && ARCH_TEGRA && TEGRA_NVRM
+	help
+	  If you say yes to this option, support will be included for the
+	  1-wire controller embedded in NVIDIA Tegra SOCs
 
 config W1_MASTER_GPIO
 	tristate "GPIO 1-wire busmaster"
@@ -63,7 +63,7 @@ config W1_MASTER_GPIO
 	  GPIO pins. This driver uses the GPIO API to control the wire.
 
 	  This support is also available as a module.  If so, the module
-	  will be called w1-gpio.ko.
+	  will be called w1-gpio.
 
 config HDQ_MASTER_OMAP
 	tristate "OMAP HDQ driver"

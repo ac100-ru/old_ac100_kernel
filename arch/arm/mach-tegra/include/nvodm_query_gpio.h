@@ -53,13 +53,6 @@ extern "C"
 {
 #endif
 
-
-// Robert 2010/03/19 --- define PVT, DVT and EVT hardware layout
-#define	PVT_HARDWARE_LAYOUT
-//#define	DVT_HARDWARE_LAYOUT
-//#define	EVT_HARDWARE_LAYOUT
-
-
 /**
  * Defines GPIO pin groups.
  */
@@ -152,7 +145,7 @@ typedef enum
     NvOdmGpioPinGroup_Power,
 
     /// Specifies a group for keys used to resume from EC keyboard.
-    NvOdmGpioPinGroup_WakeFromECKeyboard,
+    NvOdmGpioPinGroup_EmbeddedController,
 
     /// Specifies a group for Battery
     NvOdmGpioPinGroup_Battery,
@@ -339,6 +332,18 @@ typedef enum
 } NvOdmGpioPinActiveState;
 
 /**
+ * Holds the GPIO key information.
+ */
+typedef struct  NvOdmGpioPinKeyInfo_t {
+    /// Holds the code of the gpio if used as keys.
+    NvU32 Code;
+    /// Holds the debounce time in ms to stablize the gpio pins state.
+    NvU32 DebounceTimeMs;
+    /// Holds the wakeup state.
+    NvBool Wakeup;
+} NvOdmGpioPinKeyInfo;
+
+/**
  * Holds the GPIO pin information.
  */
 typedef struct  NvOdmGpioPinInfo_t {
@@ -350,6 +355,10 @@ typedef struct  NvOdmGpioPinInfo_t {
     /// state is defined by each pin. For example, for a USB cable connect virtual pin,
     /// the active state is when the cable is connected.
     NvOdmGpioPinActiveState activeState;
+
+    /// Holds the gpio pin specific data;
+    void *GpioPinSpecificData;
+
 } NvOdmGpioPinInfo;
 
 #define NVODM_GPIO_INVALID_PORT 0xFF

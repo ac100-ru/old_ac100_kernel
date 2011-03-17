@@ -49,6 +49,33 @@
 1002:
 		.endm
 
+#elif defined(CONFIG_CPU_XSCALE)
+
+		.macro	addruart, rx
+		.endm
+
+		.macro	senduart, rd, rx
+		mcr	p14, 0, \rd, c8, c0, 0
+		.endm
+
+		.macro	busyuart, rd, rx
+1001:
+		mrc	p14, 0, \rx, c14, c0, 0
+		tst	\rx, #0x10000000
+		beq	1001b
+		.endm
+
+		.macro	waituart, rd, rx
+		mov	\rd, #0x10000000
+1001:
+		subs	\rd, \rd, #1
+		bmi	1002f
+		mrc	p14, 0, \rx, c14, c0, 0
+		tst	\rx, #0x10000000
+		bne	1001b
+1002:
+		.endm
+
 #else
 
 		.macro	addruart, rx
@@ -105,7 +132,6 @@ printhex:	adr	r2, hexbuf
 1:		and	r1, r0, #15
 		mov	r0, r0, lsr #4
 		cmp	r1, #10
-		ite	lt
 		addlt	r1, r1, #'0'
 		addge	r1, r1, #'a' - 10
 		strb	r1, [r3, #-1]!
@@ -124,11 +150,9 @@ ENTRY(printascii)
 		senduart r1, r3
 		busyuart r2, r3
 		teq	r1, #'\n'
-		itt	eq
 		moveq	r1, #'\r'
 		beq	1b
 2:		teq	r0, #0
-		itt	ne
 		ldrneb	r1, [r0], #1
 		teqne	r1, #0
 		bne	1b

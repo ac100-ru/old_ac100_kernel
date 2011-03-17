@@ -42,8 +42,6 @@
 		    : "cc");						\
 		__val;							\
 	})
-#elif defined(CONFIG_CPU_V7M)
-#define read_cpuid(reg) (*(unsigned int *)0xe000ed00)
 #else
 extern unsigned int processor_id;
 #define read_cpuid(reg) (processor_id)
@@ -65,6 +63,11 @@ static inline unsigned int __attribute_const__ read_cpuid_cachetype(void)
 	return read_cpuid(CPUID_CACHETYPE);
 }
 
+static inline unsigned int __attribute_const__ read_cpuid_tcmstatus(void)
+{
+	return read_cpuid(CPUID_TCM);
+}
+
 /*
  * Intel's XScale3 core supports some v6 features (supersections, L2)
  * but advertises itself as v5 as it does not support the v6 ISA.  For
@@ -75,7 +78,10 @@ static inline unsigned int __attribute_const__ read_cpuid_cachetype(void)
 #else
 static inline int cpu_is_xsc3(void)
 {
-	if ((read_cpuid_id() & 0xffffe000) == 0x69056000)
+	unsigned int id;
+	id = read_cpuid_id() & 0xffffe000;
+	/* It covers both Intel ID and Marvell ID */
+	if ((id == 0x69056000) || (id == 0x56056000))
 		return 1;
 
 	return 0;

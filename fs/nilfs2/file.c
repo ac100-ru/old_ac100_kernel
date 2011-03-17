@@ -52,8 +52,9 @@ int nilfs_sync_file(struct file *file, struct dentry *dentry, int datasync)
 	return err;
 }
 
-static int nilfs_page_mkwrite(struct vm_area_struct *vma, struct page *page)
+static int nilfs_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
+	struct page *page = vmf->page;
 	struct inode *inode = vma->vm_file->f_dentry->d_inode;
 	struct nilfs_transaction_info ti;
 	int ret;
@@ -103,7 +104,7 @@ static int nilfs_page_mkwrite(struct vm_area_struct *vma, struct page *page)
 	if (unlikely(ret))
 		return VM_FAULT_SIGBUS;
 
-	ret = block_page_mkwrite(vma, page, nilfs_get_block);
+	ret = block_page_mkwrite(vma, vmf, nilfs_get_block);
 	if (unlikely(ret)) {
 		nilfs_transaction_abort(inode->i_sb);
 		return ret;

@@ -50,26 +50,29 @@ static void flush_context(void)
 
 static void set_mm_context(struct mm_struct *mm, unsigned int asid)
 {
+	unsigned long flags;
+
 	/*
 	 * Locking needed for multi-threaded applications where the
 	 * same mm->context.id could be set from different CPUs during
-	 * the broadcast.
+	 * the broadcast. This function is also called via IPI so the
+	 * mm->context.id_lock has to be IRQ-safe.
 	 */
-	spin_lock(&mm->context.id_lock);
+	spin_lock_irqsave(&mm->context.id_lock, flags);
 	if (likely((mm->context.id ^ cpu_last_asid) >> ASID_BITS)) {
 		/*
 		 * Old version of ASID found. Set the new one and
-		 * reset mm->cpu_vm_mask.
+		 * reset mm_cpumask(mm).
 		 */
 		mm->context.id = asid;
-		cpus_clear(mm->cpu_vm_mask);
+		cpumask_clear(mm_cpumask(mm));
 	}
-	spin_unlock(&mm->context.id_lock);
+	spin_unlock_irqrestore(&mm->context.id_lock, flags);
 
 	/*
-	 * Set the cpu_vm_mask bit for the current CPU.
+	 * Set the mm_cpumask(mm) bit for the current CPU.
 	 */
-	cpu_set(smp_processor_id(), mm->cpu_vm_mask);
+	cpumask_set_cpu(smp_processor_id(), mm_cpumask(mm));
 }
 
 /*
@@ -97,6 +100,7 @@ static void reset_context(void *info)
 
 	/* set the new ASID */
 	asm("mcr	p15, 0, %0, c13, c0, 1\n" : : "r" (mm->context.id));
+	isb();
 }
 
 #else
@@ -104,7 +108,7 @@ static void reset_context(void *info)
 static inline void set_mm_context(struct mm_struct *mm, unsigned int asid)
 {
 	mm->context.id = asid;
-	mm->cpu_vm_mask = cpumask_of_cpu(smp_processor_id());
+	cpumask_copy(mm_cpumask(mm), cpumask_of(smp_processor_id()));
 }
 
 #endif
@@ -120,7 +124,7 @@ void __new_context(struct mm_struct *mm)
 	 * another CPU before we acquired the lock.
 	 */
 	if (unlikely(((mm->context.id ^ cpu_last_asid) >> ASID_BITS) == 0)) {
-		cpu_set(smp_processor_id(), mm->cpu_vm_mask);
+		cpumask_set_cpu(smp_processor_id(), mm_cpumask(mm));
 		spin_unlock(&cpu_asid_lock);
 		return;
 	}

@@ -41,7 +41,7 @@
 
 /* This defines the manufacturer name and model name length */
 #define BATTERY_INFO_NAME_LEN 30
-
+#define BATTERY_RETRY_TIMES 10
 #define NVBATTERY_POLLING_INTERVAL 30000 /* 30 Seconds */
 
 typedef enum
@@ -233,6 +233,10 @@ void NvBatteryEventHandlerThread(void *args)
 
 //Henry add report AC plug in/out event interface
 void report_AC_change(void){
+    if(batt_dev==NULL){
+	   pr_info("\tBATTERY: battery no ready!\n");
+      return;
+    }
 	power_supply_changed(&tegra_power_supplies[NvCharger_Type_Battery]);
 	power_supply_changed(&tegra_power_supplies[NvCharger_Type_AC]);
 }
@@ -552,7 +556,7 @@ static int nvec_battery_probe(struct nvec_device *pdev)
 		pr_err("NvOsSemaphoreCreate Failed!\n");
 		goto Cleanup;
 	}
-
+/*Henry++ adjust thread to be createn at last
 	batt_dev->exitThread = NV_FALSE;
 	batt_dev->inSuspend  = NV_FALSE;
 	ErrorStatus = NvOsThreadCreate(NvBatteryEventHandlerThread,
@@ -562,13 +566,26 @@ static int nvec_battery_probe(struct nvec_device *pdev)
 		pr_err("NvOsThreadCreate FAILED\n");
 		goto Cleanup;
 	}
+*/
 
+//Henry add retry when fail ****
+for(i=0;i<BATTERY_RETRY_TIMES;i++){
 	result = NvOdmBatteryDeviceOpen(&(batt_dev->hOdmBattDev),
 		(NvOdmOsSemaphoreHandle *)&batt_dev->hOdmSemaphore);
 	if (!result || !batt_dev->hOdmBattDev) {
-		pr_err("NvOdmBatteryDeviceOpen FAILED\n");
-		goto Cleanup;
+		pr_err("NvOdmBatteryDeviceOpen FAILED,retry i=%i\n",i);
+		NvOsWaitUS(10000);
+		continue;
 	}
+	else{
+		break;
+	}
+}
+if(i==BATTERY_RETRY_TIMES){
+	pr_err("NvOdmBatteryDeviceOpen FAILED\n");	
+	goto Cleanup;
+}
+//******************************
     
 	for (i = 0; i < ARRAY_SIZE(tegra_power_supplies); i++) {
 		if (power_supply_register(&pdev->dev, &tegra_power_supplies[i]))
@@ -584,6 +601,17 @@ static int nvec_battery_probe(struct nvec_device *pdev)
 		}
 
 		pr_err("nvec_battery_probe:device_create_file FAILED");
+		goto Cleanup;
+	}
+
+//Henry++ adjust thread to be createn at last
+	batt_dev->exitThread = NV_FALSE;
+	batt_dev->inSuspend  = NV_FALSE;
+	ErrorStatus = NvOsThreadCreate(NvBatteryEventHandlerThread,
+					batt_dev,
+					&(batt_dev->hBattEventThread));
+	if (NvSuccess != ErrorStatus) {
+		pr_err("NvOsThreadCreate FAILED\n");
 		goto Cleanup;
 	}
 
@@ -613,7 +641,8 @@ Cleanup:
 
 	kfree(batt_dev);
 	batt_dev = NULL;
-	return -1;
+	//return -1;
+   return 0;  //henry++ workaround system can't enter suspend
 }
 
 static void nvec_battery_remove(struct nvec_device *pdev)
@@ -667,6 +696,11 @@ static int nvec_battery_resume(struct nvec_device *dev)
 
 static void nvec_battery_early_suspend(struct early_suspend *h)
 {
+    if(batt_dev==NULL){
+      pr_info("\tBATTERY: battery no ready!\n");
+      return;
+    }
+
 	pr_info("\tBATTERY: stop battery query during suspend --->>>\n");
 	/* stop query Battery */
     NvOsMutexLock(batt_dev->hBattEventMutex);
@@ -676,6 +710,11 @@ static void nvec_battery_early_suspend(struct early_suspend *h)
 
 static void nvec_battery_late_resume(struct early_suspend *h)
 {
+    if(batt_dev==NULL){
+      pr_info("\tBATTERY: battery no ready!\n");
+      return;
+    }
+
 	pr_info("\tBATTERY: start battery query after resume --->>>\n");
 	/* start query Battery */
     NvOsMutexLock(batt_dev->hBattEventMutex);
@@ -696,12 +735,10 @@ static struct nvec_device nvec_battery_device = {
 	.driver	= &nvec_battery_driver,
 };
 
-#ifdef CONFIG_WAKELOCK
 static struct early_suspend nvec_battery_early_suspend_handler = {
     .suspend = nvec_battery_early_suspend,
     .resume = nvec_battery_late_resume,
 }; //
-#endif
 
 static int __init nvec_battery_init(void)
 {
@@ -722,9 +759,7 @@ static int __init nvec_battery_init(void)
 		return err;
 	}
 
-#ifdef CONFIG_WAKELOCK
 	register_early_suspend(&nvec_battery_early_suspend_handler);
-#endif
 
 	return 0;
 }

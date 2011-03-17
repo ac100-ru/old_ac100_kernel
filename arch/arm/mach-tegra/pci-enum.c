@@ -22,6 +22,8 @@
  */
 
 #include <mach/pci.h>
+#include <mach/iomap.h>
+#include <mach/irqs.h>
 #include <linux/delay.h>
 #include <linux/ioport.h>
 
@@ -153,23 +155,6 @@ static inline u8 pci_conf_read8(u8 bus, u32 devfn, u32 where)
 	pr_err("pci_conf_read8 at 0x%x = %d\n", addr, temp);
 
 	return (u8)temp;
-}
-
-static u16 pci_conf_read16(u8 bus, u32 devfn, u32 where)
-{
-	u32 temp;
-	u32 addr;
-
-	BUG_ON(where & 0x1);
-
-	addr = (u32)pci_tegra_config_addr(bus, devfn, where);
-	pr_err("Issuing pci_conf_read16 at 0x%x\n", addr);
-	temp = readl(addr & ~0x3);
-	temp >>=  8 * (addr & 3);
-	temp &= 0xffff;
-	pr_err("pci_conf_read16 at 0x%x = %d\n", addr, temp);
-
-	return (u16)temp;
 }
 
 static u32 pci_conf_read32(u8 bus, u32 devfn, u32 where)
@@ -372,7 +357,7 @@ static void pci_tegra_enumerate_root_port(int rp)
 		reg = ALIGN(reg, 0x100000);
 		pci_tegra_rp_writew(reg >> 16, PCI_PREF_MEMORY_BASE, rp);
 		reg = root->res[PCI_BRIDGE_PREFETCH_RES].end;
-		reg = ALIGN(reg, 0x100000);
+		reg = ALIGN(reg, 0x100000) - 1;
 		pci_tegra_rp_writew(reg >> 16, PCI_PREF_MEMORY_LIMIT, rp);
 	} else {
 		pci_tegra_rp_writew(0xffff, PCI_PREF_MEMORY_BASE, rp);
@@ -454,8 +439,7 @@ static void pci_tegra_setup_pci_bridge(struct pci_tegra_device *dev)
 	reg |= PCI_COMMAND_SERR;
 	pci_conf_write16(dev->bus, dev->devfn, PCI_COMMAND, reg);
 
-	pci_conf_write8(dev->bus, dev->devfn, PCI_INTERRUPT_LINE,
-		tegra_get_module_inst_irq("pcie", 0, 0));
+	pci_conf_write8(dev->bus, dev->devfn, PCI_INTERRUPT_LINE, INT_PCIE_INTR);
 	pci_conf_write8(dev->bus, dev->devfn, PCI_INTERRUPT_PIN, 0xa);
 }
 
@@ -555,8 +539,7 @@ static void pci_tegra_setup_pci_device(struct pci_tegra_device *dev)
 	reg |= PCI_COMMAND_SERR;
 	pci_conf_write16(dev->bus, dev->devfn, PCI_COMMAND, reg);
 
-	pci_conf_write8(dev->bus, dev->devfn, PCI_INTERRUPT_LINE,
-		tegra_get_module_inst_irq("pcie", 0, 0));
+	pci_conf_write8(dev->bus, dev->devfn, PCI_INTERRUPT_LINE, INT_PCIE_INTR);
 	pci_conf_write8(dev->bus, dev->devfn, PCI_INTERRUPT_PIN, 0xa);
 }
 

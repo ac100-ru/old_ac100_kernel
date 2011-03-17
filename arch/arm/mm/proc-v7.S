@@ -9,6 +9,7 @@
  *
  *  This is the "shell" of the ARMv7 processor support.
  */
+#include <linux/init.h>
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 #include <asm/asm-offsets.h>
@@ -44,56 +45,14 @@ ENTRY(cpu_v7_proc_init)
 ENDPROC(cpu_v7_proc_init)
 
 ENTRY(cpu_v7_proc_fin)
-	stmfd	sp!, {r1-r4, lr}
-	cpsid	if
-
-#ifdef CONFIG_SMP
-	bl	smp_send_stop
-
-wait_for_other_cpus_to_halt:
-	ldr	r1, =cpu_online_mask
-	dmb
-	ldr	r1, [r1]
-	ldr	r1, [r1]
-	and	r1, r1, #0xff
-	sub	r2, r1, #1
-	and	r1, r1, r2
-	cmp	r1, #0
-	bne	wait_for_other_cpus_to_halt
-#endif
-
-#ifdef CONFIG_CACHE_L2X0
-	bl	l2x0_deinit	@ clean/invalidate L2 cache before L1
-#endif
-
-	/* Flush and disable the L1-caches.  Cache maintenance ops are
-	 * broadcast, so they should apply to the L1 caches of all cpus
-	 */
+	stmfd	sp!, {lr}
+	cpsid	if				@ disable interrupts
 	bl	v7_flush_kern_cache_all
-	mrc	p15, 0, r4, c1, c0, 0
-	bic	r4, r4, #(1<<2)
-	bic	r4, r4, #(1<<11)
-	bic	r4, r4, #(1<<12)
-	bic	r4, r4, #(1<<29)
-	bic	r4, r4, #(1<<23)
-	mcr	p15, 0, r4, c1, c0, 0
-	dsb
-
-	mcr	p15, 0, r4, c7, c5, 0	@ instruction cache invalidate
-	mcr	p15, 0, r4, c7, c5, 4	@ flush prefetch buffer
-	mcr	p15, 0, r4, c8, c7, 0	@ invalidate TLB
-	mcr	p15, 0, r4, c7, c10, 4
-	dsb
-
-#ifdef CONFIG_SMP
-	//Finally, turn off SMP
-	mrc	p15, 0, r4, c1, c0, 1
-	bic	r4, r4, #(1<<6)
-	bic	r4, r4, #(1<<0)
-	mcr	p15, 0, r4, c1, c0, 1
-#endif
-	ldmfd	sp!, {r1-r4, lr}
-	mov	pc, lr
+	mrc	p15, 0, r0, c1, c0, 0		@ ctrl register
+	bic	r0, r0, #0x1000			@ ...i............
+	bic	r0, r0, #0x0006			@ .............ca.
+	mcr	p15, 0, r0, c1, c0, 0		@ disable caches
+	ldmfd	sp!, {pc}
 ENDPROC(cpu_v7_proc_fin)
 
 /*
@@ -104,8 +63,6 @@ ENDPROC(cpu_v7_proc_fin)
  *	to what would be the reset vector.
  *
  *	- loc   - location to jump to for soft reset
- *
- *	It is assumed that:
  */
 	.align	5
 ENTRY(cpu_v7_reset)
@@ -160,7 +117,6 @@ ENTRY(cpu_v7_switch_mm)
 1:	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
 	isb
 	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
-	clrex
 	isb
 #endif
 	mov	pc, lr
@@ -188,26 +144,21 @@ ENTRY(cpu_v7_set_pte_ext)
 	orr	r3, r3, #PTE_EXT_AP0 | 2
 
 	tst	r1, #1 << 4
-	it	ne
 	orrne	r3, r3, #PTE_EXT_TEX(1)
 
 	tst	r1, #L_PTE_WRITE
-	ite	ne
 	tstne	r1, #L_PTE_DIRTY
 	orreq	r3, r3, #PTE_EXT_APX
 
 	tst	r1, #L_PTE_USER
-	ittt	ne
 	orrne	r3, r3, #PTE_EXT_AP1
 	tstne	r3, #PTE_EXT_APX
 	bicne	r3, r3, #PTE_EXT_APX | PTE_EXT_AP0
 
 	tst	r1, #L_PTE_EXEC
-	it	eq
 	orreq	r3, r3, #PTE_EXT_XN
 
 	tst	r1, #L_PTE_YOUNG
-	ite	ne
 	tstne	r1, #L_PTE_PRESENT
 	moveq	r3, #0
 
@@ -221,7 +172,7 @@ cpu_v7_name:
 	.ascii	"ARMv7 Processor"
 	.align
 
-	.section ".text.init", #alloc, #execinstr
+	__INIT
 
 /*
  *	__v7_setup
@@ -240,33 +191,46 @@ cpu_v7_name:
  */
 __v7_setup:
 #ifdef CONFIG_SMP
-	mrc	p15, 0, r0, c1, c0, 1		@ Enable SMP/nAMP mode
-	tst	r0, #(0x1 << 6)			@ already enabled?
-	itt	eq
-	orreq	r0, r0, #(1 << 6) | (1 << 0)
-	mcreq	p15, 0, r0, c1, c0, 1
+	mrc	p15, 0, r0, c1, c0, 1
+	tst	r0, #(1 << 6)			@ SMP/nAMP mode enabled?
+	orreq	r0, r0, #(1 << 6) | (1 << 0)	@ Enable SMP/nAMP mode and
+	mcreq	p15, 0, r0, c1, c0, 1		@ TLB ops broadcasting
 #endif
 	adr	r12, __v7_setup_stack		@ the local stack
 	stmia	r12, {r0-r5, r7, r9, r11, lr}
 	bl	v7_flush_dcache_all
 	ldmia	r12, {r0-r5, r7, r9, r11, lr}
+
+	mrc	p15, 0, r0, c0, c0, 0		@ read main ID register
+	and	r10, r0, #0xff000000		@ ARM?
+	teq	r10, #0x41000000
+	bne	2f
+	and	r5, r0, #0x00f00000		@ variant
+	and	r6, r0, #0x0000000f		@ revision
+	orr	r0, r6, r5, lsr #20-4		@ combine variant and revision
+
 #ifdef CONFIG_ARM_ERRATA_430973
-	mrc	p15, 0, r10, c1, c0, 1		@ read aux control register
-	orr	r10, r10, #(1 << 6)		@ set IBE to 1
-	mcr	p15, 0, r10, c1, c0, 1		@ write aux control register
+	teq	r5, #0x00100000			@ only present in r1p*
+	mrceq	p15, 0, r10, c1, c0, 1		@ read aux control register
+	orreq	r10, r10, #(1 << 6)		@ set IBE to 1
+	mcreq	p15, 0, r10, c1, c0, 1		@ write aux control register
 #endif
 #ifdef CONFIG_ARM_ERRATA_458693
-	mrc	p15, 0, r10, c1, c0, 1		@ read aux control register
-	orr	r10, r10, #(1 << 5)		@ set L1NEON to 1
-	orr	r10, r10, #(1 << 9)		@ set PLDNOP to 1
-	mcr	p15, 0, r10, c1, c0, 1		@ write aux control register
+	teq	r0, #0x20			@ only present in r2p0
+	mrceq	p15, 0, r10, c1, c0, 1		@ read aux control register
+	orreq	r10, r10, #(1 << 5)		@ set L1NEON to 1
+	orreq	r10, r10, #(1 << 9)		@ set PLDNOP to 1
+	mcreq	p15, 0, r10, c1, c0, 1		@ write aux control register
 #endif
 #ifdef CONFIG_ARM_ERRATA_460075
-	mrc	p15, 1, r10, c9, c0, 2		@ read L2 cache aux ctrl register
-	orr	r10, r10, #(1 << 22)		@ set the Write Allocate disable bit
-	mcr	p15, 1, r10, c9, c0, 2		@ write the L2 cache aux ctrl register
+	teq	r0, #0x20			@ only present in r2p0
+	mrceq	p15, 1, r10, c9, c0, 2		@ read L2 cache aux ctrl register
+	tsteq	r10, #1 << 22
+	orreq	r10, r10, #(1 << 22)		@ set the Write Allocate disable bit
+	mcreq	p15, 1, r10, c9, c0, 2		@ write the L2 cache aux ctrl register
 #endif
-	mov	r10, #0
+
+2:	mov	r10, #0
 #ifdef HARVARD_CACHE
 	mcr	p15, 0, r10, c7, c5, 0		@ I+BTB cache invalidate
 #endif
@@ -278,8 +242,36 @@ __v7_setup:
 	mcr	p15, 0, r4, c2, c0, 1		@ load TTB1
 	mov	r10, #0x1f			@ domains 0, 1 = manager
 	mcr	p15, 0, r10, c3, c0, 0		@ load domain access register
+	/*
+	 * Memory region attributes with SCTLR.TRE=1
+	 *
+	 *   n = TEX[0],C,B
+	 *   TR = PRRR[2n+1:2n]		- memory type
+	 *   IR = NMRR[2n+1:2n]		- inner cacheable property
+	 *   OR = NMRR[2n+17:2n+16]	- outer cacheable property
+	 *
+	 *			n	TR	IR	OR
+	 *   UNCACHED		000	00
+	 *   BUFFERABLE		001	10	00	00
+	 *   WRITETHROUGH	010	10	10	10
+	 *   WRITEBACK		011	10	11	11
+	 *   reserved		110
+	 *   WRITEALLOC		111	10	01	01
+	 *   DEV_SHARED		100	01
+	 *   DEV_NONSHARED	100	01
+	 *   DEV_WC		001	10
+	 *   DEV_CACHED		011	10
+	 *
+	 * Other attributes:
+	 *
+	 *   DS0 = PRRR[16] = 0		- device shareable property
+	 *   DS1 = PRRR[17] = 1		- device shareable property
+	 *   NS0 = PRRR[18] = 0		- normal shareable property
+	 *   NS1 = PRRR[19] = 1		- normal shareable property
+	 *   NOS = PRRR[24+n] = 1	- not outer shareable
+	 */
 	ldr	r5, =0xff0a89a8
-	ldr	r6, =0x40e044e0
+	ldr	r6, =0xc0e0c4e0
 	mcr	p15, 0, r5, c10, c2, 0		@ write PRRR
 	mcr	p15, 0, r6, c10, c2, 1		@ write NMRR
 #endif
@@ -288,9 +280,14 @@ __v7_setup:
 #ifdef CONFIG_CPU_ENDIAN_BE8
 	orr	r6, r6, #1 << 25		@ big-endian page tables
 #endif
+#ifdef CONFIG_SWP_EMULATE
+	orr     r5, r5, #(1 << 10)              @ set SW bit in "clear"
+	bic     r6, r6, #(1 << 10)              @ clear it in "mmuset"
+#endif
    	mrc	p15, 0, r0, c1, c0, 0		@ read control register
 	bic	r0, r0, r5			@ clear bits them
 	orr	r0, r0, r6			@ set them
+ THUMB(	orr	r0, r0, #1 << 30	)	@ Thumb exceptions
 	mov	pc, lr				@ return to head.S:__ret
 ENDPROC(__v7_setup)
 
@@ -302,8 +299,7 @@ ENDPROC(__v7_setup)
 	 */
 	.type	v7_crval, #object
 v7_crval:
- ARM(	crval	clear=0x0120c302, mmuset=0x10c03c7d, ucset=0x00c01c7c	)
- THUMB(	crval	clear=0x0120c302, mmuset=0x50c03c7d, ucset=0x40c01c7c	)
+	crval	clear=0x0120c302, mmuset=0x10c03c7d, ucset=0x00c01c7c
 
 __v7_setup_stack:
 	.space	4 * 11				@ 11 registers
@@ -311,7 +307,7 @@ __v7_setup_stack:
 	.type	v7_processor_functions, #object
 ENTRY(v7_processor_functions)
 	.word	v7_early_abort
-	.word	pabort_ifar
+	.word	v7_pabort
 	.word	cpu_v7_proc_init
 	.word	cpu_v7_proc_fin
 	.word	cpu_v7_reset

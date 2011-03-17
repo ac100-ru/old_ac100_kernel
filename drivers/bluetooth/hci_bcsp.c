@@ -375,7 +375,6 @@ static void bcsp_pkt_cull(struct bcsp_struct *bcsp)
 	skb_queue_walk_safe(&bcsp->unack, skb, tmp) {
 		if (i >= pkts_to_be_removed)
 			break;
-
 		i++;
 
 		__skb_unlink(skb, &bcsp->unack);

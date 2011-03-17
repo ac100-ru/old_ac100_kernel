@@ -14,23 +14,6 @@ config MMC_BLOCK
 	  mount the filesystem. Almost everyone wishing MMC support
 	  should say Y or M here.
 
-config MMC_BLOCK_MINORS
-	int "Number of minors per block device"
-	range 4 256
-	default 8
-	help
-	  Number of minors per block device. One is needed for every
-	  partition on the disk (plus one for the whole disk).
-	  
-	  Number of total MMC minors available is 256, so your number
-	  of supported block devices will be limited to 256 divided
-	  by this number.
-	  
-	  Default is 8 to be backwards compatible with previous
-	  hardwired device numbering.
-	  
-	  If unsure, say 8 here.
-
 config MMC_BLOCK_BOUNCE
 	bool "Use bounce buffer for simple hosts"
 	depends on MMC_BLOCK
@@ -57,6 +40,16 @@ config MMC_BLOCK_DEFERRED_RESUME
 	  Say Y here to enable deferred MMC resume until I/O
 	  is requested. This will reduce overall resume latency and
 	  save power when theres an SD card inserted but not being used.
+
+config MMC_BLOCK_DEVICE_NUMBERING
+	bool "Enable mmc block device numbering based on controller instance"
+	depends on MMC_BLOCK
+	default n
+	help
+	  Say Y here to enable mmc block device numbering based on the
+	  sdhci controller instance number. This will make sure that
+	  the card connected to instance n will have block device
+	  name as mmcblkn.
 
 config SDIO_UART
 	tristate "SDIO UART/GPS class support"

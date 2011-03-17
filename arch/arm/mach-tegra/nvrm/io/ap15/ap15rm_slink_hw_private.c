@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2009 NVIDIA Corporation.
+ * Copyright (c) 2007-2010 NVIDIA Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -66,7 +66,7 @@
 
 static void
 SlinkHwSetSignalMode(
-    SerialHwRegisters *pSlinkHwRegs, 
+    SerialHwRegisters *pSlinkHwRegs,
     NvOdmQuerySpiSignalMode SignalMode);
 
 /**
@@ -74,7 +74,7 @@ SlinkHwSetSignalMode(
  */
 static void
 SlinkHwRegisterInitialize(
-    NvU32 SlinkInstanceId, 
+    NvU32 SlinkInstanceId,
     SerialHwRegisters *pSlinkHwRegs)
 {
     NvU32 CommandReg1;
@@ -93,7 +93,7 @@ SlinkHwRegisterInitialize(
     pSlinkHwRegs->IsHwChipSelectSupported = NV_FALSE;
 
     CommandReg1 = NV_RESETVAL(SLINK, COMMAND);
-    
+
     // Initialize the chip select bits to select the s/w only
     CommandReg1 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND, CS_SW, SOFT, CommandReg1);
 
@@ -123,7 +123,7 @@ SlinkHwRegisterInitialize(
  */
 static void
 SlinkHwSetSignalMode(
-    SerialHwRegisters *pSlinkHwRegs, 
+    SerialHwRegisters *pSlinkHwRegs,
     NvOdmQuerySpiSignalMode SignalMode)
 {
     NvU32 CommandReg = pSlinkHwRegs->HwRegs.SlinkRegs.Command1;
@@ -178,7 +178,7 @@ SlinkHwSetSignalMode(
  */
 static void
 SlinkHwSetChipSelectDefaultLevelFxn(
-    SerialHwRegisters *pHwRegs, 
+    SerialHwRegisters *pHwRegs,
     NvU32 ChipSelectId,
     NvBool IsHigh)
 {
@@ -190,7 +190,7 @@ SlinkHwSetChipSelectDefaultLevelFxn(
  */
 static void
 SlinkHwSetChipSelectLevel(
-    SerialHwRegisters *pSlinkHwRegs, 
+    SerialHwRegisters *pSlinkHwRegs,
     NvU32 ChipSelectId,
     NvBool IsHigh)
 {
@@ -208,28 +208,28 @@ SlinkHwSetChipSelectLevel(
         case 0:
             CommandReg2 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND2, SS_EN, CS0, CommandReg2);
             break;
-        
+
         case 1:
             CommandReg2 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND2, SS_EN, CS1, CommandReg2);
             break;
-        
+
         case 2:
             CommandReg2 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND2, SS_EN, CS2, CommandReg2);
             break;
-        
+
         case 3:
             CommandReg2 = NV_FLD_SET_DRF_DEF(SLINK, COMMAND2, SS_EN, CS3, CommandReg2);
             break;
-        
+
         default:
             NV_ASSERT(!"Invalid ChipSelectId");
-    }     
+    }
     pSlinkHwRegs->HwRegs.SlinkRegs.Command1 = CommandReg1;
     pSlinkHwRegs->HwRegs.SlinkRegs.Command2 = CommandReg2;
 
-    SLINK_REG_WRITE32(pSlinkHwRegs->pRegsBaseAdd, COMMAND2, 
+    SLINK_REG_WRITE32(pSlinkHwRegs->pRegsBaseAdd, COMMAND2,
                             pSlinkHwRegs->HwRegs.SlinkRegs.Command2);
-    SLINK_REG_WRITE32(pSlinkHwRegs->pRegsBaseAdd, COMMAND, 
+    SLINK_REG_WRITE32(pSlinkHwRegs->pRegsBaseAdd, COMMAND,
                             pSlinkHwRegs->HwRegs.SlinkRegs.Command1);
 }
 
@@ -242,7 +242,7 @@ SlinkHwSetChipSelectLevel(
  */
 static NvBool
 SlinkHwSetChipSelectLevelBasedOnPacket(
-    SerialHwRegisters *pSlinkHwRegs, 
+    SerialHwRegisters *pSlinkHwRegs,
     NvU32 ChipSelectId,
     NvBool IsHigh,
     NvU32 PacketRequested,
@@ -254,14 +254,23 @@ SlinkHwSetChipSelectLevelBasedOnPacket(
     return NV_TRUE;
 }
 
+static void
+SlinkHwSetCsSetupHoldTime(
+    SerialHwRegisters *pSlinkHwRegs,
+    NvU32 CsSetupTimeInClocks,
+    NvU32 CsHoldTimeInClocks)
+{
+    NV_ASSERT(0);
+}
+
 /**
  * Write into the transmit fifo register.
  * returns the number of words written.
  */
 static NvU32
 SlinkHwWriteInTransmitFifo(
-    SerialHwRegisters *pSlinkHwRegs, 
-    NvU32 *pTxBuff,  
+    SerialHwRegisters *pSlinkHwRegs,
+    NvU32 *pTxBuff,
     NvU32 WordRequested)
 {
     NvU32 WordWritten = 0;
@@ -279,12 +288,12 @@ SlinkHwWriteInTransmitFifo(
 
 /**
  * Read the data from the receive fifo.
- * Returns the number of words it read.   
+ * Returns the number of words it read.
  */
 static NvU32
 SlinkHwReadFromReceiveFifo(
-    SerialHwRegisters *pSlinkHwRegs, 
-    NvU32 *pRxBuff,  
+    SerialHwRegisters *pSlinkHwRegs,
+    NvU32 *pRxBuff,
     NvU32 WordRequested)
 {
     NvU32 WordsRemaining = WordRequested;
@@ -297,6 +306,14 @@ SlinkHwReadFromReceiveFifo(
     return WordRequested;
 }
 
+static NvBool
+SlinkHwClearFifosForNewTransfer(
+    SerialHwRegisters *pSlinkHwRegs,
+    SerialHwDataFlow DataDirection)
+{
+    return NV_FALSE;
+}
+
 /**
  * Initialize the slink intterface for the hw access.
  */
@@ -307,7 +324,8 @@ void NvRmPrivSpiSlinkInitSlinkInterface_v1_0(HwInterface *pSlinkInterface)
     pSlinkInterface->HwSetChipSelectDefaultLevelFxn = SlinkHwSetChipSelectDefaultLevelFxn;
     pSlinkInterface->HwSetChipSelectLevelFxn = SlinkHwSetChipSelectLevel;
     pSlinkInterface->HwSetChipSelectLevelBasedOnPacketFxn = SlinkHwSetChipSelectLevelBasedOnPacket;
+    pSlinkInterface->HwSetCsSetupHoldTime    = SlinkHwSetCsSetupHoldTime;
     pSlinkInterface->HwWriteInTransmitFifoFxn = SlinkHwWriteInTransmitFifo;
     pSlinkInterface->HwReadFromReceiveFifoFxn =  SlinkHwReadFromReceiveFifo;
+    pSlinkInterface->HwClearFifosForNewTransferFxn =  SlinkHwClearFifosForNewTransfer;
 }
-

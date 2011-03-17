@@ -3,7 +3,7 @@
  *
  * SDHCI-compatible driver for NVIDIA Tegra SoCs
  *
- * Copyright (c) 2009, NVIDIA Corporation.
+ * Copyright (c) 2009-2010, NVIDIA Corporation.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,431 +20,537 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define NV_DEBUG 0
+
 #include <linux/mmc/host.h>
+#include <linux/mmc/sdio_func.h>
+
 #include <linux/platform_device.h>
+#include <linux/dma-mapping.h>
 #include <linux/irq.h>
-#include <linux/tegra_devices.h>
 #include <linux/mmc/card.h>
-
+#include <linux/clk.h>
+#include <linux/gpio.h>
+#include <linux/delay.h>
+#include <linux/bitops.h>
+#include <mach/sdhci.h>
+#include <mach/pinmux.h>
+#include <nvodm_sdio.h>
 #include "sdhci.h"
-#include "mach/nvrm_linux.h"
-#include "mach/io.h"
-#include "nvodm_sdio.h"
-#include "nvrm_module.h"
-#include "nvrm_power.h"
-#include "nvrm_interrupt.h"
-#include "nvrm_pmu.h"
-#include "nvos.h"
-#include "nvodm_query_gpio.h"
 
-#define DRIVER_DESC "Nvidia Tegra SDHCI compliant driver"
-#define DRIVER_NAME "tegra_sdhci"
+#define DRIVER_DESC "NVIDIA Tegra SDHCI compliant driver"
+#define DRIVER_NAME "tegra-sdhci"
 
-struct tegra_sdhci
-{
-	struct sdhci_host	*sdhost;
+struct tegra_sdhci {
 	struct platform_device	*pdev;
-	NvOdmSdioHandle		hSdioHandle;
-	NvU32			ModId;
-	NvRmGpioPinHandle	wp_pin;
-	NvU32			wp_polarity;
-	NvRmGpioPinState	cd_pin;
-	NvU32			cd_polarity;
-	NvRmGpioInterruptHandle	cd_int;
-	NvU32			MaxClock;
-	//NvBool			SdioControllerClkEnabled;  //back to R9.12.09
-#ifdef CONFIG_EMBEDDED_MMC_START_OFFSET
-	NvU32			StartOffset;
-#endif
+	struct clk		*clk;
+	NvOdmSdioHandle		hOdmSdio;
+	const struct tegra_pingroup_config *pinmux;
+	int			nr_pins;
+	int			gpio_cd;
+	int			gpio_polarity_cd;
+	int			irq_cd;
+	int			gpio_wp;
+	int			gpio_polarity_wp;
+	unsigned int		debounce;
+	unsigned long		max_clk;
+	bool			card_present;
+	bool			clk_enable;
+	bool			card_always_on;
+	u32			sdhci_ints;
 };
 
-#if 0 //back to R9.12.09
-static NvError
-tegra_sdhci_set_controller_clk(struct tegra_sdhci *t_sdhci, NvBool enable)
+static inline unsigned long res_size(struct resource *res)
 {
-	NvError e = NvSuccess;
-	if (t_sdhci->SdioControllerClkEnabled != enable) {
-		t_sdhci->SdioControllerClkEnabled = enable;
-		e = (NvRmPowerModuleClockControl(s_hRmGlobal, t_sdhci->ModId,
-				0, enable));
-	}
-	return e;
+	return res->end - res->start + 1;
 }
-#endif
 
-static int tegra_sdhci_enable_dma(struct sdhci_host *host)
+static int tegra_sdhci_enable_dma(struct sdhci_host *sdhost)
 {
 	return 0;
 }
 
-/*
- *  Return 0 if the card is removed.
- *  -ve if the feature is not supported.
- *  +ve if the card is inserted.
- */
-static int tegra_sdhci_detect(struct tegra_sdhci *t_sdhci)
+static irqreturn_t card_detect_isr(int irq, void *dev_id)
 {
-	NvRmGpioPinState val;
+	struct sdhci_host *sdhost = dev_id;
+	struct tegra_sdhci *host = sdhci_priv(sdhost);
 
-	if (t_sdhci->cd_pin) {
-		NvRmGpioReadPins(s_hGpioGlobal, &(t_sdhci->cd_pin), &val, 1);
-		return val == t_sdhci->cd_polarity;
-	}
-
-	return -1;
-}
-
-static void do_handle_cardetect(void *args)
-{
-	struct sdhci_host *sdhost = (struct sdhci_host *)args;
-	struct tegra_sdhci *t_sdhci = sdhci_priv(sdhost);
-
-	sdhost->card_present = tegra_sdhci_detect(t_sdhci);
+	host->card_present =
+		(gpio_get_value(host->gpio_cd) == host->gpio_polarity_cd);
+	smp_wmb();
 	sdhci_card_detect_callback(sdhost);
-	NvRmGpioInterruptDone(t_sdhci->cd_int);
+
+	return IRQ_HANDLED;
 }
 
-/*
- * Return 
- * -ve value if not supported.
- * 0 if not write protected.
- * +ve value if write protected.
- */
-static int tegra_sdhci_get_ro(struct sdhci_host *host)
+static bool tegra_sdhci_card_detect(struct sdhci_host *sdhost)
 {
-	struct tegra_sdhci *t_sdhci;
-	NvRmGpioPinState val = NvRmGpioPinState_Low;
-
-	t_sdhci = sdhci_priv(host);
-
-	if (tegra_sdhci_detect(t_sdhci) && t_sdhci->wp_pin) {
-		NvRmGpioReadPins(s_hGpioGlobal, &(t_sdhci->wp_pin), &val, 1);
-		return val == t_sdhci->wp_polarity;
-	}
-
-	return -1;
+	struct tegra_sdhci *host = sdhci_priv(sdhost);
+	smp_rmb();
+	return host->card_present;
 }
 
-#ifdef CONFIG_EMBEDDED_MMC_START_OFFSET
-static unsigned int tegra_sdhci_get_StartOffset(struct sdhci_host *host)
+static void tegra_sdhci_status_notify_cb(int card_present, void *dev_id)
 {
-	struct tegra_sdhci *t_sdhci;
+	struct sdhci_host *sdhost = dev_id;
+	struct tegra_sdhci *host = sdhci_priv(sdhost);
 
-	t_sdhci = sdhci_priv(host);
+	dev_dbg(&host->pdev->dev, "%s: card_present %d\n",
+		mmc_hostname(sdhost->mmc), card_present);
 
-	return t_sdhci->StartOffset;
+	host->card_present = card_present;
+	sdhci_card_detect_callback(sdhost);
 }
-#endif
 
-static unsigned int tegra_sdhci_get_maxclock(struct sdhci_host *host)
+static int tegra_sdhci_get_ro(struct sdhci_host *sdhost)
 {
-	struct tegra_sdhci *t_sdhci;
+	struct tegra_sdhci *host = sdhci_priv(sdhost);
 
-	t_sdhci = sdhci_priv(host);
-
-	return t_sdhci->MaxClock / 1000;
+	BUG_ON(host->gpio_wp == -1);
+	return (gpio_get_value(host->gpio_wp) == host->gpio_polarity_wp);
 }
 
-static int tegra_sdhci_set_clock(struct sdhci_host *host,
+static void tegra_sdhci_set_clock(struct sdhci_host *sdhost,
 	unsigned int clock)
 {
-	NvError err;
-	struct tegra_sdhci *t_sdhci;
+	struct tegra_sdhci *host = sdhci_priv(sdhost);
 
-	t_sdhci = sdhci_priv(host);
-	if (clock) {
-		NvU32 min, max, target, actual_freq;
-		min = 400;
-		max = clock / 1000;
-		target = clock / 1000;
-
-		if (max < min) max  = min;
-		if (target < min) target  = min;
-
-#if 0   //back to R9.12.09
-		/* enable clock to sdio controller */
-		err = tegra_sdhci_set_controller_clk(t_sdhci, NV_TRUE);
-		if (err) goto fail;
-#endif
-
-		err = NvRmPowerModuleClockConfig(s_hRmGlobal,
-			t_sdhci->ModId, 0, min, max, &target, 1,
-			&actual_freq, 0);
-		if (err) goto fail;
-	} else {
-#if 0   //back to R9.12.09
-		/* disable clock to sdio controller */
-		err = tegra_sdhci_set_controller_clk(t_sdhci, NV_FALSE);
-		if (err) goto fail;
-#endif
-		goto fail; //back to R9.12.09
+	if (clock && !host->clk_enable) {
+		clk_enable(host->clk);
+		host->clk_enable = true;
+	} else if (!clock && host->clk_enable) {
+		clk_disable(host->clk);
+		host->clk_enable = false;
 	}
-	return 1; /* return success */
-fail:
-	pr_err("tegra_sdhci_set_clock failed with error %d\n", err);
-	return 0; /* upper layer expects return value 0 in case of failure */
+
+	if (clock) {
+		if (clock > host->max_clk)
+			clock = host->max_clk;
+		clk_set_rate(host->clk, clock);
+		sdhost->max_clk = clk_get_rate(host->clk);
+		dev_dbg(&host->pdev->dev, "clock request: %uKHz. currently "
+			"%uKHz\n", clock/1000, sdhost->max_clk/1000);
+	}
 }
+
+static struct sdhci_ops tegra_sdhci_wp_cd_ops = {
+	.enable_dma		= tegra_sdhci_enable_dma,
+	.get_ro			= tegra_sdhci_get_ro,
+	.card_detect		= tegra_sdhci_card_detect,
+	.set_clock		= tegra_sdhci_set_clock,
+};
+
+static struct sdhci_ops tegra_sdhci_cd_ops = {
+	.enable_dma		= tegra_sdhci_enable_dma,
+	.card_detect		= tegra_sdhci_card_detect,
+	.set_clock		= tegra_sdhci_set_clock,
+};
+
+static struct sdhci_ops tegra_sdhci_wp_ops = {
+	.enable_dma		= tegra_sdhci_enable_dma,
+	.get_ro			= tegra_sdhci_get_ro,
+	.set_clock		= tegra_sdhci_set_clock,
+};
 
 static struct sdhci_ops tegra_sdhci_ops = {
 	.enable_dma		= tegra_sdhci_enable_dma,
-	.get_ro			= tegra_sdhci_get_ro,
-	.get_maxclock		= tegra_sdhci_get_maxclock,
 	.set_clock		= tegra_sdhci_set_clock,
-#ifdef CONFIG_EMBEDDED_MMC_START_OFFSET
-	.get_startoffset	= tegra_sdhci_get_StartOffset,
-#endif
 };
 
 int __init tegra_sdhci_probe(struct platform_device *pdev)
 {
 	struct sdhci_host *sdhost;
 	struct tegra_sdhci *host;
-	NvError err1, err2, err3;
-	NvU32 irq = 0xffff;
-	NvU32 addr;
-	NvU32 size;
-	NvU32 min, max, target;
-	NvU32 ModId;
+	struct tegra_sdhci_platform_data *plat = pdev->dev.platform_data;
+	struct resource *res;
 	int ret = -ENODEV;
-#ifdef CONFIG_EMBEDDED_MMC_START_OFFSET
-	struct tegra_sdio_platform_data *pdata = pdev->dev.platform_data;
-#endif
-	NvRmModuleSdmmcInterfaceCaps SdioInterfaceCaps;
 
-	const NvOdmGpioPinInfo *gp_info;
-	NvU32 PinCount;
-
-	if (pdev->id == -1)
+	if (pdev->id == -1) {
+		dev_err(&pdev->dev, "dynamic instance assignment not allowed\n");
 		return -ENODEV;
-	ModId = NVRM_MODULE_ID(NvRmModuleID_Sdio, pdev->id);
+	}
 
 	sdhost  = sdhci_alloc_host(&pdev->dev, sizeof(struct tegra_sdhci));
-	if (!sdhost) {
-		return -ENOMEM;
+	if (IS_ERR_OR_NULL(sdhost)) {
+		dev_err(&pdev->dev, "unable to allocate driver structure\n");
+		return (!sdhost) ? -ENOMEM : PTR_ERR(sdhost);
 	}
+	sdhost->hw_name = dev_name(&pdev->dev);
 
 	host = sdhci_priv(sdhost);
 
+	host->hOdmSdio = NvOdmSdioOpen(pdev->id);
+	if (!host->hOdmSdio)
+		dev_info(&pdev->dev, "no ODM SDIO adaptation\n");
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res) {
+		dev_err(&pdev->dev, "no memory I/O resource provided\n");
+		ret = -ENODEV;
+		goto err_sdhci_alloc;
+	}
+	if (!request_mem_region(res->start, res_size(res),
+				dev_name(&pdev->dev))) {
+		dev_err(&pdev->dev, "memory in use\n");
+		ret = -EBUSY;
+		goto err_sdhci_alloc;
+	}
+	sdhost->ioaddr = ioremap(res->start, res_size(res));
+	if (!sdhost->ioaddr) {
+		dev_err(&pdev->dev, "failed to map registers\n");
+		ret = -ENXIO;
+		goto err_request_mem;
+	}
+	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
+	if (!res) {
+		dev_err(&pdev->dev, "no IRQ resource provided\n");
+		ret = -ENODEV;
+		goto err_ioremap;
+	}
+	sdhost->irq = res->start;
+	host->clk = clk_get(&pdev->dev, NULL);
+	if (!host->clk) {
+		dev_err(&pdev->dev, "unable to get clock\n");
+		ret = -ENODEV;
+		goto err_ioremap;
+	}
+
 	host->pdev = pdev;
-	host->sdhost = sdhost;
-	host->ModId = ModId;
-	//host->SdioControllerClkEnabled = NV_FALSE; //back to R9.12.09
+	host->pinmux = plat->pinmux;
+	host->nr_pins = plat->nr_pins;
+	host->gpio_cd = plat->gpio_nr_cd;
+	host->gpio_polarity_cd = plat->gpio_polarity_cd;
+	host->gpio_wp = plat->gpio_nr_wp;
+	host->gpio_polarity_wp = plat->gpio_polarity_wp;
+	host->card_always_on = plat->is_always_on;
+	dev_dbg(&pdev->dev, "write protect: %d card detect: %d\n",
+		host->gpio_wp, host->gpio_cd);
+	host->irq_cd = -1;
+	host->debounce = plat->debounce;
+	if (plat->max_clk)
+		host->max_clk = min_t(unsigned int, 52000000, plat->max_clk);
+	else {
+		dev_info(&pdev->dev, "no max_clk specified, default to 52MHz\n");
+		host->max_clk = 52000000;
+	}
+
 #ifdef CONFIG_EMBEDDED_MMC_START_OFFSET
-	if (pdata)
-		host->StartOffset = pdata->StartOffset;
+	sdhost->start_offset = plat->offset;
 #endif
 
-	host->hSdioHandle = NvOdmSdioOpen(pdev->id);
-	if (!host->hSdioHandle) {
-		goto fail;
-	}
-
-	/* Get the GPIOs for the card detect and the write protect */
-	gp_info = NvOdmQueryGpioPinMap(NvOdmGpioPinGroup_Sdio,
-		pdev->id, &PinCount);
-
-	if (gp_info) {
-		switch (PinCount) {
-		/* Both write proect pin and card insert pin is specified */
-		case 2:
-			NvRmGpioAcquirePinHandle(s_hGpioGlobal, gp_info[1].Port,
-				gp_info[1].Pin, &host->wp_pin);
-			host->wp_polarity = gp_info[1].activeState;
-			NvRmGpioConfigPins(s_hGpioGlobal, &host->wp_pin, 1,
-				NvRmGpioPinMode_InputData);
-				/*fall through*/
-			/* only card detect pin is specified */
-		case 1:
-			NvRmGpioAcquirePinHandle(s_hGpioGlobal, gp_info[0].Port,
-				gp_info[0].Pin, &host->cd_pin);
-			host->cd_polarity = gp_info[0].activeState;
-			NvRmGpioConfigPins(s_hGpioGlobal, &host->cd_pin, 1,
-				NvRmGpioPinMode_InputData);
-			break;
-		default:
-			dev_info(&pdev->dev, "Invalid pin count(%d) for SDIO "
-				"instance %d\n", PinCount, pdev->id);
+	if (host->gpio_cd != -1) {
+		ret = gpio_request(host->gpio_cd, "card_detect");
+		if (ret < 0) {
+			dev_err(&pdev->dev, "request cd gpio failed\n");
+			host->gpio_cd = -1;
+			goto skip_gpio_cd;
 		}
-	} else {
-		dev_info(&pdev->dev, "No GPIO map for SDIO instance %d\n",
-			pdev->id);
+		host->irq_cd = gpio_to_irq(host->gpio_cd);
+		if (host->irq_cd < 0) {
+			/* fall back to non-GPIO card detect mode */
+			dev_err(&pdev->dev, "invalid card detect GPIO\n");
+			host->gpio_cd = -1;
+			host->irq_cd = -1;
+			goto skip_gpio_cd;
+		}
+		ret = gpio_direction_input(host->gpio_cd);
+		if (ret < 0) {
+			dev_err(&pdev->dev, "failed to configure GPIO\n");
+			gpio_free(host->gpio_cd);
+			host->gpio_cd = -1;
+			goto skip_gpio_cd;
+		}
+		ret = request_irq(host->irq_cd, card_detect_isr,
+			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+			mmc_hostname(sdhost->mmc), sdhost);
+		if (ret) {
+			dev_err(&pdev->dev, "unable to request IRQ\n");
+			gpio_free(host->gpio_cd);
+			host->gpio_cd = -1;
+			host->irq_cd = -1;
+			goto skip_gpio_cd;
+		}
+		host->card_present =
+			(gpio_get_value(host->gpio_cd) ==
+				host->gpio_polarity_cd);
 	}
-
-	irq = NvRmGetIrqForLogicalInterrupt(s_hRmGlobal, ModId, 0);
-	NvRmModuleGetBaseAddress(s_hRmGlobal, ModId, &addr, &size);
-	if (irq == 0xffff || addr == 0x0 || size == 0) {
-		goto fail;
+skip_gpio_cd:
+	ret = 0;
+	if (host->gpio_wp != -1) {
+		ret = gpio_request(host->gpio_wp, "write_protect");
+		if (ret < 0) {
+			dev_err(&pdev->dev, "request wp gpio failed\n");
+			host->gpio_wp = -1;
+			goto skip_gpio_wp;
+		}
+		ret = gpio_direction_input(host->gpio_wp);
+		if (ret < 0) {
+			dev_err(&pdev->dev, "configure wp gpio failed\n");
+			gpio_free(host->gpio_wp);
+			host->gpio_wp = -1;
+		}
 	}
+skip_gpio_wp:
+	ret = 0;
+	if (host->pinmux && host->nr_pins)
+		tegra_pinmux_config_tristate_table(host->pinmux,
+			host->nr_pins, TEGRA_TRI_NORMAL);
+	clk_enable(host->clk);
+	clk_set_rate(host->clk, host->max_clk);
+	host->max_clk = clk_get_rate(host->clk);
+	host->clk_enable = true;
 
-	min = 400;
-	max = NvRmFreqMaximum;
-	target = NvRmFreqMaximum;
-	err1 = NvRmSetModuleTristate(s_hRmGlobal, ModId, NV_FALSE);
-	err2 = NvRmPowerModuleClockConfig(s_hRmGlobal, ModId, 0,
-		min, max, &target, 1, &host->MaxClock, 0);
-
-	//err3 = tegra_sdhci_set_controller_clk(host, NV_TRUE);
-	err3 = NvRmPowerModuleClockControl(s_hRmGlobal, ModId, 0, NV_TRUE); //back to R9.12.09
-	if (err1 || err2 || err3) {
-		goto fail;
-	}
-	NvRmModuleReset(s_hRmGlobal, ModId);
-	NvOdmSdioResume(host->hSdioHandle);
-
-	sdhost->hw_name = "tegra";
-	sdhost->ops = &tegra_sdhci_ops;
-	sdhost->irq = irq;
-
-	/* Set the irq flags to irq valid, which is the default linux behaviour.
-	 * For irqs used by Nv* APIs, IRQF_NOAUTOEN is also set */
-	set_irq_flags(irq, IRQF_VALID);
-	sdhost->ioaddr = IO_ADDRESS(addr);
+	if (host->gpio_wp != -1 && (host->gpio_cd != -1 || !plat->is_removable))
+		sdhost->ops = &tegra_sdhci_wp_cd_ops;
+	else if (host->gpio_wp != -1)
+		sdhost->ops = &tegra_sdhci_wp_ops;
+	else if (host->gpio_cd != -1 || !plat->is_removable)
+		sdhost->ops = &tegra_sdhci_cd_ops;
+	else
+		sdhost->ops = &tegra_sdhci_ops;
 
 	sdhost->quirks =
 		SDHCI_QUIRK_BROKEN_TIMEOUT_VAL |
 		SDHCI_QUIRK_SINGLE_POWER_WRITE |
-	SDHCI_QUIRK_ENABLE_INTERRUPT_AT_BLOCK_GAP |
-	SDHCI_QUIRK_BROKEN_WRITE_PROTECT |
-	SDHCI_QUIRK_PRESENT_STATE_REGISTER_INVALID |
-	SDHCI_QUIRK_BROKEN_CTRL_HISPD;
-
-#ifdef CONFIG_ARCH_TEGRA_1x_SOC
-	sdhost->quirks |= SDHCI_QUIRK_BROKEN_DMA;
-#elif  CONFIG_ARCH_TEGRA_2x_SOC
+		SDHCI_QUIRK_ENABLE_INTERRUPT_AT_BLOCK_GAP |
+		SDHCI_QUIRK_BROKEN_WRITE_PROTECT |
+		SDHCI_QUIRK_BROKEN_CARD_DETECTION |
+		SDHCI_QUIRK_BROKEN_CTRL_HISPD |
+		SDHCI_QUIRK_RUNTIME_DISABLE;
+#ifdef CONFIG_ARCH_TEGRA_2x_SOC
 	sdhost->quirks |= SDHCI_QUIRK_BROKEN_SPEC_VERSION |
-		SDHCI_QUIRK_32KB_MAX_ADMA_SIZE;
-#else
-#error "Not defined for this processor"
+		SDHCI_QUIRK_NO_64KB_ADMA;
+	sdhost->version = SDHCI_SPEC_200;
 #endif
 
-	err1 = NvRmGetModuleInterfaceCapabilities(s_hRmGlobal,
-		NVRM_MODULE_ID(NvRmModuleID_Sdio, pdev->id),
-		sizeof(NvRmModuleSdmmcInterfaceCaps), &SdioInterfaceCaps);
-	if (err1 == NvSuccess && SdioInterfaceCaps.MmcInterfaceWidth >= 8)
-		sdhost->data_width = 8;
+	if (!plat->is_removable)
+		host->card_present = true;
 
+	if (plat->register_status_notify)
+		plat->register_status_notify(tegra_sdhci_status_notify_cb,
+			sdhost);
+
+	sdhost->data_width = plat->bus_width;
+	sdhost->dma_mask = DMA_BIT_MASK(32);
 	ret = sdhci_add_host(sdhost);
 	if (ret)
 		goto fail;
 
-	platform_set_drvdata(pdev, host);
+	platform_set_drvdata(pdev, sdhost);
 
-	if (host->cd_pin) {
-		/* Register interrupt handler for */
-		err1 = NvRmGpioInterruptRegister(s_hGpioGlobal, s_hRmGlobal,
-			host->cd_pin, do_handle_cardetect,
-			NvRmGpioPinMode_InputInterruptAny, sdhost,
-			&host->cd_int, 5);
-		if (err1 != NvSuccess)
-			goto fail;
-		err1 = NvRmGpioInterruptEnable(host->cd_int);
-		if (err1 != NvSuccess)
-			goto fail;
-	}
-
-	sdhost->card_present = tegra_sdhci_detect(host);
-
-	dev_info(&pdev->dev, "tegra_sdhci_probe: irq(%d) io(0x%x) phys(0x%x)",
-		irq, (NvU32)sdhost->ioaddr, addr);
+	dev_info(&pdev->dev, "probe complete\n");
 
 	return  0;
 
 fail:
-	dev_err(&pdev->dev, "tegra_sdhci_probe failed\n");
+	if (host->irq_cd != -1)
+		free_irq(host->irq_cd, sdhost);
+	if (host->gpio_cd != -1)
+		gpio_free(host->gpio_cd);
+	if (host->gpio_wp != -1)
+		gpio_free(host->gpio_wp);
 
-	if (host->hSdioHandle)
-		NvOdmSdioClose(host->hSdioHandle);
+	if (host->pinmux && host->nr_pins)
+		tegra_pinmux_config_tristate_table(host->pinmux,
+			host->nr_pins, TEGRA_TRI_TRISTATE);
 
-	if (sdhost)
-		sdhci_free_host(sdhost);
-
+	clk_disable(host->clk);
+	clk_put(host->clk);
+err_ioremap:
+	iounmap(sdhost->ioaddr);
+err_request_mem:
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	release_mem_region(res->start, res_size(res));
+err_sdhci_alloc:
+	if (host->hOdmSdio)
+		NvOdmSdioClose(host->hOdmSdio);
+	sdhci_free_host(sdhost);
+	dev_err(&pdev->dev, "probe failed\n");
 	return ret;
 }
 
 
-static int __devexit tegra_sdhci_remove(struct platform_device *pdev)
+static int tegra_sdhci_remove(struct platform_device *pdev)
 {
-	struct tegra_sdhci *host = dev_get_drvdata(&pdev->dev);
+	struct sdhci_host *sdhost = platform_get_drvdata(pdev);
+	struct tegra_sdhci *host = sdhci_priv(sdhost);
 
-	if (host->hSdioHandle)
-		NvOdmSdioClose(host->hSdioHandle);
-	(void)NvRmSetModuleTristate(s_hRmGlobal, host->ModId, NV_TRUE);
-	//(void)tegra_sdhci_set_controller_clk(host, NV_FALSE);
-    (void)NvRmPowerModuleClockControl(s_hRmGlobal,
-	    host->ModId, 0, NV_FALSE); //back to R9.12.09
+	if (host->irq_cd != -1)
+		free_irq(host->irq_cd, sdhost);
 
-	if (host->wp_pin)
-		NvRmGpioReleasePinHandles(s_hGpioGlobal, &host->wp_pin, 1);
+	if (host->gpio_cd != -1)
+		gpio_free(host->gpio_cd);
 
-	if (host->cd_int)
-		NvRmGpioInterruptUnregister(s_hGpioGlobal, s_hRmGlobal,
-			host->cd_int);
+	if (host->gpio_wp != -1)
+		gpio_free(host->gpio_wp);
 
-	sdhci_free_host(host->sdhost);
+	if (host->pinmux && host->nr_pins)
+		tegra_pinmux_config_tristate_table(host->pinmux,
+			host->nr_pins, TEGRA_TRI_TRISTATE);
 
+	if (host->clk_enable)
+		clk_disable(host->clk);
+
+	clk_put(host->clk);
+	iounmap(sdhost->ioaddr);
+	sdhost->ioaddr = NULL;
+
+	if (host->hOdmSdio)
+		NvOdmSdioClose(host->hOdmSdio);
+
+	sdhci_free_host(sdhost);
 	return 0;
 }
 
+#define is_card_sdio(_card) \
+((_card) && ((_card)->type == MMC_TYPE_SDIO))
+
 #if defined(CONFIG_PM)
+#define dev_to_host(_dev) platform_get_drvdata(to_platform_device(_dev))
 
-static int tegra_sdhci_suspend(struct platform_device *pdev, pm_message_t state)
+static void tegra_sdhci_restore_interrupts(struct sdhci_host *sdhost)
 {
-	int ret = 0;
-	struct tegra_sdhci *t_sdhci;
+	u32 ierr;
+	u32 clear = SDHCI_INT_ALL_MASK;
+	struct tegra_sdhci *host = sdhci_priv(sdhost);
 
-	t_sdhci = platform_get_drvdata(pdev);
+	/* enable required interrupts */
+	ierr = sdhci_readl(sdhost, SDHCI_INT_ENABLE);
+	ierr &= ~clear;
+	ierr |= host->sdhci_ints;
+	sdhci_writel(sdhost, ierr, SDHCI_INT_ENABLE);
+	sdhci_writel(sdhost, ierr, SDHCI_SIGNAL_ENABLE);
 
-	if (t_sdhci->sdhost->card_type != MMC_TYPE_SDIO) {
-		ret = sdhci_suspend_host(t_sdhci->sdhost,state);
-		if (ret)
-			pr_err("sdhci_suspend_host failed with error %d\n", ret);
+	if ((host->sdhci_ints & SDHCI_INT_CARD_INT) &&
+		(sdhost->quirks & SDHCI_QUIRK_ENABLE_INTERRUPT_AT_BLOCK_GAP)) {
+		u8 gap_ctrl = sdhci_readb(sdhost, SDHCI_BLOCK_GAP_CONTROL);
+		gap_ctrl |= 0x8;
+		sdhci_writeb(sdhost, gap_ctrl, SDHCI_BLOCK_GAP_CONTROL);
 	}
+}
+
+static int tegra_sdhci_restore(struct sdhci_host *sdhost)
+{
+	unsigned long timeout;
+	u8 mask = SDHCI_RESET_ALL;
+
+	sdhci_writeb(sdhost, mask, SDHCI_SOFTWARE_RESET);
+
+	sdhost->clock = 0;
+
+	/* Wait max 100 ms */
+	timeout = 100;
+
+	/* hw clears the bit when it's done */
+	while (sdhci_readb(sdhost, SDHCI_SOFTWARE_RESET) & mask) {
+		if (timeout == 0) {
+			printk(KERN_ERR "%s: Reset 0x%x never completed.\n",
+				mmc_hostname(sdhost->mmc), (int)mask);
+			return -EIO;
+		}
+		timeout--;
+		mdelay(1);
+	}
+
+	tegra_sdhci_restore_interrupts(sdhost);
+	sdhost->last_clk = 0;
+	return 0;
+}
+
+static int tegra_sdhci_suspend(struct device *dev)
+{
+	struct sdhci_host *sdhost = dev_to_host(dev);
+	struct tegra_sdhci *host = sdhci_priv(sdhost);
+	struct pm_message event = { PM_EVENT_SUSPEND };
+	int ret = 0;
+
+	if (host->card_always_on && is_card_sdio(sdhost->mmc->card)) {
+		int div = 0;
+		u16 clk;
+		unsigned int clock = 100000;
+
+		/* save interrupt status before suspending */
+		host->sdhci_ints = sdhci_readl(sdhost, SDHCI_INT_ENABLE);
+
+		/* reduce host controller clk and card clk to 100 KHz */
+		tegra_sdhci_set_clock(sdhost, clock);
+		sdhci_writew(sdhost, 0, SDHCI_CLOCK_CONTROL);
+
+		if (sdhost->max_clk > clock) {
+			div =  1 << (fls(sdhost->max_clk / clock) - 2);
+			if (div > 128)
+				div = 128;
+		}
+
+		clk = div << SDHCI_DIVIDER_SHIFT;
+		clk |= SDHCI_CLOCK_INT_EN | SDHCI_CLOCK_CARD_EN;
+		sdhci_writew(sdhost, clk, SDHCI_CLOCK_CONTROL);
+
+		return ret;
+	}
+
+	ret = sdhci_suspend_host(sdhost, event);
+	if (ret) {
+		dev_err(dev, "failed to suspend host\n");
+		return ret;
+	}
+
+	if (host->hOdmSdio)
+		NvOdmSdioSuspend(host->hOdmSdio);
 
 	return ret;
 }
 
-static int tegra_sdhci_resume(struct platform_device *pdev)
+static int tegra_sdhci_resume(struct device *dev)
 {
-	int ret = 0;
-	struct tegra_sdhci *t_sdhci;
+	struct sdhci_host *sdhost = dev_to_host(dev);
+	struct tegra_sdhci *host = sdhci_priv(sdhost);
 
-	t_sdhci = platform_get_drvdata(pdev);
-	if (t_sdhci->sdhost->card_type != MMC_TYPE_SDIO) {
-#if 0 //back to R9.12.09
-		/* enable clock to sdio controller */
-		ret = tegra_sdhci_set_controller_clk(t_sdhci, NV_TRUE);
-		if (ret)
-			pr_err("tegra_sdhci_resume:tegra_sdhci_set_clock failed with error %d\n", ret);
-#endif
-		ret = sdhci_resume_host(t_sdhci->sdhost);
-		if (ret)
-			pr_err("sdhci_resume_host failed with error %d\n", ret);
-        else {
-            /* Force to detect sdcard after resuming. */
-            //do_handle_cardetect(t_sdhci->sdhost);  // too slowly and has bugs
-            t_sdhci->sdhost->card_present = tegra_sdhci_detect(t_sdhci);
-            sdhci_card_detect_callback(t_sdhci->sdhost);
-        }
-
+	if (!host->clk_enable) {
+		clk_enable(host->clk);
+		host->clk_enable = true;
 	}
 
-	return ret;
+	if (host->gpio_cd != -1)
+		host->card_present =
+			(gpio_get_value(host->gpio_cd) == host->gpio_polarity_cd);
+
+	if (host->card_always_on && is_card_sdio(sdhost->mmc->card)) {
+		int ret = 0;
+
+		/* soft reset SD host controller and enable interrupts */
+		ret = tegra_sdhci_restore(sdhost);
+		if (ret) {
+			dev_err(dev, "failed to resume host\n");
+			return ret;
+		}
+
+		mmiowb();
+		sdhost->mmc->ops->set_ios(sdhost->mmc, &sdhost->mmc->ios);
+		return 0;
+	}
+
+	if (host->hOdmSdio)
+		NvOdmSdioResume(host->hOdmSdio);
+
+	return sdhci_resume_host(sdhost);
 }
+static struct dev_pm_ops tegra_sdhci_pm = {
+	.suspend = tegra_sdhci_suspend,
+	.resume = tegra_sdhci_resume,
+};
+#define tegra_sdhci_pm_ops (&tegra_sdhci_pm)
+#else
+#define tegra_sdhci_pm_ops NULL
 #endif
 
 struct platform_driver tegra_sdhci_driver = {
 	.probe		= tegra_sdhci_probe,
-	.remove		= __devexit_p(tegra_sdhci_remove),
-#if defined(CONFIG_PM)
-	.suspend = tegra_sdhci_suspend,
-	.resume = tegra_sdhci_resume,
-#else
-	.suspend = NULL,
-	.resume = NULL,
-#endif
+	.remove		= tegra_sdhci_remove,
 	.driver		= {
 		.name	= "tegra-sdhci",
 		.owner	= THIS_MODULE,
+		.pm	= tegra_sdhci_pm_ops,
 	},
 };
 
@@ -463,4 +569,3 @@ module_exit(tegra_sdhci_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION(DRIVER_DESC);
-

@@ -1,30 +1,56 @@
 /*
  * arch/arm/mach-tegra/include/mach/uncompress.h
  *
- * Copyright (c) 2009, NVIDIA Corporation.
+ * Copyright (C) 2010 Google, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * Author:
+ *	Colin Cross <ccross@google.com>
+ *	Erik Gilling <konkers@google.com>
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
  */
 
 #ifndef __MACH_TEGRA_UNCOMPRESS_H
 #define __MACH_TEGRA_UNCOMPRESS_H
 
-#include "hardware.h"
+#include <linux/types.h>
+#include <linux/serial_reg.h>
+
+#include <mach/iomap.h>
+
+#if defined(CONFIG_TEGRA_DEBUG_UARTA)
+#define DEBUG_UART_BASE TEGRA_UARTA_BASE
+#elif defined(CONFIG_TEGRA_DEBUG_UARTB)
+#define DEBUG_UART_BASE TEGRA_UARTB_BASE
+#elif defined(CONFIG_TEGRA_DEBUG_UARTC)
+#define DEBUG_UART_BASE TEGRA_UARTC_BASE
+#elif defined(CONFIG_TEGRA_DEBUG_UARTD)
+#define DEBUG_UART_BASE TEGRA_UARTD_BASE
+#elif defined(CONFIG_TEGRA_DEBUG_UARTE)
+#define DEBUG_UART_BASE TEGRA_UARTE_BASE
+#else
+#define DEBUG_UART_BASE NULL
+#endif
 
 static void putc(int c)
 {
+	volatile u8 *uart = (volatile u8 *)DEBUG_UART_BASE;
+	int shift = 2;
+
+	if (uart == NULL)
+		return;
+
+	while (!(uart[UART_LSR << shift] & UART_LSR_THRE))
+		barrier();
+	uart[UART_TX << shift] = c;
 }
 
 static inline void flush(void)
@@ -33,6 +59,16 @@ static inline void flush(void)
 
 static inline void arch_decomp_setup(void)
 {
+	volatile u8 *uart = (volatile u8 *)DEBUG_UART_BASE;
+	int shift = 2;
+
+	if (uart == NULL)
+		return;
+
+	uart[UART_LCR << shift] |= UART_LCR_DLAB;
+	uart[UART_DLL << shift] = 0x75;
+	uart[UART_DLM << shift] = 0x0;
+	uart[UART_LCR << shift] = 3;
 }
 
 static inline void arch_decomp_wdog(void)

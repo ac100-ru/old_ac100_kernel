@@ -35,7 +35,6 @@
 #include "nvrm_memmgr.h"
 #include "nvrm_module.h"
 #include "nvrm_owr.h"
-#include "nvrm_pcie.h"
 #include "nvrm_pinmux.h"
 #include "nvrm_pmu.h"
 #include "nvrm_power.h"
@@ -104,4 +103,3 @@ EXPORT_SYMBOL(NvRmSpiOpen);
 EXPORT_SYMBOL(NvRmSpiClose);
 EXPORT_SYMBOL(NvRmSpiStartTransaction);
 EXPORT_SYMBOL(NvRmSpiGetTransactionData);
-

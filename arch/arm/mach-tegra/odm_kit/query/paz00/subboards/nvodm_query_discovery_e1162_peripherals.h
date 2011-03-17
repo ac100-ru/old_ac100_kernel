@@ -305,12 +305,33 @@
     NvOdmPeripheralClass_Other
 },
 
+// Power for HDMI Hotplug
+{
+    NV_VDD_HDMI_INT_ID,
+    s_HdmiHotplug,
+    NV_ARRAY_SIZE(s_HdmiHotplug),
+    NvOdmPeripheralClass_Other
+},
+
 //  PMU0
 {
     NV_ODM_GUID('t','p','s','6','5','8','6','x'),
     s_Pmu0Addresses,
     NV_ARRAY_SIZE(s_Pmu0Addresses),
     NvOdmPeripheralClass_Other
+},
+// PMU voltage rails enabled by AP GPIOs
+{
+    TPS_EXT_GUID(Ext_SWITCHPmuSupply_VDDIO_SD),
+    s_Vddio_Sd_En,
+    NV_ARRAY_SIZE(s_Vddio_Sd_En),
+    NvOdmPeripheralClass_Other,
+},
+{
+    TPS_EXT_GUID(Ext_SWITCHPmuSupply_VDD_PNL),
+    s_Vddio_Pnl_En,
+    NV_ARRAY_SIZE(s_Vddio_Pnl_En),
+    NvOdmPeripheralClass_Other,
 },
 
 //  SMSC3317 ULPI USB PHY
@@ -361,27 +382,12 @@
     NvOdmPeripheralClass_Other
 },
 
-// Bluetooth
-{
-    NV_ODM_GUID('b','l','u','t','o','o','t','h'),
-    s_p1162BluetoothAddresses,
-    NV_ARRAY_SIZE(s_p1162BluetoothAddresses),
-    NvOdmPeripheralClass_Other
-},
-
-// Sdio wlan  on COMMs Module
-{
-    NV_ODM_GUID('s','d','i','o','w','l','a','n'),
-    s_WlanAddresses,
-    NV_ARRAY_SIZE(s_WlanAddresses),
-    NvOdmPeripheralClass_Other
-},
-
-// Audio codec
+// Audio codec (I2C_1 edition)
 {
     NV_ODM_GUID('a','l','c','5','6','3','2','_'),
     s_AudioCodecAddressesI2C_1,
     NV_ARRAY_SIZE(s_AudioCodecAddressesI2C_1),
     NvOdmPeripheralClass_Other
 },
+
 // NOTE: This list *must* end with a trailing comma.

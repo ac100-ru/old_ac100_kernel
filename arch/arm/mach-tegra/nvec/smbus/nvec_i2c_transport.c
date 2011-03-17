@@ -99,12 +99,6 @@
     NV_DRF_DEF(I2C, I2C_SL_CNFG, NACK, ENABLE) | \
     NV_DRF_DEF(I2C, I2C_SL_CNFG, RESP, DISABLE)
 
-
-#ifdef DEBUG_EC_REQ
-static NvU32 sReqAssertTime = 0; //for calculate EC_REQ# period
-static NvU32 sReqDeassertTime = 0;
-#endif
-
 #if CAPTURE_TX_RX_DATA
 #define CAPTURE_DATA_BUFFER_SIZE 2048
 
@@ -313,35 +307,25 @@ HwI2cHandleVariableRead(
     NvBool ValidProtocol = NV_FALSE;
     NvU8 PECBytes = IsPECSupported ? 1 : 0;
     NvRmGpioPinState PinState = NvRmGpioPinState_High;
-    NvU64 IsrCurrentTime, IsrDiffTime, IsrTMAX;
-    NvOsMemset(&IsrTMAX, 0xff, sizeof(NvU64));
-
+    NvU64 IsrCurrentTime, IsrDiffTime, IsrTMAX; 
+    NvOsMemset(&IsrTMAX, 0xff, sizeof(NvU64)); 
+    
     // No request is pending. Just send 0xFF's to release bus and clear intr.
     if (t->SendPending == NV_FALSE)
     {
+PRINT_I2C_MESSAGES(("No Pending Req, send ping insteaded\n", t->SendCounter, t->NumBytesToSend ));
         //I2C_REGW(t, I2C_SL_RCVD, DataToSend);
-        //PRINT_I2C_MESSAGES(("DW Invalid=0x%x", DataToSend));
-        //goto exit;
-        PRINT_I2C_MESSAGES(("No Pending Req, send ping insteaded\n", 
-                           t->SendCounter, t->NumBytesToSend ));
-        t->SendBuffer[0] = 0x8a;
-        t->SendBuffer[1] = 0x02;
-        t->SendBuffer[2] = 0x07;
-        t->SendBuffer[3] = 0x02;
+	t->SendBuffer[0] = 0x8a;
+	t->SendBuffer[1] = 0x02;
+	t->SendBuffer[2] = 0x07;
+	t->SendBuffer[3] = 0x02;
         ValidProtocol = NV_TRUE;
         t->SendPending = NV_TRUE;
         t->NumBytesToSend = 4;
-        t->SendCounter = 0;
+	t->SendCounter = 0;
         I2C_REGW(t, I2C_SL_RCVD, t->SendBuffer[t->SendCounter++]);
-        if (t->hEcRequestPin) {
+        if (t->hEcRequestPin)
            NvRmGpioWritePins(t->hGpio, &t->hEcRequestPin, &PinState, 1);
-#ifdef DEBUG_EC_REQ
-           sReqDeassertTime = (NvU32)NvOsGetTimeUS();
-		   NvOsDebugPrintf(">>> EC_REQ deassert time=%d, 0xFF (%d)\n", 
-		           sReqDeassertTime, 
-				   (int)(sReqDeassertTime-sReqAssertTime));
-#endif
-		}
     }
 
     if (NV_DRF_VAL(I2C, I2C_SL_STATUS, RCVD, SlaveStatus))
@@ -371,15 +355,8 @@ HwI2cHandleVariableRead(
             I2C_REGW(t, I2C_SL_RCVD, DataToSend);
             ValidProtocol = NV_TRUE;
             // De-assert the Gpio Line here.
-            if (t->hEcRequestPin) {
+            if (t->hEcRequestPin)
                 NvRmGpioWritePins(t->hGpio, &t->hEcRequestPin, &PinState, 1);
-#ifdef DEBUG_EC_REQ
-               sReqDeassertTime = (NvU32)NvOsGetTimeUS();
-		       NvOsDebugPrintf(">>> EC_REQ deassert time=%d, #OK (%d)\n", 
-		           sReqDeassertTime, 
-				   (int)(sReqDeassertTime-sReqAssertTime));
-#endif
-			}
         }
     }
     else
@@ -827,7 +804,7 @@ NvEcTransportOpen(NvEcTransportHandle *phEcTrans,
         NV_ASSERT_SUCCESS(NvRmOpen(&t->hRmDevice, 0));
         t->ModuleId = NvRmModuleID_I2c;
         // FIXME: Get clock speed from ODM?
-        t->ClockSpeedInKHz = 100;
+        t->ClockSpeedInKHz = 80;
         I2cGetSocCapabilities(t->hRmDevice, t->Instance, &t->I2cSocCaps);
         NV_ASSERT_SUCCESS(NvRmGpioOpen(t->hRmDevice, &t->hGpio));
         NvRmGpioAcquirePinHandle(t->hGpio, GpioPort, GpioPin, &t->hEcRequestPin);
@@ -916,13 +893,8 @@ NvEcTransportAsyncSendPacket(
     t->SendPending = NV_TRUE;
     PRINT_I2C_MESSAGES(("\r\nBytes2Send=%d\r\n", t->NumBytesToSend));
     // Assert the Gpio Line here.
-    if (t->hEcRequestPin) {
+    if (t->hEcRequestPin)
         NvRmGpioWritePins(t->hGpio, &t->hEcRequestPin, &PinState, 1);
-#ifdef DEBUG_EC_REQ
-        sReqAssertTime = (NvU32)NvOsGetTimeUS();
-		NvOsDebugPrintf(">>> EC_REQ Assert time = %d\n", sReqAssertTime);
-#endif
-	}
     return e;
 }
 
@@ -939,15 +911,8 @@ NvEcTransportAbortSendPacket(
     // Clear Send Complete Event.
     t->Status = 0;
     // De-assert the Gpio Line here.
-    if (t->hEcRequestPin) {
+    if (t->hEcRequestPin)
         NvRmGpioWritePins(t->hGpio, &t->hEcRequestPin, &PinState, 1);
-#ifdef DEBUG_EC_REQ
-        sReqDeassertTime = (NvU32)NvOsGetTimeUS();
-		NvOsDebugPrintf(">>> EC_REQ deassert time=%d, Abort (%d)\n", 
-		           sReqDeassertTime, 
-				   (int)(sReqDeassertTime-sReqAssertTime));
-#endif
-	}
     NvOsIntrMutexUnlock(t->I2cThreadSafetyMutex);
 }
 

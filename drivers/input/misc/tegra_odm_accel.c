@@ -20,6 +20,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define NV_DEBUG 0
+
 #include <linux/module.h>
 #include <linux/input.h>
 #include <linux/platform_device.h>
@@ -28,7 +30,6 @@
 #include <linux/device.h>
 #include <asm/uaccess.h>
 #include <linux/kernel.h>
-#include <linux/tegra_devices.h>
 
 #include <nvodm_services.h>
 #include <nvodm_accelerometer.h>
@@ -82,7 +83,7 @@ static enum {
 }accel_enum;
 
 /** Function to close the ODM device. This function will help in switching
- * between power modes 
+ * between power modes
  */
 void close_odm_accl(void)
 {
@@ -91,59 +92,19 @@ void close_odm_accl(void)
 }
 
 /** Function to open the ODM device with a set of default values. The values
- * are hardcoded as of now. Each time the device is closed/open, previous 
+ * are hardcoded as of now. Each time the device is closed/open, previous
  * settings will be lost. This function will help in switching
  * between power modes
  */
 NvBool open_def_odm_accl(void)
 {
 	NvBool err;
-	
+
 	err = NvOdmAccelOpen(&(accel_dev->hOdmAcr));
 	if (!err) {
 		pr_err("open_def_odm_accl: NvOdmAccelOpen failed\n");
-		return err;
 	}
 
-	err = NvOdmAccelSetIntForceThreshold(accel_dev->hOdmAcr,
-		 NvOdmAccelInt_MotionThreshold, 0, 900);
-	if (!err) {
-		pr_err("open_def_odm_accl: Set Motion Thresold failed\n");
-		return err;
-	}
-
-	err = NvOdmAccelSetIntEnable(accel_dev->hOdmAcr,
-		NvOdmAccelInt_MotionThreshold, NvOdmAccelAxis_All, 0, NV_TRUE);
-
-	if (!err) {
-		pr_err("open_def_odm_accl: Enable Motion Thresold failed\n");
-		return err;
-	}
-	
-	
-	err = NvOdmAccelSetIntEnable(accel_dev->hOdmAcr,
-		NvOdmAccelInt_TapThreshold, NvOdmAccelAxis_All, 0, NV_TRUE);
-
-	if (!err) {
-		pr_err("open_def_odm_accl: Enable Tap Threshold failed\n");
-		return err;
-	}
-
-	err = NvOdmAccelSetIntForceThreshold(accel_dev->hOdmAcr,
-		NvOdmAccelInt_TapThreshold, 0, 120);
-
-	if (!err) {
-		pr_err("open_def_odm_accl: Set Tap Threshold failed\n");
-		return err;
-	}
-
-	err = NvOdmAccelSetIntTimeThreshold(accel_dev->hOdmAcr,
-		NvOdmAccelInt_TapThreshold, 0, 2);
-
-	if (!err) {
-		pr_err("open_def_odm_accl: SetIntTimeThreshold failed\n");
-		return err;
-	}
 	return err;
 }
 
@@ -239,7 +200,7 @@ ssize_t read_sysfs_accel(struct device *dev,
 }
 
 /** Function to take settings values to the caller modules/application
- * though the use of sysfs. This function can be used to set the 
+ * though the use of sysfs. This function can be used to set the
  * device specific caps/attributes as specidied by the caller modules/app
  *  This function maps to store of sysfs
  */
@@ -259,7 +220,7 @@ ssize_t write_sysfs_accel(struct device *dev,
 	memcpy(input, buffer, count);
 
 	input[count] = '\0';
-	for (i=0; i<NV_ARRAY_SIZE(parameter); i++)  { 
+	for (i=0; i<NV_ARRAY_SIZE(parameter); i++)  {
 		if (count > strlen(parameter[i]) &&
 			!strncmp(parameter[i], input, strlen(parameter[i]))) {
 			value = simple_strtol(&input[strlen(parameter[i])],
@@ -286,7 +247,7 @@ err_0:
 
 }
 
-/** 
+/*
  * Function to register sysfs "device" and register the corresponding read
  * write functions
  */
@@ -298,13 +259,13 @@ NvS32 add_sysfs_entry(void)
 		&dev_attr_tegra_accelerometer);
 }
 
-/** 
+/*
  * Function to register sysfs "device" and register the corresponding read
  * write functions
  */
 NvS32 remove_sysfs_entry(void)
 {
-	device_remove_file(&accel_dev->input_dev->dev, 
+	device_remove_file(&accel_dev->input_dev->dev,
 		&dev_attr_tegra_accelerometer);
 	return 0;
 }
@@ -313,9 +274,8 @@ NvS32 remove_sysfs_entry(void)
  * Thread that waits for the interrupt from ODM and then sends out the
  * corresponding events.
  */
-static NvS32 tegra_acc_thread (void *pdata)
+static int tegra_acc_thread(void *pdata)
 {
-	
 	struct tegra_acc_device_data *accelerometer =
 		(struct tegra_acc_device_data*)pdata;
 	NvS32 x=0, y=0, z=0;
@@ -339,14 +299,14 @@ static NvS32 tegra_acc_thread (void *pdata)
 
 		accelerometer->prev_data.x = x;
 		accelerometer->prev_data.y = y;
-		accelerometer->prev_data.z = z;		
+		accelerometer->prev_data.z = z;
 	}
-	
-	return -1;
+
+	return 0;
 }
 
 /**
- * All the device spefic initializations happen here. 
+ * All the device spefic initializations happen here.
  */
 static NvS32 __init tegra_acc_probe(struct platform_device *pdev)
 {
@@ -370,7 +330,7 @@ static NvS32 __init tegra_acc_probe(struct platform_device *pdev)
 		goto allocate_dev_fail;
 	}
 	g_input_dev = input_dev;
-	
+
 	ret = open_def_odm_accl();
 	if (!ret) {
 		pr_err("open_def_odm_accl failed\n");
@@ -378,7 +338,7 @@ static NvS32 __init tegra_acc_probe(struct platform_device *pdev)
 	}
 
 	//start the Int thread.
-	accelerometer->task = kthread_create(tegra_acc_thread, 
+	accelerometer->task = kthread_create(tegra_acc_thread,
 		accelerometer, "tegra_acc_thread");
 	if (accelerometer->task == NULL) {
 		err = -1;
@@ -391,14 +351,14 @@ static NvS32 __init tegra_acc_probe(struct platform_device *pdev)
 	set_bit(EV_KEY, accelerometer->input_dev->evbit);
 	set_bit(EV_ABS, accelerometer->input_dev->evbit);
 
-	input_set_abs_params(accelerometer->input_dev, ABS_X, 
-		accelerometer->min_data.x, 
+	input_set_abs_params(accelerometer->input_dev, ABS_X,
+		accelerometer->min_data.x,
 		accelerometer->max_data.x, 0, 0);
 	input_set_abs_params(accelerometer->input_dev, ABS_Y,
-		accelerometer->min_data.y, 
+		accelerometer->min_data.y,
 		accelerometer->max_data.y, 0, 0);
 	input_set_abs_params(accelerometer->input_dev, ABS_Z,
-		accelerometer->min_data.z, 
+		accelerometer->min_data.z,
 		accelerometer->max_data.z, 0, 0);
 
 	platform_set_drvdata(pdev, accelerometer);
@@ -443,9 +403,27 @@ static NvS32 tegra_acc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static int tegra_acc_suspend(struct platform_device *pAccel, pm_message_t state)
+{
+	if (NvOdmAccelSetPowerState(accel_dev->hOdmAcr, NvOdmAccelPower_Standby))
+		return 0;
+	else
+		return -EIO;
+}
+
+static int tegra_acc_resume(struct platform_device *pAccel)
+{
+	if (NvOdmAccelSetPowerState(accel_dev->hOdmAcr, NvOdmAccelPower_Fullrun))
+		return 0;
+	else
+		return -EIO;
+}
+
 static struct platform_driver tegra_acc_driver = {
 	.probe	= tegra_acc_probe,
 	.remove	= tegra_acc_remove,
+	.suspend	= tegra_acc_suspend,
+	.resume	= tegra_acc_resume,
 	.driver	= {
 		.name = "tegra_accelerometer",
 	},

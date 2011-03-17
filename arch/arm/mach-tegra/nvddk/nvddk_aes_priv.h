@@ -84,11 +84,20 @@ typedef struct AesIvContextRec
 {
     // Updated/current Iv for each key slot
     NvU32 CurIv[AesHwKeySlot_NumExt][AES_HW_IV_LENGTH];
-    // Iv read permissions for each key slot
-    NvBool IsIvReadable[AesHwKeySlot_NumExt];
     // The current key slot in use
     AesHwKeySlot CurKeySlot;
 } AesIvContext;
+
+// Wrapped key slot information context
+typedef struct AesWrappedKeyContextRec
+{
+    // Wrapped key for dedicated slot
+    NvU8 WrappedKey[NvDdkAesConst_MaxKeyLengthBytes];
+    // Wrapped Iv for dedicated slot
+    NvU8 WrappedIv[AES_RFC_IV_LENGTH_BYTES];
+    // KeySlot used for encrypiton or decryption
+    NvBool IsEncryption;
+} AesWrappedKeyContext;
 
 typedef struct AesHwInterfaceRec AesHwInterface;
 
@@ -146,13 +155,13 @@ typedef struct AesHwContextRec
     NvU32 CommandQueueData[AesHwEngine_Num][AES_HW_MAX_ICQ_LENGTH];
     // Iv Context for each AES engine
     AesIvContext IvContext[AesHwEngine_Num];
-    // Indicates whether X9.31 operations are allowed or not
-    NvBool IsX931OpsDisallowed;
 } AesHwContext;
 
 // AES Core Engine record
 typedef struct AesCoreEngineRec
 {
+    // Dedicated slot Key Information
+    AesWrappedKeyContext DedicatedSlotKeyInfo[AesHwEngine_Num][AesHwKeySlot_NumExt];
     // Keeps the count of open handles
     NvU32 OpenCount;
     // Id returned from driver's registration with Power Manager
@@ -175,6 +184,8 @@ typedef struct AesCoreEngineRec
     AesHwContext AesHwCtxt;
     // Indicates whether engine is disabled or not
     NvBool IsEngineDisabled;
+    // Indicates whether ssk update is allowed or not
+    NvBool SskUpdateAllowed;
 } AesCoreEngine;
 
 // Set of function pointers to be used to access the hardware interface for
@@ -378,14 +389,26 @@ struct AesHwInterfaceRec
     NvBool (*AesHwIsEngineDisabled)(const AesHwContext *const pAesHwCtxt, const AesHwEngine Engine);
 
     /**
-     * Get the read permissions for IV for each key slot of an engine.
+     * Disables read access to all key slots for the given engine.
      *
-     * @param Engine AES Engine for which Iv permissions for an engine are sought.
-     * @param pAesHwCtxt Pointer to the AES H/W context.
+     * @param pAesHwCtxt Pointer to the AES H/W context
+     * @param Engine AES engine for which key reads needs to be disabled
+     * @param NumSlotsSupported Number of key slots supported in the engine
      *
-     * @retval None.
+     * @retval None
      */
-    void (*AesHwGetIvReadPermissions)(const AesHwEngine Engine, AesHwContext *const pAesHwCtxt);
+    void (*AesHwDisableAllKeyRead)(
+        const AesHwContext *const pAesHwCtxt,
+        const AesHwEngine Engine,
+        const AesHwKeySlot NumSlotsSupported);
+
+    /**
+     * Queries whether SSK update is allowed or not
+     *
+     * @retval NV_TRUE if SSK update is allowed
+     * @retval NV_FALSE if SSK update is not allowed
+     */
+    NvBool (*AesHwIsSskUpdateAllowed)(void);
 };
 
 // AES client state: this structure is common to all clients
@@ -434,4 +457,3 @@ void NvAesIntfAp20GetHwInterface(AesHwInterface *const pAp20AesHw);
 #endif
 
 #endif // INCLUDED_NVDDK_AES_PRIV_H
-

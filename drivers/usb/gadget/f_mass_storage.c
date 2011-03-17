@@ -69,24 +69,23 @@
 #include <linux/wakelock.h>
 #include <linux/platform_device.h>
 
+#include <linux/usb.h>
 #include <linux/usb_usual.h>
 #include <linux/usb/ch9.h>
-#include <linux/usb/composite.h>
-#include <linux/usb/gadget.h>
-#include <linux/usb/android.h>
+#include <linux/usb/android_composite.h>
 
-#include "f_mass_storage.h"
 #include "gadget_chips.h"
 
 
 #define BULK_BUFFER_SIZE           4096
+
 
 /*-------------------------------------------------------------------------*/
 
 #define DRIVER_NAME		"usb_mass_storage"
 #define MAX_LUNS		8
 
-#define DEFAULT_VENDOR  "TOSHIBA"
+#define DEFAULT_VENDOR "TOSHIBA"
 #define DEFAULT_PRODUCT "AC_AND_AZ"
 
 static const char shortname[] = DRIVER_NAME;
@@ -602,6 +601,7 @@ static void bulk_in_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	struct fsg_dev		*fsg = ep->driver_data;
 	struct fsg_buffhd	*bh = req->context;
+	unsigned long		flags;
 
 	if (req->status || req->actual != req->length)
 		DBG(fsg, "%s --> %d, %u/%u\n", __func__,
@@ -609,17 +609,18 @@ static void bulk_in_complete(struct usb_ep *ep, struct usb_request *req)
 
 	/* Hold the lock while we update the request and buffer states */
 	smp_wmb();
-	spin_lock(&fsg->lock);
+	spin_lock_irqsave(&fsg->lock, flags);
 	bh->inreq_busy = 0;
 	bh->state = BUF_STATE_EMPTY;
 	wakeup_thread(fsg);
-	spin_unlock(&fsg->lock);
+	spin_unlock_irqrestore(&fsg->lock, flags);
 }
 
 static void bulk_out_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	struct fsg_dev		*fsg = ep->driver_data;
 	struct fsg_buffhd	*bh = req->context;
+	unsigned long		flags;
 
 	dump_msg(fsg, "bulk-out", req->buf, req->actual);
 	if (req->status || req->actual != bh->bulk_out_intended_length)
@@ -629,11 +630,11 @@ static void bulk_out_complete(struct usb_ep *ep, struct usb_request *req)
 
 	/* Hold the lock while we update the request and buffer states */
 	smp_wmb();
-	spin_lock(&fsg->lock);
+	spin_lock_irqsave(&fsg->lock, flags);
 	bh->outreq_busy = 0;
 	bh->state = BUF_STATE_FULL;
 	wakeup_thread(fsg);
-	spin_unlock(&fsg->lock);
+	spin_unlock_irqrestore(&fsg->lock, flags);
 }
 
 static int fsg_function_setup(struct usb_function *f,
@@ -712,15 +713,16 @@ static void start_transfer(struct fsg_dev *fsg, struct usb_ep *ep,
 		enum fsg_buffer_state *state)
 {
 	int	rc;
+	unsigned long		flags;
 
 	DBG(fsg, "start_transfer req: %p, req->buf: %p\n", req, req->buf);
 	if (ep == fsg->bulk_in)
 		dump_msg(fsg, "bulk-in", req->buf, req->length);
 
-	spin_lock_irq(&fsg->lock);
+	spin_lock_irqsave(&fsg->lock, flags);
 	*pbusy = 1;
 	*state = BUF_STATE_BUSY;
-	spin_unlock_irq(&fsg->lock);
+	spin_unlock_irqrestore(&fsg->lock, flags);
 	rc = usb_ep_queue(ep, req, GFP_KERNEL);
 	if (rc != 0) {
 		*pbusy = 0;
@@ -1251,10 +1253,10 @@ static int do_inquiry(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 	buf[3] = 2;		/* SCSI-2 INQUIRY data format */
 	buf[4] = 31;		/* Additional length */
 				/* No special options */
-	sprintf(buf + 8, "%-8s%-16s%04x", DEFAULT_VENDOR,
-			DEFAULT_PRODUCT, fsg->release);
 	//sprintf(buf + 8, "%-8s%-16s%04x", fsg->vendor,
 			//fsg->product, fsg->release);
+	sprintf(buf + 8, "%-8s%-16s%04x", DEFAULT_VENDOR,
+            DEFAULT_PRODUCT, fsg->release);
 	return 36;
 }
 
@@ -1733,9 +1735,10 @@ static int check_command(struct fsg_dev *fsg, int cmnd_size,
 	/* Verify the length of the command itself */
 	if (cmnd_size != fsg->cmnd_size) {
 
-		/* Special case workaround: MS-Windows issues REQUEST SENSE
-		 * with cbw->Length == 12 (it should be 6). */
-		if (fsg->cmnd[0] == SC_REQUEST_SENSE && fsg->cmnd_size == 12)
+		/* Special case workaround: MS-Windows issues REQUEST_SENSE
+		 * and INQUIRY commands with cbw->Length == 12 (it should be 6). */
+		if ((fsg->cmnd[0] == SC_REQUEST_SENSE && fsg->cmnd_size == 12)
+		 || (fsg->cmnd[0] == SC_INQUIRY && fsg->cmnd_size == 12))
 			cmnd_size = fsg->cmnd_size;
 		else {
 			fsg->phase_error = 1;
@@ -2227,8 +2230,9 @@ static void adjust_wake_lock(struct fsg_dev *fsg)
 {
 	int ums_active = 0;
 	int i;
+	unsigned long		flags;
 
-	spin_lock_irq(&fsg->lock);
+	spin_lock_irqsave(&fsg->lock, flags);
 
 	if (fsg->config) {
 		for (i = 0; i < fsg->nluns; ++i) {
@@ -2242,7 +2246,7 @@ static void adjust_wake_lock(struct fsg_dev *fsg)
 	else
 		wake_unlock(&fsg->wake_lock);
 
-	spin_unlock_irq(&fsg->lock);
+	spin_unlock_irqrestore(&fsg->lock, flags);
 }
 
 /*
@@ -2257,18 +2261,19 @@ static int do_set_config(struct fsg_dev *fsg, u8 new_config)
 {
 	int	rc = 0;
 
-	if (new_config == fsg->config)
-		return rc;
-
 	/* Disable the single interface */
 	if (fsg->config != 0) {
 		DBG(fsg, "reset config\n");
 		fsg->config = 0;
+		rc = do_set_interface(fsg, -1);
 	}
 
 	/* Enable the interface */
-	if (new_config != 0)
+	if (new_config != 0) {
 		fsg->config = new_config;
+		if ((rc = do_set_interface(fsg, 0)) != 0)
+			fsg->config = 0;	// Reset on errors
+	}
 
 	switch_set_state(&fsg->sdev, new_config);
 	adjust_wake_lock(fsg);
@@ -2283,11 +2288,13 @@ static void handle_exception(struct fsg_dev *fsg)
 	siginfo_t		info;
 	int			sig;
 	int			i;
+	int			num_active;
 	struct fsg_buffhd	*bh;
 	enum fsg_state		old_state;
 	u8			new_config;
 	struct lun		*curlun;
 	int			rc;
+	unsigned long		flags;
 
 	DBG(fsg, "handle_exception state: %d\n", (int)fsg->state);
 	/* Clear the existing signals.  Anything but SIGUSR1 is converted
@@ -2301,6 +2308,28 @@ static void handle_exception(struct fsg_dev *fsg)
 				DBG(fsg, "Main thread exiting on signal\n");
 			raise_exception(fsg, FSG_STATE_EXIT);
 		}
+	}
+
+	/* Cancel all the pending transfers */
+	for (i = 0; i < NUM_BUFFERS; ++i) {
+		bh = &fsg->buffhds[i];
+		if (bh->inreq_busy)
+			usb_ep_dequeue(fsg->bulk_in, bh->inreq);
+		if (bh->outreq_busy)
+			usb_ep_dequeue(fsg->bulk_out, bh->outreq);
+	}
+
+	/* Wait until everything is idle */
+	for (;;) {
+		num_active = 0;
+		for (i = 0; i < NUM_BUFFERS; ++i) {
+			bh = &fsg->buffhds[i];
+			num_active += bh->outreq_busy;
+		}
+		if (num_active == 0)
+			break;
+		if (sleep_thread(fsg))
+			return;
 	}
 
 	/*
@@ -2317,7 +2346,7 @@ static void handle_exception(struct fsg_dev *fsg)
 	}
 	/* Reset the I/O buffer states and pointers, the SCSI
 	 * state, and the exception.  Then invoke the handler. */
-	spin_lock_irq(&fsg->lock);
+	spin_lock_irqsave(&fsg->lock, flags);
 
 	for (i = 0; i < NUM_BUFFERS; ++i) {
 		bh = &fsg->buffhds[i];
@@ -2342,7 +2371,7 @@ static void handle_exception(struct fsg_dev *fsg)
 		}
 		fsg->state = FSG_STATE_IDLE;
 	}
-	spin_unlock_irq(&fsg->lock);
+	spin_unlock_irqrestore(&fsg->lock, flags);
 
 	/* Carry out any extra actions required for the exception */
 	switch (old_state) {
@@ -2351,10 +2380,10 @@ static void handle_exception(struct fsg_dev *fsg)
 
 	case FSG_STATE_ABORT_BULK_OUT:
 		DBG(fsg, "FSG_STATE_ABORT_BULK_OUT\n");
-		spin_lock_irq(&fsg->lock);
+		spin_lock_irqsave(&fsg->lock, flags);
 		if (fsg->state == FSG_STATE_STATUS_PHASE)
 			fsg->state = FSG_STATE_IDLE;
-		spin_unlock_irq(&fsg->lock);
+		spin_unlock_irqrestore(&fsg->lock, flags);
 		break;
 
 	case FSG_STATE_RESET:
@@ -2373,14 +2402,10 @@ static void handle_exception(struct fsg_dev *fsg)
 
 	case FSG_STATE_EXIT:
 	case FSG_STATE_TERMINATED:
-		if (new_config)  {
-			fsg->new_config = 0;
-			do_set_interface(fsg, -1);
-		}
 		do_set_config(fsg, 0);			/* Free resources */
-		spin_lock_irq(&fsg->lock);
+		spin_lock_irqsave(&fsg->lock, flags);
 		fsg->state = FSG_STATE_TERMINATED;	/* Stop the thread */
-		spin_unlock_irq(&fsg->lock);
+		spin_unlock_irqrestore(&fsg->lock, flags);
 		break;
 	}
 }
@@ -2391,6 +2416,7 @@ static void handle_exception(struct fsg_dev *fsg)
 static int fsg_main_thread(void *fsg_)
 {
 	struct fsg_dev		*fsg = fsg_;
+	unsigned long		flags;
 
 	/* Allow the thread to be killed by a signal, but set the signal mask
 	 * to block everything but INT, TERM, KILL, and USR1. */
@@ -2422,31 +2448,31 @@ static int fsg_main_thread(void *fsg_)
 		if (get_next_command(fsg))
 			continue;
 
-		spin_lock_irq(&fsg->lock);
+		spin_lock_irqsave(&fsg->lock, flags);
 		if (!exception_in_progress(fsg))
 			fsg->state = FSG_STATE_DATA_PHASE;
-		spin_unlock_irq(&fsg->lock);
+		spin_unlock_irqrestore(&fsg->lock, flags);
 
 		if (do_scsi_command(fsg) || finish_reply(fsg))
 			continue;
 
-		spin_lock_irq(&fsg->lock);
+		spin_lock_irqsave(&fsg->lock, flags);
 		if (!exception_in_progress(fsg))
 			fsg->state = FSG_STATE_STATUS_PHASE;
-		spin_unlock_irq(&fsg->lock);
+		spin_unlock_irqrestore(&fsg->lock, flags);
 
 		if (send_status(fsg))
 			continue;
 
-		spin_lock_irq(&fsg->lock);
+		spin_lock_irqsave(&fsg->lock, flags);
 		if (!exception_in_progress(fsg))
 			fsg->state = FSG_STATE_IDLE;
-		spin_unlock_irq(&fsg->lock);
-		}
+		spin_unlock_irqrestore(&fsg->lock, flags);
+	}
 
-	spin_lock_irq(&fsg->lock);
+	spin_lock_irqsave(&fsg->lock, flags);
 	fsg->thread_task = NULL;
-	spin_unlock_irq(&fsg->lock);
+	spin_unlock_irqrestore(&fsg->lock, flags);
 
 	/* In case we are exiting because of a signal, unregister the
 	 * gadget driver and close the backing file. */
@@ -2720,7 +2746,7 @@ fsg_function_unbind(struct usb_configuration *c, struct usb_function *f)
 	switch_dev_unregister(&fsg->sdev);
 }
 
-static int __init
+static int
 fsg_function_bind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct usb_composite_dev *cdev = c->cdev;
@@ -2766,8 +2792,7 @@ fsg_function_bind(struct usb_configuration *c, struct usb_function *f)
 		else
 			curlun->dev.parent = &cdev->gadget->dev;
 		dev_set_drvdata(&curlun->dev, fsg);
-		snprintf(curlun->dev.bus_id, BUS_ID_SIZE,
-				"lun%d", i);
+		dev_set_name(&curlun->dev,"lun%d", i);
 
 		rc = device_register(&curlun->dev);
 		if (rc != 0) {
@@ -2879,7 +2904,6 @@ static int fsg_function_set_alt(struct usb_function *f,
 	struct fsg_dev	*fsg = func_to_dev(f);
 	DBG(fsg, "fsg_function_set_alt intf: %d alt: %d\n", intf, alt);
 	fsg->new_config = 1;
-	do_set_interface(fsg, 0);
 	raise_exception(fsg, FSG_STATE_CONFIG_CHANGE);
 	return 0;
 }
@@ -2888,8 +2912,6 @@ static void fsg_function_disable(struct usb_function *f)
 {
 	struct fsg_dev	*fsg = func_to_dev(f);
 	DBG(fsg, "fsg_function_disable\n");
-	if (fsg->new_config)
-		do_set_interface(fsg, -1);
 	fsg->new_config = 0;
 	raise_exception(fsg, FSG_STATE_CONFIG_CHANGE);
 }
@@ -2902,8 +2924,7 @@ static int __init fsg_probe(struct platform_device *pdev)
 	fsg->pdev = pdev;
 	printk(KERN_INFO "fsg_probe pdata: %p\n", pdata);
 
-    fsg->vendor = DEFAULT_VENDOR;
-    fsg->product = DEFAULT_PRODUCT;
+	fsg->buf_size = BULK_BUFFER_SIZE;
 
 	if (pdata) {
         /*
@@ -2916,6 +2937,10 @@ static int __init fsg_probe(struct platform_device *pdev)
 
 		if (pdata->release)
 			fsg->release = pdata->release;
+		fsg->nluns = pdata->nluns;
+
+		if (pdata->bulk_size)
+			fsg->buf_size = pdata->bulk_size;
 	}
 
 	return 0;
@@ -2926,25 +2951,22 @@ static struct platform_driver fsg_platform_driver = {
 	.probe = fsg_probe,
 };
 
-int __init mass_storage_function_add(struct usb_composite_dev *cdev,
-	struct usb_configuration *c, int nluns, size_t bulk_size)
+int mass_storage_bind_config(struct usb_configuration *c)
 {
 	int		rc;
 	struct fsg_dev	*fsg;
 
-	printk(KERN_INFO "mass_storage_function_add\n");
+	printk(KERN_INFO "mass_storage_bind_config\n");
 	rc = fsg_alloc();
 	if (rc)
 		return rc;
 	fsg = the_fsg;
-	fsg->nluns = nluns;
 
 	spin_lock_init(&fsg->lock);
 	init_rwsem(&fsg->filesem);
 	kref_init(&fsg->ref);
 	init_completion(&fsg->thread_notifier);
 
-	the_fsg->buf_size = (bulk_size) ? bulk_size : BULK_BUFFER_SIZE;
 	the_fsg->sdev.name = DRIVER_NAME;
 	the_fsg->sdev.print_name = print_switch_name;
 	the_fsg->sdev.print_state = print_switch_state;
@@ -2959,7 +2981,7 @@ int __init mass_storage_function_add(struct usb_composite_dev *cdev,
 	wake_lock_init(&the_fsg->wake_lock, WAKE_LOCK_SUSPEND,
 			   "usb_mass_storage");
 
-	fsg->cdev = cdev;
+	fsg->cdev = c->cdev;
 	fsg->function.name = shortname;
 	fsg->function.descriptors = fs_function;
 	fsg->function.bind = fsg_function_bind;
@@ -2986,4 +3008,16 @@ err_switch_dev_register:
 	return rc;
 }
 
+static struct android_usb_function mass_storage_function = {
+	.name = "usb_mass_storage",
+	.bind_config = mass_storage_bind_config,
+};
+
+static int __init init(void)
+{
+	printk(KERN_INFO "f_mass_storage init\n");
+	android_register_function(&mass_storage_function);
+	return 0;
+}
+module_init(init);
 

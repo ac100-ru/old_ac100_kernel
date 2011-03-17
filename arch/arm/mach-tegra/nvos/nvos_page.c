@@ -62,9 +62,9 @@ static void pagemap_flush_page(struct page *page)
 	}
 #endif
 
-	__cpuc_flush_dcache_page(page_address(page));
+	__cpuc_flush_dcache_area(page_address(page), PAGE_SIZE);
 	outer_flush_range(page_to_phys(page), page_to_phys(page)+PAGE_SIZE);
-	dsb();
+	wmb();
 
 #ifdef CONFIG_HIGHMEM
 	if (km) kunmap(page);

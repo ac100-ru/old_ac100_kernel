@@ -49,6 +49,8 @@
 #include "nvrm_power.h"
 #include "nvassert.h"
 #include "nvrm_memmgr.h"
+#include "nvodm_query_gpio.h"
+#include "nvrm_gpio.h"
 
 #if defined(__cplusplus)
 extern "C"
@@ -63,7 +65,7 @@ enum {USB_HW_MIN_SYSTEM_FREQ_KH = 100000};
 /**
  * Minimum cpu frequency required for USB for optimal performance
  */
-enum {USB_HW_MIN_CPU_FREQ_KH = 200000};
+enum {USB_HW_MIN_CPU_FREQ_KH = 300000};
 
 /**
  * Wait time(1 second) for controller H/W status to change before giving up.
@@ -178,6 +180,10 @@ typedef struct NvDdkUsbPhyRec
     NvBool TurnOffPowerRail;
     // Indicates phy powered up for the host mode
     NvBool IsHostMode;
+    // Handle to the GPIO
+    NvOdmServicesGpioHandle hGpio;
+    // Handle to the Pin
+    NvOdmGpioPinHandle hPin;
     // Set of function pointers to access the usb phy hardware interface.
     // Pointer to the h/w specific PowerUp function.
     NvError (*PowerUp)(NvDdkUsbPhyHandle hUsbPhy);
@@ -199,15 +205,6 @@ typedef struct NvDdkUsbPhyRec
         const void *pInputArgs,
         void *pOutputArgs);
 } NvDdkUsbPhy;
-
-/**
- * Opens the AP16 specifi H/W Usb Phy interface.
- *
- * @param hUsbPhy handle to the USB phy.
- *
- * @retval None
- */
-void Ap16UsbPhyOpenHwInterface(NvDdkUsbPhy *pUsbPhy);
 
 /**
  * Opens the AP20 specifi H/W Usb Phy interface.

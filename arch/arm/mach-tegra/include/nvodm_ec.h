@@ -40,6 +40,7 @@
 #define CHECK_TOUCHPAD_SCROLL_STATUS    3
 #define ENABLE_TOUCHPAD_SCROLL          4       
 #define DISABLE_TOUCHPAD_SCROLL         5
+#define SETTING_TOUCHPAD_SPEED          6  
 
 /* LED command */
 #define LED_CMD _IOWR(NV_EC_IOC_MAGIC, 2, int)

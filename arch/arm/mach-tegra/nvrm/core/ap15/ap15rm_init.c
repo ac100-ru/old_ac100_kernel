@@ -59,6 +59,7 @@
 #include "nvbootargs.h"
 
 static NvRmDevice gs_Rm;
+NvRmDeviceHandle g_NvRmHandle = &gs_Rm;
 
 extern NvRmCfgMap g_CfgMap[];
 
@@ -70,8 +71,6 @@ extern void NvRmPrivPwmDeInit(NvRmDeviceHandle hRm);
 extern NvU32 NvRmPrivGetBctCustomerOption(NvRmDeviceHandle hRm);
 extern void NvRmPrivReadChipId( NvRmDeviceHandle rm );
 extern NvU32 *NvRmPrivGetRelocationTable( NvRmDeviceHandle hDevice );
-extern NvError NvRmPrivPcieOpen(NvRmDeviceHandle hDeviceHandle);
-extern void NvRmPrivPcieClose(NvRmDeviceHandle hDeviceHandle);
 static void NvRmPrivInitPinAttributes(NvRmDeviceHandle rm);
 static void NvRmPrivBasicReset( NvRmDeviceHandle rm );
 static NvError NvRmPrivMcErrorMonitorStart( NvRmDeviceHandle rm );
@@ -363,23 +362,7 @@ NvRmOpenNew(NvRmDeviceHandle *pHandle)
 
         // set the mc & emc tuning parameters
         NvRmPrivSetupMc(rm);
-        if (!NvRmIsSimulation())
-        {
-            // Configure PLL rails, boost core power and clocks
-            // Initialize and start temperature monitoring
-            NvRmPrivPllRailsInit(rm);
-            NvRmPrivBoostClocks(rm);
-            NvRmPrivDttInit(rm);
-        }
 
-        if (0)  /* FIXME Don't enable PCI yet */
-        {
-            err = NvRmPrivPcieOpen( rm );
-            if (err != NvSuccess && err != NvError_ModuleNotPresent)
-            {
-                goto fail;
-            }
-        }
         // Asynchronous interrupts must be disabled until the very end of
         // RmOpen. They can be enabled just before releasing rm mutex after
         // completion of all initialization calls.
@@ -393,7 +376,7 @@ NvRmOpenNew(NvRmDeviceHandle *pHandle)
         }
 
         // WAR for bug 600821
-        if ((rm->ChipId.Id == 0x20) && 
+        if ((rm->ChipId.Id == 0x20) &&
             (rm->ChipId.Major == 0x1) && (rm->ChipId.Minor == 0x2))
         {
             err = NvRmQueryChipUniqueId(rm, sizeof (NvU64), &Uid);
@@ -426,6 +409,24 @@ fail:
 }
 
 void
+NvRmPrivPostRegulatorInit(NvRmDeviceHandle hDevice)
+{
+    NV_ASSERT(hDevice);
+
+    if (!NVOS_IS_WINDOWS_X86)
+    {
+        if (!NvRmIsSimulation())
+        {
+            // Configure PLL rails, boost core power and clocks
+            // Initialize and start temperature monitoring
+            NvRmPrivPllRailsInit(hDevice);
+            NvRmPrivBoostClocks(hDevice);
+            NvRmPrivDttInit(hDevice);
+        }
+    }
+}
+
+void
 NvRmClose(NvRmDeviceHandle handle)
 {
     if( !handle )
@@ -452,10 +453,6 @@ NvRmClose(NvRmDeviceHandle handle)
             NvRmPrivPmuDeinit(handle);
             handle->refcount = 0;
 
-            if (0)  /* FIXME Don't enable PCIE yet */
-            {
-                NvRmPrivPcieClose( handle );
-            }
         }
 
         if (!NVOS_IS_WINDOWS_X86)
@@ -692,5 +689,3 @@ void NvRmPrivMcErrorMonitorStop( NvRmDeviceHandle rm )
         break;
     }
 }
-
-

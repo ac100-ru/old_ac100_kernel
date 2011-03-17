@@ -90,7 +90,6 @@ Ap20AesHwLoadSskToSecureScratchAndLock(
     const AesHwKey *const pKey,
     const size_t Size);
 static void Ap20AesHwGetUsedSlots(AesCoreEngine *const pAesCoreEngine);
-static void Ap20AesHwGetIvReadPermissions(const AesHwEngine Engine, AesHwContext *const pAesHwCtxt);
 static void
 Ap20AesHwSetKeyAndIv(
     const AesHwEngine Engine,
@@ -118,6 +117,12 @@ Ap20AesHwSetIv(
     const AesHwKeySlot Slot,
     const AesHwIv *const pIv,
     AesHwContext *const pAesHwCtxt);
+static void
+Ap20AesHwDisableAllKeyRead(
+    const AesHwContext *const pAesHwCtxt,
+    const AesHwEngine Engine,
+    const AesHwKeySlot NumSlotsSupported);
+static NvBool Ap20AesIsSskUpdateAllowed(void);
 
 /**
  * Set the Setup Table command required for the AES engine.
@@ -167,9 +172,6 @@ Ap20AesHwSelectKeyIvSlot(
 
     // Wait till engine becomes IDLE
     NvAesCoreAp20WaitTillEngineIdle(Engine, pAesHwCtxt->pVirAdr[Engine]);
-
-    // Allow or disallow X9.31 operations
-    pAesHwCtxt->IsX931OpsDisallowed = !pAesHwCtxt->IvContext[Engine].IsIvReadable[Slot];
 
     // Select the KEY slot for updating the IV vectors
     NvAesCoreAp20SelectKeyIvSlot(Engine, pAesHwCtxt->pVirAdr[Engine], Slot);
@@ -304,6 +306,9 @@ Ap20AesHwSetKeyAndIv(
     // Wait till engine becomes IDLE
     NvAesCoreAp20WaitTillEngineIdle(Engine, pAesHwCtxt->pVirAdr[Engine]);
 
+    // Disable read access to the key slot
+    NvAesCoreAp20KeyReadDisable(Engine, Slot, pAesHwCtxt->pVirAdr[Engine]);
+
     NvAesCoreAp20ControlKeyScheduleGeneration(Engine, pAesHwCtxt->pVirAdr[Engine], NV_TRUE);
 
     Ap20AesHwSelectKeyIvSlot(Engine, Slot, pAesHwCtxt);
@@ -412,8 +417,7 @@ Ap20AesHwLockSskReadWrites(
 }
 
 /**
- * Encrypt/Decrypt a specified number of blocks of cyphertext using
- * Cipher Block Chaining (CBC) mode.  A block is 16 bytes.
+ * Encrypt/Decrypt a specified number of blocks of data. A block is 16 bytes.
  * This is non-blocking API and need to call AesHwEngineIdle()
  * to check the engine status to confirm the AES engine operation is
  * done and comes out of the BUSY state.
@@ -445,13 +449,11 @@ Ap20AesHwStartEngine(
     NvU8 *const pDest,
     AesHwContext *const pAesHwCtxt)
 {
-    NvRmMemHandle hSrcMemBuf = NULL;
-    NvRmMemHandle hDestMemBuf = NULL;
-    NvRmPhysAddr SrcBufferPhyAddr = 0;
-    NvRmPhysAddr DestBufferPhyAddr = 0;
-    NvU32 *pSrcBufferVirtAddr = NULL;
-    NvU32 *pDestBufferVirtAddr = NULL;
-    NvError e;
+    NvU32 TotalBytes = DataSize;
+    NvU32 NumBlocks = 0;
+    NvU32 BytesToProcess = 0;
+    NvU8 *pSourceBuffer = (NvU8 *)pSrc;
+    NvU8 *pDestBuffer = pDest;
 
     NV_ASSERT(pAesHwCtxt);
     NV_ASSERT(pSrc);
@@ -460,13 +462,6 @@ Ap20AesHwStartEngine(
     switch (OpMode)
     {
         case NvDdkAesOperationalMode_AnsiX931:
-        {
-            // If Iv is not readable, don't allow operations to be performed.
-            // Since setting the Iv also uses this API, it should be enough to
-            // disallow operations here.
-            if (pAesHwCtxt->IsX931OpsDisallowed)
-                return NvError_InvalidState;
-        }
         case NvDdkAesOperationalMode_Cbc:
         case NvDdkAesOperationalMode_Ecb:
             break;
@@ -474,114 +469,96 @@ Ap20AesHwStartEngine(
             return NvError_InvalidState;
     }
 
-    NV_CHECK_ERROR_CLEANUP(NvRmMemHandleCreate(pAesHwCtxt->hRmDevice, &hSrcMemBuf, DataSize));
-    if (!hSrcMemBuf)
-    {
-        goto fail;
-    }
-
-    e = NvRmMemHandleCreate(pAesHwCtxt->hRmDevice, &hDestMemBuf, DataSize);
-    if (!hDestMemBuf || (e != NvSuccess))
-    {
-        goto fail1;
-    }
-
-    e = NvRmMemAlloc(hSrcMemBuf,0, 0, 4, NvOsMemAttribute_Uncached);
-    if (e != NvSuccess)
-    {
-        goto fail2;
-    }
-
-    e = NvRmMemAlloc(hDestMemBuf,0, 0, 4, NvOsMemAttribute_Uncached);
-    if (e != NvSuccess)
-    {
-        goto fail2;
-    }
-
-    SrcBufferPhyAddr = NvRmMemPin(hSrcMemBuf);
-    DestBufferPhyAddr = NvRmMemPin(hDestMemBuf);
-
-    e = NvRmPhysicalMemMap(
-        SrcBufferPhyAddr,
-        DataSize,
-        NVOS_MEM_READ_WRITE,
-        NvOsMemAttribute_Uncached,
-        (void **)&pSrcBufferVirtAddr);
-    if (e != NvSuccess)
-    {
-        goto fail3;
-    }
-
-    e = NvRmPhysicalMemMap(
-        DestBufferPhyAddr,
-        DataSize,
-        NVOS_MEM_READ_WRITE,
-        NvOsMemAttribute_Uncached,
-        (void **)&pDestBufferVirtAddr);
-    if (e != NvSuccess)
-    {
-        goto fail4;
-    }
-
     NvOsMutexLock(pAesHwCtxt->Mutex[Engine]);
 
-    NvOsMemcpy((NvU8 *)pSrcBufferVirtAddr, pSrc, DataSize);
-
-    if (DataSize && (!IsEncryption))
+    if (DataSize && (!IsEncryption) && (OpMode == NvDdkAesOperationalMode_Cbc))
     {
         NvOsMemcpy(&pAesHwCtxt->IvContext[Engine].CurIv[pAesHwCtxt->IvContext[Engine].CurKeySlot],
             (pSrc + DataSize - NvDdkAesConst_BlockLengthBytes),
             NvDdkAesConst_BlockLengthBytes);
     }
 
-    NvAesCoreAp20ProcessBuffer(
-        Engine,
-        pAesHwCtxt->pVirAdr[Engine],
-        SrcBufferPhyAddr,
-        DestBufferPhyAddr,
-        DataSize,
-        pAesHwCtxt->DmaPhyAddr[Engine],
-        IsEncryption,
-        OpMode);
+    while (TotalBytes)
+    {
+        if (TotalBytes > AES_HW_DMA_BUFFER_SIZE_BYTES)
+        {
+            BytesToProcess = AES_HW_DMA_BUFFER_SIZE_BYTES;
+        }
+        else
+        {
+            BytesToProcess = TotalBytes;
+        }
 
-    NvOsMemcpy(pDest, (NvU8 *)pDestBufferVirtAddr, DataSize);
+        // Copy data to DMA buffer from the client buffer
+        NvOsMemcpy(pAesHwCtxt->pDmaVirAddr[Engine], (void *)pSourceBuffer, BytesToProcess);
+        NvOsFlushWriteCombineBuffer();
+
+        NumBlocks = BytesToProcess / NvDdkAesConst_BlockLengthBytes;
+
+        NvAesCoreAp20ProcessBuffer(
+            Engine,
+            pAesHwCtxt->pVirAdr[Engine],
+            pAesHwCtxt->DmaPhyAddr[Engine],
+            pAesHwCtxt->DmaPhyAddr[Engine],
+            NumBlocks,
+            IsEncryption,
+            OpMode);
+        NvOsFlushWriteCombineBuffer();
+
+        // Copy data from DMA buffer to the client buffer
+        NvOsMemcpy(pDestBuffer, pAesHwCtxt->pDmaVirAddr[Engine], BytesToProcess);
+
+        // Increment the buffer pointer
+        pSourceBuffer += BytesToProcess;
+        pDestBuffer += BytesToProcess;
+        TotalBytes -= BytesToProcess;
+    }
 
     /**
      * If DataSize is zero, Iv would remain unchanged.
      * For an encryption operation, the current Iv will be the last block of
      * ciphertext.
      */
-    if (DataSize && IsEncryption)
+    if (DataSize && IsEncryption && (OpMode == NvDdkAesOperationalMode_Cbc))
     {
         NvOsMemcpy(&pAesHwCtxt->IvContext[Engine].CurIv[pAesHwCtxt->IvContext[Engine].CurKeySlot],
             (pDest + DataSize - NvDdkAesConst_BlockLengthBytes),
              NvDdkAesConst_BlockLengthBytes);
     }
+    else if (DataSize && (OpMode == NvDdkAesOperationalMode_AnsiX931))
+    {
+        // For X931 operation, get the updated IV by following steps:
+        // 1. Perform CBC encryption on zero data to get A=CBC(encrypt, plaintext=zeroes)
+        // 2. Perform ECB decryption on A. This will result in Updated IV. UpdatedIV = ECB(decrypt, A)
+        NvOsMemset(pAesHwCtxt->pDmaVirAddr[Engine], 0, NvDdkAesKeySize_128Bit);
+        NvOsFlushWriteCombineBuffer();
+        NvAesCoreAp20ProcessBuffer(
+            Engine,
+            pAesHwCtxt->pVirAdr[Engine],
+            pAesHwCtxt->DmaPhyAddr[Engine],
+            pAesHwCtxt->DmaPhyAddr[Engine],
+            1,
+            NV_TRUE,
+            NvDdkAesOperationalMode_Cbc);
+        NvOsFlushWriteCombineBuffer();
+
+        NvAesCoreAp20ProcessBuffer(
+            Engine,
+            pAesHwCtxt->pVirAdr[Engine],
+            pAesHwCtxt->DmaPhyAddr[Engine],
+            pAesHwCtxt->DmaPhyAddr[Engine],
+            1,
+            NV_FALSE,
+            NvDdkAesOperationalMode_Ecb);
+        NvOsFlushWriteCombineBuffer();
+        NvOsMemcpy(&pAesHwCtxt->IvContext[Engine].CurIv[pAesHwCtxt->IvContext[Engine].CurKeySlot],
+            pAesHwCtxt->pDmaVirAddr[Engine],
+            NvDdkAesConst_BlockLengthBytes);
+    }
 
     NvOsMutexUnlock(pAesHwCtxt->Mutex[Engine]);
 
-    NvOsMemset(pSrcBufferVirtAddr, 0, DataSize);
-    NvOsMemset(pDestBufferVirtAddr, 0, DataSize);
-
-    // Unpinning the Memory
-    NvRmPhysicalMemUnmap(pDestBufferVirtAddr, DataSize);
-
-fail4:
-    NvRmPhysicalMemUnmap(pSrcBufferVirtAddr, DataSize);
-
-fail3:
-    // Unpinning the Memory
-    NvRmMemUnpin(hSrcMemBuf);
-
-    // Unpinning the Memory
-    NvRmMemUnpin(hDestMemBuf);
-
-fail2:
-    NvRmMemHandleFree(hDestMemBuf);
-fail1:
-    NvRmMemHandleFree(hSrcMemBuf);
-fail:
-    return e;
+    return NvSuccess;
 }
 
 /**
@@ -659,26 +636,43 @@ NvBool Ap20AesHwIsEngineDisabled(const AesHwContext *const pAesHwCtxt, const Aes
 }
 
 /**
- * Get the read permissions for IV for each key slot of an engine.
+ * Disables read access to all key slots for the given engine.
  *
- * @param Engine AES Engine for which Iv permissions for an engine are sought.
- * @param pAesHwCtxt Pointer to the AES H/W context.
+ * @param pAesHwCtxt Pointer to the AES H/W context
+ * @param Engine AES engine for which key reads needs to be disabled
+ * @param NumSlotsSupported Number of key slots supported in the engine
  *
- * @retval None.
- *
+ * @retval None
  */
-void Ap20AesHwGetIvReadPermissions(const AesHwEngine Engine, AesHwContext *const pAesHwCtxt)
+void
+Ap20AesHwDisableAllKeyRead(
+    const AesHwContext *const pAesHwCtxt,
+    const AesHwEngine Engine,
+    const AesHwKeySlot NumSlotsSupported)
 {
+    AesHwKeySlot Slot;
     NV_ASSERT(pAesHwCtxt);
 
     NvOsMutexLock(pAesHwCtxt->Mutex[Engine]);
+    NvAesCoreAp20WaitTillEngineIdle(Engine, pAesHwCtxt->pVirAdr[Engine]);
 
-    NvAesCoreAp20GetIvReadPermissions(
-        Engine,
-        pAesHwCtxt->pVirAdr[Engine],
-        &pAesHwCtxt->IvContext[Engine].IsIvReadable[0]);
-
+    // Disable read access to key slots
+    for(Slot = AesHwKeySlot_0; Slot < NumSlotsSupported; Slot++)
+    {
+        NvAesCoreAp20KeyReadDisable(Engine, Slot, pAesHwCtxt->pVirAdr[Engine]);
+    }
     NvOsMutexUnlock(pAesHwCtxt->Mutex[Engine]);
+}
+
+/**
+ * Queries whether SSK update is allowed or not
+ *
+ * @retval NV_TRUE if SSK update is allowed
+ * @retval NV_FALSE if SSK update is not allowed
+ */
+NvBool Ap20AesIsSskUpdateAllowed(void)
+{
+    return NvAesCoreAp20IsSskUpdateAllowed();
 }
 
 void NvAesIntfAp20GetHwInterface(AesHwInterface *const pAp20AesHw)
@@ -697,6 +691,6 @@ void NvAesIntfAp20GetHwInterface(AesHwInterface *const pAp20AesHw)
     pAp20AesHw->AesHwLoadSskToSecureScratchAndLock = Ap20AesHwLoadSskToSecureScratchAndLock;
     pAp20AesHw->AesHwGetUsedSlots = Ap20AesHwGetUsedSlots;
     pAp20AesHw->AesHwIsEngineDisabled = Ap20AesHwIsEngineDisabled;
-    pAp20AesHw->AesHwGetIvReadPermissions = Ap20AesHwGetIvReadPermissions;
+    pAp20AesHw->AesHwDisableAllKeyRead = Ap20AesHwDisableAllKeyRead;
+    pAp20AesHw->AesHwIsSskUpdateAllowed = Ap20AesIsSskUpdateAllowed;
 }
-

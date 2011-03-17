@@ -215,14 +215,12 @@ typedef struct NvEcPrivStateRec
 // lastTime - timeoutBase = 1 + overflow flag (ignored in C)
 // this would *NOT* work if the counter was not 32 bits.
 
-#if 0   //blue--
 // timeout macros.
-#define NVEC_TIME_BASE( p, idx ) \
-            ((p)->lastTime - (p)->timeoutBase[(idx)])
+//#define NVEC_TIME_BASE( p, idx ) \
+//            ((p)->lastTime - (p)->timeoutBase[(idx)])
 
-#define NVEC_TIMEDIFF_WITH_BASE( p, idx ) \
-            ((p)->timeDiff + NVEC_TIME_BASE((p), (idx)))
-#endif
+//#define NVEC_TIMEDIFF_WITH_BASE( p, idx ) \
+//            ((p)->timeDiff + NVEC_TIME_BASE((p), (idx)))
 
 #if defined(__cplusplus)
 }

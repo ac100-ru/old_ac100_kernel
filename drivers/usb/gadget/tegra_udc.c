@@ -20,9 +20,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define NV_DEBUG 0
+
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
-#include <linux/tegra_devices.h>
 
 #include "nvddk_usbphy.h"
 #include "mach/nvrm_linux.h"

@@ -92,7 +92,7 @@ static int proc_read_batteryManufacturer(char *page, char **start, off_t off, in
     NvEcRequest EcRequest = {0};
     NvEcResponse EcResponse = {0};
     char Manufacturer[NVEC_MAX_RESPONSE_STRING_SIZE];
-
+   
     int len = 0;
 
     Manufacturer[0] = '\0';
@@ -124,8 +124,8 @@ static int proc_read_batteryManufacturer(char *page, char **start, off_t off, in
     if (EcResponse.NumPayloadBytes<NVEC_MAX_RESPONSE_STRING_SIZE){
 		Manufacturer[EcResponse.NumPayloadBytes]='\0';
 	}
-
-  err1:
+	  
+  err1: 
     len = sprintf(page, "%s",Manufacturer);
     return len;
 }
@@ -136,7 +136,7 @@ static int proc_read_batteryCellNumber(char *page, char **start, off_t off, int 
     NvError NvStatus = NvError_Success;
     NvEcRequest EcRequest = {0};
     NvEcResponse EcResponse = {0};
-
+        
     int len = 0;
     int val=0;
 
@@ -186,10 +186,10 @@ static int proc_read_batteryCellNumber(char *page, char **start, off_t off, int 
 	}
 
     }
-
+    
 
 err1:
-    len = sprintf(page, "%i",val);
+    len = sprintf(page, "%i",val);       
     return len;
 }
 
@@ -201,7 +201,7 @@ static int proc_write_tpwheel(struct file *file, const char *buffer, unsigned lo
    char status;
 
    procfs_buffer_size = count;
-   if (procfs_buffer_size > PROCFS_MAX_SIZE )
+   if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
       procfs_buffer_size = PROCFS_MAX_SIZE;
 
    if(copy_from_user(&status, buffer, 1)) {
@@ -216,7 +216,7 @@ static int proc_write_tpwheel(struct file *file, const char *buffer, unsigned lo
       default:
          set_elan_wheel_mode(1);  //turn on touchpad wheel
    }
-
+   
    return procfs_buffer_size;
 }
 
@@ -225,7 +225,7 @@ static int proc_read_tpwheel(char *page, char **start, off_t off, int count, int
    unsigned status;
    int len = 0;
    status=get_elan_wheel_mode();
-   len = sprintf(page, "%s\n", (status)?"touchpad wheel function turn on":"touchpad wheel function turn off" );
+   len = sprintf(page, "%s\n", (status)?"touchpad wheel function turn on":"touchpad wheel function turn off" );       
    return len;
 }
 
@@ -239,7 +239,7 @@ static int proc_write_battery(struct file *file, const char *buffer, unsigned lo
    char status;
 
    procfs_buffer_size = count;
-   if (procfs_buffer_size > PROCFS_MAX_SIZE )
+   if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
       procfs_buffer_size = PROCFS_MAX_SIZE;
 
    if(copy_from_user(&status, buffer, 1)) {
@@ -254,7 +254,7 @@ static int proc_write_battery(struct file *file, const char *buffer, unsigned lo
       default:
          NvEcSetBatteryReqeustFlag(0);  //enable
    }
-
+   
    return procfs_buffer_size;
 }
 
@@ -263,7 +263,7 @@ static int proc_read_battery(char *page, char **start, off_t off, int count, int
    unsigned status;
    int len = 0;
    status=NvEcGetBatteryReqeustFlag();
-   len = sprintf(page, "%s\n", (status)?"battery request disable":"battery request enable" );
+   len = sprintf(page, "%s\n", (status)?"battery request disable":"battery request enable" );       
    return len;
 }
 //**************************************************************************************************************
@@ -279,7 +279,7 @@ static int proc_read_battery(char *page, char **start, off_t off, int count, int
    if( global_coldboot == 1)
    {
         // Robert 2010/04/08 --- send cold boot command to EC
-
+        
         emergency_sync();
         /*
             blocking_notifier_call_chain(&reboot_notifier_list,SYS_POWER_OFF, NULL);
@@ -308,7 +308,7 @@ static int proc_read_battery(char *page, char **start, off_t off, int count, int
 	//send sleep
    Request.PacketType = NvEcPacketType_Request;
    Request.RequestType = NvEcRequestResponseType_Sleep;
-   Request.RequestSubtype = ((NvEcRequestResponseSubtype)
+   Request.RequestSubtype = ((NvEcRequestResponseSubtype) 
                           NvEcSleepSubtype_GlobalConfigureEventReporting);
    Request.Payload[0] = NVEC_SLEEP_GLOBAL_REPORT_ENABLE_0_ACTION_DISABLE;
 
@@ -326,7 +326,7 @@ static int proc_read_battery(char *page, char **start, off_t off, int count, int
 	//send power down
    Request.PacketType = NvEcPacketType_Request;
    Request.RequestType = NvEcRequestResponseType_Sleep;
-   Request.RequestSubtype = ((NvEcRequestResponseSubtype)
+   Request.RequestSubtype = ((NvEcRequestResponseSubtype) 
                           NvEcSleepSubtype_ApPowerDown);
 
    Request.NumPayloadBytes = 0;
@@ -373,7 +373,7 @@ static void paz00_pm_reset( void )
 static NvU8 my_htoi( char *tmpHex )
 {
    NvU8 k = 0;
-
+   
    if ( *tmpHex >= '0' && *tmpHex <= '9' )
       k = ( *tmpHex - '0' ) * 16;
    else if ( *tmpHex >= 'a' && *tmpHex <= 'f' )
@@ -541,7 +541,7 @@ static NvBool WriteWolfsonRegister(NvU32 RegIndex, NvU32 Data)
     NvU32 DeviceAddr = 0;
     NvU8   Buffer[3] = {0};
     NvOdmServicesI2cHandle hOdmI2c;
-    NvOdmI2cStatus I2cTransStatus;
+    NvOdmI2cStatus I2cTransStatus;    
     NvOdmI2cTransactionInfo TransactionInfo;
 
     guid = NV_ODM_GUID('w','o','l','f','8','9','6','1');
@@ -550,7 +550,7 @@ static NvBool WriteWolfsonRegister(NvU32 RegIndex, NvU32 Data)
     pConnectivity = NvOdmPeripheralGetGuid( guid );
     if ( !pConnectivity )
          return NV_FALSE;
-
+    
     for (i = 0; i < pConnectivity->NumAddress; i++)
     {
         switch (pConnectivity->AddressList[i].Interface)
@@ -563,9 +563,9 @@ static NvBool WriteWolfsonRegister(NvU32 RegIndex, NvU32 Data)
                 break;
         }
     }
-    printk(KERN_INFO
+    printk(KERN_INFO 
       	"Query Success (addr=0x%x)\r\n", DeviceAddr);
-
+     
     hOdmI2c=NvOdmI2cOpen(NvOdmIoModule_I2c, I2cInstance);
     if (!hOdmI2c)
     {
@@ -576,12 +576,12 @@ static NvBool WriteWolfsonRegister(NvU32 RegIndex, NvU32 Data)
     Buffer[0] =  RegIndex & 0xFF;
     Buffer[1] = (Data>>8) & 0xFF;
     Buffer[2] =  Data     & 0xFF;
-
-    printk(KERN_INFO
+    
+    printk(KERN_INFO 
       	"Transation buffer[1] = 0x%x\r\n", Buffer[1]);
-    printk(KERN_INFO
+    printk(KERN_INFO 
       	"Transation buffer[2] = 0x%x\r\n", Buffer[2]);
-
+    
     TransactionInfo.Address = DeviceAddr;
     TransactionInfo.Buf = (NvU8*)Buffer;
     TransactionInfo.Flags = NVODM_I2C_IS_WRITE;
@@ -590,13 +590,13 @@ static NvBool WriteWolfsonRegister(NvU32 RegIndex, NvU32 Data)
     // write the Accelator offset (from where data is to be read)
     I2cTransStatus = NvOdmI2cTransaction(hOdmI2c, &TransactionInfo, 1, 100, 1000);
 
-    // HW- BUG!! If timeout, again retransmit the data.
+    // HW- BUG!! If timeout, again retransmit the data.                    
     if (I2cTransStatus == NvOdmI2cStatus_Timeout)
         I2cTransStatus = NvOdmI2cTransaction(hOdmI2c, &TransactionInfo, 1, 100, 1000);
 
     if (I2cTransStatus)
         printk(KERN_INFO "\t --- Failed(0x%08x)\n", I2cTransStatus);
-    else
+    else 
         printk(KERN_INFO "Write 0x%02x = 0x%04x\n", RegIndex, Data);
 
 	NvOdmI2cClose(hOdmI2c);
@@ -712,7 +712,7 @@ static NvBool ReadPericomRegister(NvU8 *Data1, NvU8 *Data2)
         printk(KERN_INFO "Hdmi Switch: NvOdmI2cOpen Error \r\n");
         return NV_FALSE;
     }
-
+      
     TransactionInfo.Address = (DeviceAddr | 0x1);
     TransactionInfo.Buf = Buffer;
     TransactionInfo.Flags = 0;
@@ -723,11 +723,11 @@ static NvBool ReadPericomRegister(NvU8 *Data1, NvU8 *Data2)
 
     *Data1 = Buffer[0];
     *Data2 = Buffer[1];
-    if (I2cTransStatus == 0)
+    if (I2cTransStatus == 0) 
         printk(KERN_INFO "Hdmi Switch : Read byte1 is 0x%02x, byte2 is 0x%02x\n", Buffer[0], Buffer[1]);
-    else
+    else 
         printk(KERN_INFO "Read Error: %08x\n", I2cTransStatus);
-
+    
     NvOdmI2cClose(hOdmI2c);
     return (NvBool)(I2cTransStatus == 0);
 }
@@ -758,7 +758,7 @@ static int proc_write_lback(struct file *file, const char *buffer, unsigned long
    char status;
 
    procfs_buffer_size = count;
-   if (procfs_buffer_size > PROCFS_MAX_SIZE )
+   if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
       procfs_buffer_size = PROCFS_MAX_SIZE;
 
    if(copy_from_user(&status, buffer, 1)) {
@@ -773,25 +773,20 @@ static int proc_write_lback(struct file *file, const char *buffer, unsigned long
       default:
          paz00_set_lback(0);
    }
-
+   
    return procfs_buffer_size;
 }
 
 static int proc_write_led(struct file *file, const char *buffer, unsigned long count, void *data)
 {
-	unsigned long procfs_buffer_size = 0;
-	NvU8 command;
+        int len;
+        NvU8 command;
 
-	procfs_buffer_size = count;
-	if (procfs_buffer_size > PROCFS_MAX_SIZE)
-		procfs_buffer_size = PROCFS_MAX_SIZE;
-
-	if (copy_from_user(&command, buffer, 1))
-	        return -EFAULT;
-
-	paz00_led_set_led(command);
-
-	return procfs_buffer_size;
+        if(copy_from_user(&command, buffer, 1)) {
+                return -EFAULT;
+        }
+        paz00_led_set_led( command ); 
+        return len;
 }
 
 
@@ -800,22 +795,23 @@ extern void set_wlan_led(unsigned mode);
 
 static int proc_write_wifi3g(struct file *file, const char *buffer, unsigned long count, void *data)
 {
-	unsigned long procfs_buffer_size = 0;
 	NvU8 command;
 
-	procfs_buffer_size = count;
-	if (procfs_buffer_size > PROCFS_MAX_SIZE)
-		procfs_buffer_size = PROCFS_MAX_SIZE;
-
-	if (copy_from_user(&command, buffer, 1))
+	if(copy_from_user(&command, buffer, 1))
+	{
 		return -EFAULT;
+	}
 
-	if (command == '1')
-		set_wlan_led(1);
+	if( command == '1' )
+	{
+		set_wlan_led( 1 );
+	}
 	else
-		set_wlan_led(0);
+	{
+		set_wlan_led( 0 );
+	}
 
-	return procfs_buffer_size;
+	return 0;
 }
 #endif
 
@@ -823,22 +819,23 @@ int gTestSuspendFlag = 0;
 
 static int proc_write_suspend(struct file *file, const char *buffer, unsigned long count, void *data)
 {
-	unsigned long procfs_buffer_size = 0;
 	NvU8 command;
 
-	procfs_buffer_size = count;
-	if (procfs_buffer_size > PROCFS_MAX_SIZE)
-		procfs_buffer_size = PROCFS_MAX_SIZE;
-
-	if (copy_from_user(&command, buffer, 1))
+	if(copy_from_user(&command, buffer, 1))
+	{
 		return -EFAULT;
+	}
 
-	if (command == '1')
+	if( command == '1' )
+	{
 		gTestSuspendFlag = 1;
+	}
 	else
+	{
 		gTestSuspendFlag = 0;
+	}
 
-	return procfs_buffer_size;
+	return 0;
 }
 
 static NvU8 paz00_diag_write_ec_uuid_offset( NvU8 Uuid_Offset, NvU8 Uuid_Value )
@@ -932,15 +929,20 @@ static int proc_read_hdmiswitch(char *page, char **start, off_t off, int count, 
 	int len;
 
 	len = sprintf(page, "%c\n", gHdmiConnect);
-
+	
 	return len;
 }
 
+/**
+*	Modify history:
+*	2010/12/30; lance; for coverity check err 
+*/
 static int proc_write_hdmiswitch(struct file *file, const char *buffer, unsigned long count, void *data)
 {
    unsigned long procfs_buffer_size = 0;
    char *ReqCmd, *key, *ParsedCmd;
    int PosCmd = 0;
+   int ErrFlg = 0;	//lance 
 
    procfs_buffer_size = count;
    if (procfs_buffer_size > PROCFS_MAX_SIZE )
@@ -948,9 +950,13 @@ static int proc_write_hdmiswitch(struct file *file, const char *buffer, unsigned
 
    ReqCmd = kmalloc( procfs_buffer_size, GFP_KERNEL );
    ParsedCmd = kmalloc( procfs_buffer_size/2, GFP_KERNEL );
+   
    if(copy_from_user(ReqCmd, buffer, procfs_buffer_size)) {
-      return -EFAULT;
+	  //lance
+	  ErrFlg = 1;
+	  goto cleanup;
    }
+   
 #if 1	//Robert 2010/04/11
 	if( ReqCmd[0] == '1' )
 	{
@@ -964,7 +970,7 @@ static int proc_write_hdmiswitch(struct file *file, const char *buffer, unsigned
 	else if( ReqCmd[0] == '2' )
 	{
 		// enable HDMI and disable LCD
-
+		
 		paz00_set_lcd_output(0);
 		paz00_set_hdmi_output(1);
 
@@ -1010,11 +1016,25 @@ static int proc_write_hdmiswitch(struct file *file, const char *buffer, unsigned
       PosCmd++;
    }
    WritePericomRegister( ParsedCmd, PosCmd );
-
-   kfree( ReqCmd );
-   kfree( ParsedCmd );
 #endif
-   return procfs_buffer_size;
+
+//lance: kmalloc resource free
+cleanup:
+   if (ReqCmd)
+   {
+		//printk(KERN_DEBUG "ReqCmd release\n");
+		kfree(ReqCmd);
+   }
+   if (ParsedCmd)
+   {
+   		//printk(KERN_DEBUG "ParsedCmd release\n");
+		kfree(ParsedCmd);
+   }
+   
+   if (1 == ErrFlg)   
+   		return -EFAULT;
+   else
+   		return procfs_buffer_size;
 }
 static int paz00_diag_set_light_sensor( int enable )
 {
@@ -1154,7 +1174,7 @@ static int paz00_diag_get_ec_version( char *strVersion )
     minor = EcVersion.VersionMinor[1];
     test =  EcVersion.VersionMajor[0];
     project_num = EcVersion.VersionMajor[1];
-
+   
    if ( test == 0 )
       sprintf( strVersion, "%02X.%02X.00, Project number: %X", major, minor, project_num);
    else
@@ -1166,14 +1186,14 @@ static int proc_read_lsensor(char *page, char **start, off_t off, int count, int
 {
    NvU8 status = 0;
    int len = 0;
-
+       
    if ( off > 0 )
       return 0;
 
    paz00_diag_get_ec_external_device( &status );
 
    len = sprintf(page, "%d\n", status&0x04?1:0 );
-
+       
    return len;
 }
 
@@ -1181,13 +1201,13 @@ static int proc_read_usb(char *page, char **start, off_t off, int count, int *eo
 {
    NvU8 status = 0;
    int len = 0;
-
+       
    if ( off > 0 )
       return 0;
 
    paz00_diag_get_ec_external_device( &status );
    len = sprintf(page, "%s\n", (status&0x02)?"device":"host" );
-
+       
    return len;
 }
 
@@ -1198,7 +1218,7 @@ static int proc_read_version(char *page, char **start, off_t off, int count, int
 		return 0;
 
         len = sprintf(page, "%s\n", strVersion );
-
+       
         return len;
 }
 
@@ -1206,7 +1226,7 @@ static int proc_read_uuid(char *page, char **start, off_t off, int count, int *e
 {
    int len;
    NvU8 strUuid[16] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
-
+       
    if ( off > 0 )
       return 0;
 
@@ -1215,7 +1235,7 @@ static int proc_read_uuid(char *page, char **start, off_t off, int count, int *e
    len = sprintf(page, "%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X\n",
            strUuid[0], strUuid[1], strUuid[2], strUuid[3], strUuid[4], strUuid[5], strUuid[6], strUuid[7],
            strUuid[8], strUuid[9], strUuid[10], strUuid[11], strUuid[12], strUuid[13], strUuid[14], strUuid[15] );
-
+       
    return len;
 }
 //I add code in this read_gpio
@@ -1225,32 +1245,32 @@ static int proc_read_sd(char *page, char **start, off_t off, int count, int *eof
     NvOdmGpioPinHandle hGpioPin;
     NvU32 PinStateValue = 0;
     int len;
-
+    
     hGpio = NvOdmGpioOpen();
     if(!hGpio)
        return 0;
-
-	hGpioPin = NvOdmGpioAcquirePinHandle (hGpio ,
-							'h'-'a',
+       
+	hGpioPin = NvOdmGpioAcquirePinHandle (hGpio , 
+							'h'-'a', 
 							 1);
 	if(!hGpioPin)
 	   return 0;
 	NvOdmGpioConfig(hGpio,
                     hGpioPin,
                     NvOdmGpioPinMode_InputInterruptAny);
-
+	
 
 	NvOdmGpioGetState(hGpio, hGpioPin, &PinStateValue);
-
+	
 	if(hGpio){
 		if(hGpioPin)
 		NvOdmGpioReleasePinHandle(hGpio, hGpioPin);
 		NvOdmGpioClose(hGpio);
 	}
-
-
+	
+	
 	len = sprintf(page, "%d", PinStateValue);
-
+	
 	return len;
 }
 
@@ -1260,7 +1280,7 @@ static int proc_write_button(struct file *file, const char *buffer, unsigned lon
    char status;
 
    procfs_buffer_size = count;
-   if (procfs_buffer_size > PROCFS_MAX_SIZE )
+   if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
       procfs_buffer_size = PROCFS_MAX_SIZE;
 
    if(copy_from_user(&status, buffer, 1)) {
@@ -1275,7 +1295,7 @@ static int proc_write_button(struct file *file, const char *buffer, unsigned lon
       default:
          paz00_diag_set_button(0);
    }
-
+   
    return procfs_buffer_size;
 }
 
@@ -1317,7 +1337,7 @@ static int proc_write_lsensor(struct file *file, const char *buffer, unsigned lo
    char status;
 
    procfs_buffer_size = count;
-   if (procfs_buffer_size > PROCFS_MAX_SIZE )
+   if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
       procfs_buffer_size = PROCFS_MAX_SIZE;
 
    if(copy_from_user(&status, buffer, 1)) {
@@ -1332,7 +1352,7 @@ static int proc_write_lsensor(struct file *file, const char *buffer, unsigned lo
       default:
          paz00_diag_set_light_sensor(0);
    }
-
+   
    return procfs_buffer_size;
 }
 
@@ -1342,7 +1362,7 @@ static int proc_write_usb(struct file *file, const char *buffer, unsigned long c
    char status;
 
    procfs_buffer_size = count;
-   if (procfs_buffer_size > PROCFS_MAX_SIZE )
+   if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
       procfs_buffer_size = PROCFS_MAX_SIZE;
 
    if(copy_from_user(&status, buffer, 1)) {
@@ -1357,7 +1377,7 @@ static int proc_write_usb(struct file *file, const char *buffer, unsigned long c
       default:
          paz00_diag_set_usb(USB_HOST);
    }
-
+   
    return procfs_buffer_size;
 }
 
@@ -1370,7 +1390,7 @@ static int proc_write_uuid(struct file *file, const char *buffer, unsigned long 
    unsigned long procfs_buffer_size = 0;
 
    procfs_buffer_size = count;
-   if (procfs_buffer_size > PROCFS_MAX_SIZE )
+   if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
       procfs_buffer_size = PROCFS_MAX_SIZE;
 
    if(copy_from_user(ReqNewUuid, buffer, procfs_buffer_size)) {
@@ -1378,7 +1398,7 @@ static int proc_write_uuid(struct file *file, const char *buffer, unsigned long 
    }
    if ( count != 33 )
       return -EFAULT;
-
+   
    ReqNewUuid[32] = 0;
    for( i = 0; i < 32; i++ )
    {
@@ -1387,10 +1407,10 @@ static int proc_write_uuid(struct file *file, const char *buffer, unsigned long 
       strNewUuid[len] = my_htoi( tmpHex );
       len++;
    }
-
+    
    paz00_diag_write_ec_uuid( strNewUuid );
 
-
+   
    return procfs_buffer_size;
 }
 
@@ -1485,7 +1505,7 @@ static int proc_write_ecctl(struct file *file, const char *buffer, unsigned long
    int PosCmd = 0;
 
    procfs_buffer_size = count;
-   if (procfs_buffer_size > PROCFS_MAX_SIZE )
+   if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
       procfs_buffer_size = PROCFS_MAX_SIZE;
 
    ReqCmd = kmalloc( procfs_buffer_size, GFP_KERNEL );
@@ -1497,14 +1517,14 @@ static int proc_write_ecctl(struct file *file, const char *buffer, unsigned long
    while ((key = strsep(&ReqCmd, " :,-"))) {
       if (!*key)
          continue;
-
+    
       ParsedCmd[PosCmd] = my_htoi( key );
       PosCmd++;
    }
    paz00_diag_ec_cmd_req( ParsedCmd, PosCmd );
 
-   kfree( ReqCmd );
-   kfree( ParsedCmd );
+   kfree( ReqCmd );  
+   kfree( ParsedCmd );  
    return procfs_buffer_size;
 }
 
@@ -1531,7 +1551,7 @@ EDID_I2cRead8(NvOdmServicesI2cHandle hI2c, NvU8 Addr, NvU8 *Data)
     //NvOdmOsDebugPrintf("PDBG::ReadBuffer[0]:%d\n", ReadBuffer);   //PDBG
     TransactionInfo[0].Address = 0xA0;
     TransactionInfo[0].Buf = &ReadBuffer;
-    TransactionInfo[0].Flags =
+    TransactionInfo[0].Flags = 
             NVODM_I2C_IS_WRITE | NVODM_I2C_USE_REPEATED_START;;
     TransactionInfo[0].NumBytes = 1;
     TransactionInfo[1].Address = (0xA0 | 0x1);
@@ -1543,7 +1563,7 @@ EDID_I2cRead8(NvOdmServicesI2cHandle hI2c, NvU8 Addr, NvU8 *Data)
     status = NvOdmI2cTransaction(hI2c, &TransactionInfo[0], 2,
                                  LCD_I2C_SPEED_KHZ, NV_WAIT_INFINITE);
     //FastbootStatus("PDBG::Status %d\r\n", status);
-    if(status == 0)
+    if(status == 0) 
     {
 	 *Data = ReadBuffer;
      return NV_TRUE;
@@ -1555,13 +1575,13 @@ unsigned short int gCheckSum = 0;
 unsigned char gPanelID[16] = {0};
 
 static NvU32
-GetDeviceEDID(void)
+GetDeviceEDID()
 {
     NvU8 i;
     NvU8 data;
     NvU32 VendorID = 0;
     NvOdmServicesI2cHandle hEdidI2c;
-
+     
 	if (! (hEdidI2c = NvOdmI2cOpen(NvOdmIoModule_I2c, 0x0)))
 	{
 		return 0xFFFFFFFF;
@@ -1611,18 +1631,18 @@ GetDeviceEDID(void)
 
     NvOdmI2cClose(hEdidI2c);
     return VendorID;
-}
+} 
 
 static int proc_read_edid(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
    int len;
    NvU32 EdidValue = 0;
-
+   
    EdidValue = GetDeviceEDID();
    if(EdidValue < 0)
      return 0;
    len = sprintf(page, "%08x\n%s\n%04x\n", EdidValue, gPanelID, gCheckSum);
-
+       
    return len;
 }
 
@@ -1653,7 +1673,7 @@ static int enable_ec_timer(void)
     if (Response.Status != NvEcStatus_Success ) {
       printk( KERN_INFO "Response failed\n" );
       return -1;
-    }
+    }       
 }
 
 static int disable_ec_timer(void)
@@ -1678,7 +1698,7 @@ static int disable_ec_timer(void)
     if (Response.Status != NvEcStatus_Success ) {
       printk( KERN_INFO "Response failed\n" );
       return -1;
-    }
+    }       
 }
 
 static int proc_write_ec_timer(struct file *file, const char *buffer, unsigned long count, void *data)
@@ -1687,7 +1707,7 @@ static int proc_write_ec_timer(struct file *file, const char *buffer, unsigned l
     char *write_buf;
 
     procfs_buffer_size = count;
-    if (procfs_buffer_size > PROCFS_MAX_SIZE )
+    if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
         procfs_buffer_size = PROCFS_MAX_SIZE;
 
     write_buf = kmalloc( procfs_buffer_size, GFP_KERNEL );
@@ -1702,7 +1722,7 @@ static int proc_write_ec_timer(struct file *file, const char *buffer, unsigned l
         disable_ec_timer();
     }
 
-    kfree( write_buf );
+    kfree( write_buf );  
 
     return procfs_buffer_size;
 }
@@ -1770,7 +1790,7 @@ static int proc_read_ec_timer(char *page, char **start, off_t off, int count, in
     time_low_byte = Response.Payload[0];
 
     battey_life_time = time_high_byte + time_low_byte;
-
+    
     len = sprintf(page, "%d\n", battey_life_time);
 
     return len;
@@ -1839,7 +1859,7 @@ static int paz00_diag_ec_init(void)
 
 static int __init paz00_diag_init(void)
 {
-
+pr_info("Henry>>%s Begin===\n",__FUNCTION__);
    if ( paz00_diag_ec_init() )
 	{
 		printk("------ ec init error ------\n");
@@ -1861,15 +1881,15 @@ static int __init paz00_diag_init(void)
    }
    uuid_file->read_proc = proc_read_uuid;
    uuid_file->write_proc = proc_write_uuid;
-
-   //I add code in it
+   
+   //I add code in it 
    gpio_file = create_proc_entry("SD-test", 0666, ec_dir);
    if(gpio_file == NULL)
    {
 	  // goto err_gpio_file;
 	}
-
-
+	
+    
 	gpio_file->read_proc = proc_read_sd;
 //////
    usb_file = create_proc_entry("usb", 0666, ec_dir);
@@ -1904,7 +1924,7 @@ static int __init paz00_diag_init(void)
       goto err_lightfile;
    }
    light_file->read_proc = proc_read_light;
-
+   
    loopback_file = create_proc_entry("loopback", 0222, ec_dir);
    if(loopback_file == NULL) {
       goto err_lbackfile;
@@ -1948,7 +1968,7 @@ static int __init paz00_diag_init(void)
 
    paz00_diag_get_ec_version( strVersion );
 
-#ifdef CONFIG_PAZ00_USB_CLIENT
+#ifdef CONFIG_PAZ00_USB_CLIENT 
    paz00_diag_set_usb(USB_DEVICE);
 #endif
 
@@ -1970,7 +1990,7 @@ static int __init paz00_diag_init(void)
    tpwheel_file->write_proc = proc_write_tpwheel;
 
 
-//henry+ support disable/enable battery command
+//henry+ support disable/enable battery command 
    battery_file = create_proc_entry("battery", 0666, ec_dir);
    if(battery_file == NULL) {
       goto err_batteryfile;
@@ -1981,14 +2001,14 @@ static int __init paz00_diag_init(void)
 //henry add  get battery manufacturer for test app
    batteryManufacturer_file = create_proc_entry("batteryManufacturer", 0666, ec_dir);
    if(batteryManufacturer_file==NULL){
-	goto err_batteryManufacturerfile;
+	goto err_batteryManufacturerfile;	
    }
    batteryManufacturer_file->read_proc = proc_read_batteryManufacturer;
 
 //henry add  get battery cell number for test app
    batteryCellNumber_file = create_proc_entry("batteryCellNumber", 0666, ec_dir);
    if(batteryCellNumber_file==NULL){
-	goto err_batteryCellNumberfile;
+	goto err_batteryCellNumberfile;	
    }
    batteryCellNumber_file->read_proc = proc_read_batteryCellNumber;
 
@@ -2001,7 +2021,7 @@ static int __init paz00_diag_init(void)
      }
     ec_timer_file->write_proc  = proc_write_ec_timer;
     ec_timer_file->read_proc = proc_read_ec_timer;
-
+pr_info("Henry>>%s End===\n",__FUNCTION__);
    return 0;
 
 

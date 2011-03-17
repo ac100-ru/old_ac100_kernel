@@ -1,40 +1,40 @@
 /*
  * arch/arm/mach-tegra/include/mach/system.h
  *
- * Copyright (c) 2009, NVIDIA Corporation.
+ * Copyright (C) 2010 Google, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * Author:
+ *	Colin Cross <ccross@google.com>
+ *	Erik Gilling <konkers@google.com>
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
  */
 
 #ifndef __MACH_TEGRA_SYSTEM_H
 #define __MACH_TEGRA_SYSTEM_H
 
 #include <mach/hardware.h>
-
-extern void mach_tegra_idle(void);
-extern void mach_tegra_reset(void);
+#include <mach/iomap.h>
 
 static inline void arch_idle(void)
 {
-	mach_tegra_idle();
 }
 
-static inline void arch_reset(char mode)
+static inline void arch_reset(char mode, const char *cmd)
 {
-	mach_tegra_reset();
-	for (;;) ;
+	void __iomem *reset = IO_ADDRESS(TEGRA_PMC_BASE + 0x00);
+	u32 reg = readl(reset);
+	reg |= 0x10;
+	writel(reg, reset);
+	while(1);
 }
 
 #endif

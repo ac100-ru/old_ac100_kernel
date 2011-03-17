@@ -44,8 +44,6 @@
 NvError NvRmPrivAp20McErrorMonitorStart(NvRmDeviceHandle hRm);
 void NvRmPrivAp20McErrorMonitorStop(NvRmDeviceHandle hRm);
 void NvRmPrivAp20SetupMc(NvRmDeviceHandle hRm);
-static void McErrorIntHandler(void* args);
-static NvOsInterruptHandle s_McInterruptHandle = NULL;
 
 void
 McStatAp20_Start(
@@ -62,79 +60,13 @@ McStatAp20_Stop(
         NvU32 *llc_client_clocks,
         NvU32 *mc_clocks);
 
-void McErrorIntHandler(void* args)
-{
-    NvU32 RegVal;
-    NvU32 IntStatus;
-    NvU32 IntClear = 0;
-    NvRmDeviceHandle hRm = (NvRmDeviceHandle)args;
-    
-    IntStatus = NV_REGR(hRm, NvRmPrivModuleID_MemoryController, 0, MC_INTSTATUS_0);
-    if ( NV_DRF_VAL(MC, INTSTATUS, SECURITY_VIOLATION_INT, IntStatus) )
-    {
-        IntClear |= NV_DRF_DEF(MC, INTSTATUS, SECURITY_VIOLATION_INT, SET);
-        RegVal = NV_REGR(hRm, NvRmPrivModuleID_MemoryController, 0, 
-                     MC_SECURITY_VIOLATION_ADR_0);
-        NvOsDebugPrintf("SECURITY_VIOLATION DecErrAddress=0x%x ", RegVal);
-        RegVal = NV_REGR(hRm, NvRmPrivModuleID_MemoryController, 0, 
-                     MC_SECURITY_VIOLATION_STATUS_0);
-        NvOsDebugPrintf("SECURITY_VIOLATION DecErrStatus=0x%x ", RegVal);
-    }
-    if ( NV_DRF_VAL(MC, INTSTATUS, DECERR_EMEM_OTHERS_INT, IntStatus) )
-    {
-        IntClear |= NV_DRF_DEF(MC, INTSTATUS, DECERR_EMEM_OTHERS_INT, SET);
-        RegVal = NV_REGR(hRm, NvRmPrivModuleID_MemoryController, 0, 
-                     MC_DECERR_EMEM_OTHERS_ADR_0);
-        NvOsDebugPrintf("EMEM DecErrAddress=0x%x ", RegVal);
-        RegVal = NV_REGR(hRm, NvRmPrivModuleID_MemoryController, 0, 
-                     MC_DECERR_EMEM_OTHERS_STATUS_0);
-        NvOsDebugPrintf("EMEM DecErrStatus=0x%x ", RegVal);
-    }
-    if ( NV_DRF_VAL(MC, INTSTATUS, INVALID_GART_PAGE_INT, IntStatus) )
-    {
-        IntClear |= NV_DRF_DEF(MC, INTSTATUS, INVALID_GART_PAGE_INT, SET);
-        RegVal = NV_REGR(hRm, NvRmPrivModuleID_MemoryController, 0, 
-                     MC_GART_ERROR_ADDR_0);
-        NvOsDebugPrintf("GART DecErrAddress=0x%x ", RegVal);
-        RegVal = NV_REGR(hRm, NvRmPrivModuleID_MemoryController, 0, 
-                     MC_GART_ERROR_REQ_0);
-        NvOsDebugPrintf("GART DecErrStatus=0x%x ", RegVal);
-    }
-    
-    NV_ASSERT(!"MC Decode Error ");
-    // Clear the interrupt.
-    NV_REGW(hRm, NvRmPrivModuleID_MemoryController, 0, MC_INTSTATUS_0, IntClear);
-    NvRmInterruptDone(s_McInterruptHandle);
-}
-
 NvError NvRmPrivAp20McErrorMonitorStart(NvRmDeviceHandle hRm)
 {
-    NvU32 val;
-    NvU32 IrqList;
-    NvError e = NvSuccess;
-    NvOsInterruptHandler handler;
-    
-    if (s_McInterruptHandle == NULL)
-    {
-        // Install an interrupt handler.
-        handler = McErrorIntHandler;
-        IrqList = NvRmGetIrqForLogicalInterrupt(hRm,
-                      NvRmPrivModuleID_MemoryController, 0);
-        NV_CHECK_ERROR( NvRmInterruptRegister(hRm, 1, &IrqList,  &handler, 
-            hRm, &s_McInterruptHandle, NV_TRUE) );
-        // Enable Dec Err interrupts in memory Controller.
-        val = NV_DRF_DEF(MC, INTMASK, SECURITY_VIOLATION_INTMASK, UNMASKED) |
-              NV_DRF_DEF(MC, INTMASK, DECERR_EMEM_OTHERS_INTMASK, UNMASKED) |
-              NV_DRF_DEF(MC, INTMASK, INVALID_GART_PAGE_INTMASK, UNMASKED);
-        NV_REGW(hRm, NvRmPrivModuleID_MemoryController, 0, MC_INTMASK_0, val);
-    }
-    return e;
+    return NvSuccess;
 }
 
 void NvRmPrivAp20McErrorMonitorStop(NvRmDeviceHandle hRm)
 {
-    NvRmInterruptUnregister(hRm, s_McInterruptHandle);
-    s_McInterruptHandle = NULL;
 }
 
 /* This function sets some performance timings for Mc & Emc.  Numbers are from
@@ -144,13 +76,13 @@ void NvRmPrivAp20McErrorMonitorStop(NvRmDeviceHandle hRm)
 void NvRmPrivAp20SetupMc(NvRmDeviceHandle hRm)
 {
     NvU32   reg, mask;
-    reg = NV_REGR(hRm, NvRmPrivModuleID_MemoryController, 0, 
+    reg = NV_REGR(hRm, NvRmPrivModuleID_MemoryController, 0,
               MC_LOWLATENCY_CONFIG_0);
     mask = NV_DRF_DEF(MC, LOWLATENCY_CONFIG, MPCORER_LL_CTRL, ENABLE) |
            NV_DRF_DEF(MC, LOWLATENCY_CONFIG, MPCORER_LL_SEND_BOTH, ENABLE);
     if ( mask != (reg & mask) )
         NV_ASSERT(!"MC LL Path not enabled!");
-    // For AP20, no need to program any MC timeout registers here. Default 
+    // For AP20, no need to program any MC timeout registers here. Default
     // values should be good enough.
 }
 

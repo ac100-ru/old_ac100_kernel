@@ -24,8 +24,8 @@
 #ifdef CONFIG_ARM_ERRATA_411920
 /*
  * Invalidate the entire I cache (this code is a workaround for the ARM1136
- * Errata 411920 - Invalidate Instruction Cache operation can fail. This
- * Errata is present in 1136, 1156 and 1176. It does not affect the MPCore
+ * erratum 411920 - Invalidate Instruction Cache operation can fail. This
+ * erratum is present in 1136, 1156 and 1176. It does not affect the MPCore.
  *
  * Registers:
  *   r0 - set to 0
@@ -40,17 +40,9 @@ ENTRY(v6_icache_inval_all)
 	mcr	p15, 0, r0, c7, c5, 0		@ invalidate entire I-cache
 	mcr	p15, 0, r0, c7, c5, 0		@ invalidate entire I-cache
 	msr	cpsr_cx, r1			@ restore interrupts
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
+	.rept	11				@ ARM Ltd recommends at least
+	nop					@ 11 NOPs
+	.endr
 	mov	pc, lr
 #endif
 
@@ -167,15 +159,16 @@ ENDPROC(v6_coherent_user_range)
 ENDPROC(v6_coherent_kern_range)
 
 /*
- *	v6_flush_kern_dcache_page(kaddr)
+ *	v6_flush_kern_dcache_area(void *addr, size_t size)
  *
  *	Ensure that the data held in the page kaddr is written back
  *	to the page in question.
  *
- *	- kaddr   - kernel address (guaranteed to be page aligned)
+ *	- addr	- kernel address
+ *	- size	- region size
  */
-ENTRY(v6_flush_kern_dcache_page)
-	add	r1, r0, #PAGE_SZ
+ENTRY(v6_flush_kern_dcache_area)
+	add	r1, r0, r1
 1:
 #ifdef HARVARD_CACHE
 	mcr	p15, 0, r0, c7, c14, 1		@ clean & invalidate D line
@@ -203,7 +196,20 @@ ENTRY(v6_flush_kern_dcache_page)
  *	- end     - virtual end address of region
  */
 ENTRY(v6_dma_inv_range)
+	tst	r0, #D_CACHE_LINE_SIZE - 1
 	bic	r0, r0, #D_CACHE_LINE_SIZE - 1
+#ifdef HARVARD_CACHE
+	mcrne	p15, 0, r0, c7, c10, 1		@ clean D line
+#else
+	mcrne	p15, 0, r0, c7, c11, 1		@ clean unified line
+#endif
+	tst	r1, #D_CACHE_LINE_SIZE - 1
+	bic	r1, r1, #D_CACHE_LINE_SIZE - 1
+#ifdef HARVARD_CACHE
+	mcrne	p15, 0, r1, c7, c14, 1		@ clean & invalidate D line
+#else
+	mcrne	p15, 0, r1, c7, c15, 1		@ clean & invalidate unified line
+#endif
 1:
 #ifdef HARVARD_CACHE
 	mcr	p15, 0, r0, c7, c6, 1		@ invalidate D line
@@ -243,11 +249,6 @@ ENTRY(v6_dma_clean_range)
  *	- end     - virtual end address of region
  */
 ENTRY(v6_dma_flush_range)
-#ifdef CONFIG_CACHE_FLUSH_RANGE_LIMIT
-	sub	r2, r1, r0
-	cmp	r2, #CONFIG_CACHE_FLUSH_RANGE_LIMIT
-	bhi	v6_dma_flush_dcache_all
-#endif
 	bic	r0, r0, #D_CACHE_LINE_SIZE - 1
 1:
 #ifdef HARVARD_CACHE
@@ -262,47 +263,31 @@ ENTRY(v6_dma_flush_range)
 	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
 	mov	pc, lr
 
-#ifdef CONFIG_CACHE_FLUSH_RANGE_LIMIT
-v6_dma_flush_dcache_all:
-	mov	r0, #0
-#ifdef HARVARD_CACHE
-	mcr	p15, 0, r0, c7, c14, 0		@ D cache clean+invalidate
-#else
-	mcr	p15, 0, r0, c7, c15, 0		@ Cache clean+invalidate
-#endif
-	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
-	mov	pc, lr
-#endif
+/*
+ *	dma_map_area(start, size, dir)
+ *	- start	- kernel virtual start address
+ *	- size	- size of region
+ *	- dir	- DMA direction
+ */
+ENTRY(v6_dma_map_area)
+	add	r1, r1, r0
+	teq	r2, #DMA_FROM_DEVICE
+	beq	v6_dma_inv_range
+	b	v6_dma_clean_range
+ENDPROC(v6_dma_map_area)
 
 /*
- *	v6_dma_clean_all()
- *
- *	cleans the entire L1 data cache
+ *	dma_unmap_area(start, size, dir)
+ *	- start	- kernel virtual start address
+ *	- size	- size of region
+ *	- dir	- DMA direction
  */
-ENTRY(v6_dma_clean_all)
-#ifdef HARVARD_CACHE
-	mcr	p15, 0, r0, c7, c10, 0		@ D cache clean
-#else
-	mcr	p15, 0, r0, c7, c15, 0		@ Cache clean+invalidate
-#endif
-	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
+ENTRY(v6_dma_unmap_area)
+	add	r1, r1, r0
+	teq	r2, #DMA_TO_DEVICE
+	bne	v6_dma_inv_range
 	mov	pc, lr
-
-/*
- *	v6_dma_flush_all()
- *
- *	flushes the entire L1 data cache
- */
-ENTRY(v6_dma_flush_all)
-#ifdef HARVARD_CACHE
-	mcr	p15, 0, r0, c7, c14, 0		@ D cache clean+invalidate
-#else
-	mcr	p15, 0, r0, c7, c15, 0		@ Cache clean+invalidate
-#endif
-	mcr	p15, 0, r0, c7, c10, 4		@ drain write buffer
-	mov	pc, lr
-
-
+ENDPROC(v6_dma_unmap_area)
 
 	__INITDATA
 
@@ -313,10 +298,10 @@ ENTRY(v6_cache_fns)
 	.long	v6_flush_user_cache_range
 	.long	v6_coherent_kern_range
 	.long	v6_coherent_user_range
-	.long	v6_flush_kern_dcache_page
+	.long	v6_flush_kern_dcache_area
+	.long	v6_dma_map_area
+	.long	v6_dma_unmap_area
 	.long	v6_dma_inv_range
 	.long	v6_dma_clean_range
 	.long	v6_dma_flush_range
-	.long	v6_dma_clean_all
-	.long	v6_dma_flush_all
 	.size	v6_cache_fns, . - v6_cache_fns

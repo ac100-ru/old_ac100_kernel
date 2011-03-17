@@ -30,10 +30,13 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/delay.h>
+#include <linux/clk.h>
+#include <linux/regulator/consumer.h>
 
 #include <mach/pci.h>
 #include <mach/nvrm_linux.h>
-#include <mach/board.h>
+#include <mach/iomap.h>
+#include <mach/clk.h>
 
 #include "nvrm_pmu.h"
 #include "nvodm_query_discovery.h"
@@ -45,9 +48,6 @@ void __iomem * volatile pci_tegra_regs;
 static bool pci_tegra_device_attached = false;
 static bool pci_tegra_rp0_up = false;
 static bool pci_tegra_rp1_up = false;
-static unsigned int pci_tegra_powerid;
-
-static int __init pcie_tegra_init(void);
 
 static void __init pci_tegra_preinit(void);
 static int __init pci_tegra_setup(int nr, struct pci_sys_data *data);
@@ -59,23 +59,9 @@ static int pci_tegra_read_conf(struct pci_bus *bus, u32 devfn,
 static int pci_tegra_read_conf(struct pci_bus *bus, u32 devfn,
 	int where, int size, u32 *val);
 
-static int __init pcie_tegra_init(void);
-
 static void pci_tegra_setup_translations(void);
 static irqreturn_t pci_tegra_isr(int irq, void *arg);
 static bool pci_tegra_check_rp(int rp);
-
-unsigned long pci_tegra_get_base(char *aperture)
-{
-	if (!strcmp(aperture, "mem"))
-		return TEGRA_PCIE_BASE +
-			PCIE_NON_PREFETCH_MEMORY_OFFSET;
-	else if (!strcmp(aperture, "io"))
-		return TEGRA_PCIE_BASE +
-			PCIE_DOWNSTREAM_IO_OFFSET;
-	else
-		return (unsigned long)-1;
-}
 
 static inline bool pci_tegra_is_within_rp_range(u32 bus_number, int rp)
 {
@@ -250,16 +236,13 @@ static int __init pci_tegra_setup(int nr, struct pci_sys_data *data)
 {
 	u32 volatile reg;
 	unsigned int irq;
+	struct clk *clk_pcie = NULL;
+	struct clk *clk_pciex = NULL;
+	struct regulator *regulator = NULL;
+	int ret = 0;
 
 	if ((nr == 1) && pci_tegra_device_attached) return 1;
 	else if (nr >= 1) return 0;
-
-	if (NvRmSetModuleTristate(s_hRmGlobal,
-		NVRM_MODULE_ID(NvRmPrivModuleID_Pcie, 0), NV_FALSE)
-		!= NvSuccess) {
-		/* No valid Pinmux for PCIe? */
-		return 0;
-	}
 
 	pci_tegra_regs = ioremap_nocache(TEGRA_PCIE_BASE,
 		PCI_TEGRA_IOMAPPED_REG_APERTURE_SIZE);
@@ -268,26 +251,31 @@ static int __init pci_tegra_setup(int nr, struct pci_sys_data *data)
 		return 0;
 	}
 
-        pci_tegra_powerid = NVRM_POWER_CLIENT_TAG('P','C','I',' ');
-	if (NvRmPowerRegister(s_hRmGlobal, 0, &pci_tegra_powerid) != NvSuccess)
-		goto fail;
+	regulator = regulator_get(NULL, "pex_clk");
+	if (IS_ERR_OR_NULL(regulator)) {
+		pr_err("%s: unable to get pex_clk regulator\n", __func__);
+		goto done;
+	}
+	regulator_enable(regulator);
 
-	if (NvRmPowerVoltageControl(s_hRmGlobal, NvRmPrivModuleID_Pcie,
-		pci_tegra_powerid, NvRmVoltsUnspecified, NvRmVoltsUnspecified,
-		NULL, 0, NULL) != NvSuccess)
-		goto fail;
+	clk_pcie = clk_get_sys("tegra_pcie", NULL);
+	if (IS_ERR_OR_NULL(clk_pcie)) {
+		pr_err("%s: unable to get PCIE clock\n", __func__);
+		goto done;
+	}
+	clk_enable(clk_pcie);
 
-	if (NvRmPowerModuleClockControl(s_hRmGlobal, NvRmPrivModuleID_Pcie,
-		pci_tegra_powerid, NV_TRUE) != NvSuccess)
-		goto fail;
-
-	NvRmModuleReset(s_hRmGlobal, NvRmPrivModuleID_Afi);
-	NvRmModuleReset(s_hRmGlobal, NvRmPrivModuleID_Pcie);
-	NvRmModuleResetWithHold(s_hRmGlobal, NvRmPrivModuleID_PcieXclk,
-		NV_TRUE);
+	clk_pciex = clk_get_sys("tegra_pcie_xclk", NULL);
+	if (IS_ERR_OR_NULL(clk_pciex)) {
+		pr_err("%s: unable to get PCIE Xclock\n", __func__);
+		goto done;
+	}
+	tegra_periph_reset_assert(clk_pciex);
+	udelay(10);
 
 	/* Enable slot clock and pulse the reset signals */
 	reg = pci_tegra_afi_readl(AFI_PEX0_CTRL_0);
+
 	reg = NV_FLD_SET_DRF_NUM(AFI, PEX0_CTRL, PEX0_REFCLK_EN, 1, reg);
 	pci_tegra_afi_writel(reg, AFI_PEX0_CTRL_0);
 	reg  = NV_FLD_SET_DRF_NUM(AFI, PEX0_CTRL, PEX0_RST_L, 0, reg);
@@ -366,8 +354,7 @@ static int __init pci_tegra_setup(int nr, struct pci_sys_data *data)
 	/* Wait for the PLL to lock */
 	reg = pci_tegra_pads_reedl(NV_PROJ__PCIE2_PADS_PLL_CTL1);
 	while (NVPCIE_DRF_VAL(PADS, PLL_CTL1, PLL_LOCKDET, reg)
-		!= NV_PROJ__PCIE2_PADS_PLL_CTL1_PLL_LOCKDET_LOCKED)
-	{
+	       != NV_PROJ__PCIE2_PADS_PLL_CTL1_PLL_LOCKDET_LOCKED) {
 		reg = pci_tegra_pads_reedl(NV_PROJ__PCIE2_PADS_PLL_CTL1);
 	}
 
@@ -384,11 +371,11 @@ static int __init pci_tegra_setup(int nr, struct pci_sys_data *data)
 		NV_PROJ__PCIE2_PADS_CTL_1_RX_DATA_EN_1L_ENABLE, reg);
 	pci_tegra_pads_writel(reg, NV_PROJ__PCIE2_PADS_CTL_1);
 
-	irq = tegra_get_module_inst_irq("pcie", 0, 0);
-	BUG_ON(irq == NO_IRQ);
-	if (request_irq(irq, pci_tegra_isr, IRQF_SHARED, "PCIE", s_hRmGlobal))
-	{
-		pr_err("pci_tegra_setup: Cannot register the IRQ %d\n", irq);
+	irq = INT_PCIE_INTR;
+	if (request_irq(irq, pci_tegra_isr, IRQF_SHARED, "PCIE", s_hRmGlobal)) {
+		pr_err("%s: Cannot register IRQ %u: %d\n",
+		       __func__, irq, ret);
+		goto done;
 	}
 	set_irq_flags(irq, IRQF_VALID);
 
@@ -397,8 +384,7 @@ static int __init pci_tegra_setup(int nr, struct pci_sys_data *data)
 
 	/* Take the PCIe interface module out of reset to start the PCIe
 	 * training  sequence */
-	NvRmModuleResetWithHold(s_hRmGlobal, NvRmPrivModuleID_PcieXclk,
-		NV_FALSE);
+	tegra_periph_reset_deassert(clk_pciex);
 
 	/* Finally enable PCIe */
 	reg = pci_tegra_afi_readl(AFI_CONFIGURATION_0);
@@ -408,16 +394,10 @@ static int __init pci_tegra_setup(int nr, struct pci_sys_data *data)
 	pci_tegra_rp0_up = pci_tegra_check_rp(0);
 	pci_tegra_rp1_up = pci_tegra_check_rp(1);
 
-	if(!pci_tegra_rp0_up && !pci_tegra_rp1_up)
-	{
+	if(!pci_tegra_rp0_up && !pci_tegra_rp1_up) {
+		pr_info("%s: no PCIE devices attached\n", __func__);
 		pci_tegra_device_attached = false;
-		NvRmPowerVoltageControl(s_hRmGlobal, NvRmPrivModuleID_Pcie,
-			pci_tegra_powerid, NvRmVoltsOff, NvRmVoltsOff, NULL,
-			0, NULL);
-		NvRmPowerModuleClockControl(s_hRmGlobal, NvRmPrivModuleID_Pcie,
-			pci_tegra_powerid, NV_FALSE);
-		tegra_set_voltage(NV_VDD_PEX_CLK_ODM_ID, 0);
-		return 0;
+		goto done;
 	}
 	pci_tegra_device_attached = true;
 
@@ -439,12 +419,26 @@ static int __init pci_tegra_setup(int nr, struct pci_sys_data *data)
 	pci_tegra_afi_writel(reg, AFI_INTR_MASK_0);
 
 	pci_tegra_enumerate();
-
-	pr_err("pci_tegra_setup: Successfull\n");
-	return 1;
-fail:
-	pr_err("pci_tegra_setup: failed\n");
-	return 0;
+	ret = 1;
+done:
+	pr_info("%s exiting: %s\n", __func__, ret ? "SUCCESS" : "FAILURE");
+	if (!IS_ERR_OR_NULL(clk_pciex))
+		clk_put(clk_pciex);
+	if (!IS_ERR_OR_NULL(clk_pcie)) {
+		if (!ret)
+			clk_disable(clk_pcie);
+		clk_put(clk_pcie);
+	}
+	if (!IS_ERR_OR_NULL(regulator)) {
+		if (!ret)
+			regulator_disable(regulator);
+		regulator_put(regulator);
+	}
+	if (!ret && pci_tegra_regs) {
+		iounmap(pci_tegra_regs);
+		pci_tegra_regs = NULL;
+	}
+	return ret;
 }
 
 static struct pci_bus __init *pci_tegra_scan_bus(int nr,
@@ -473,12 +467,9 @@ static struct hw_pci pci_tegra_data __initdata = {
 	.map_irq		= pci_tegra_map_irq,
 };
 
-late_initcall(pcie_tegra_init);
-
-static int __init pcie_tegra_init(void)
+void __init tegra_pcie_init(void)
 {
 	pci_common_init(&pci_tegra_data);
-	return 0;
 }
 
 /*

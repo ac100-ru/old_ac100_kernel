@@ -13,7 +13,6 @@
 #define CPU_ARCH_ARMv5TEJ	7
 #define CPU_ARCH_ARMv6		8
 #define CPU_ARCH_ARMv7		9
-#define CPU_ARCH_ARMv7M		10
 
 /*
  * CR1 bits (CP#15 CR1)
@@ -61,6 +60,8 @@
 #include <linux/linkage.h>
 #include <linux/irqflags.h>
 
+#include <asm/outercache.h>
+
 #define __exception	__attribute__((section(".exception.text")))
 
 struct thread_info;
@@ -100,8 +101,8 @@ extern void cpu_init(void);
 extern void cpu_idle_wait(void);
 extern void default_idle(void);
 
-void arm_machine_restart(char mode);
-extern void (*arm_pm_restart)(char str);
+void arm_machine_restart(char mode, const char *cmd);
+extern void (*arm_pm_restart)(char str, const char *cmd);
 
 #define UDBG_UNDEFINED	(1 << 0)
 #define UDBG_SYSCALL	(1 << 1)
@@ -128,6 +129,12 @@ extern unsigned int user_debug;
 				    : : "r" (0) : "memory")
 #define dmb() __asm__ __volatile__ ("mcr p15, 0, %0, c7, c10, 5" \
 				    : : "r" (0) : "memory")
+#elif defined(CONFIG_CPU_FA526)
+#define isb() __asm__ __volatile__ ("mcr p15, 0, %0, c7, c5, 4" \
+				    : : "r" (0) : "memory")
+#define dsb() __asm__ __volatile__ ("mcr p15, 0, %0, c7, c10, 4" \
+				    : : "r" (0) : "memory")
+#define dmb() __asm__ __volatile__ ("" : : : "memory")
 #else
 #define isb() __asm__ __volatile__ ("" : : : "memory")
 #define dsb() __asm__ __volatile__ ("mcr p15, 0, %0, c7, c10, 4" \
@@ -135,21 +142,28 @@ extern unsigned int user_debug;
 #define dmb() __asm__ __volatile__ ("" : : : "memory")
 #endif
 
-#ifndef CONFIG_SMP
+#ifdef CONFIG_ARCH_HAS_BARRIERS
+#include <mach/barriers.h>
+#elif __LINUX_ARM_ARCH__ >= 7 || defined(CONFIG_SMP)
+#define mb()		do { dsb(); outer_sync(); } while (0)
+#define rmb()		dmb()
+#define wmb()		mb()
+#else
 #define mb()	do { if (arch_is_coherent()) dmb(); else barrier(); } while (0)
 #define rmb()	do { if (arch_is_coherent()) dmb(); else barrier(); } while (0)
 #define wmb()	do { if (arch_is_coherent()) dmb(); else barrier(); } while (0)
+#endif
+
+#ifndef CONFIG_SMP
 #define smp_mb()	barrier()
 #define smp_rmb()	barrier()
 #define smp_wmb()	barrier()
 #else
-#define mb()		dmb()
-#define rmb()		dmb()
-#define wmb()		dmb()
 #define smp_mb()	dmb()
 #define smp_rmb()	dmb()
 #define smp_wmb()	dmb()
 #endif
+
 #define read_barrier_depends()		do { } while(0)
 #define smp_read_barrier_depends()	do { } while(0)
 
@@ -201,9 +215,7 @@ static inline void set_copro_access(unsigned int val)
  * so enable interrupts over the context switch to avoid high
  * latency.
  */
-#ifndef CONFIG_CPU_V7M
 #define __ARCH_WANT_INTERRUPTS_ON_CTXSW
-#endif
 
 /*
  * switch_to(prev, next) should switch from task `prev' to `next'
@@ -308,7 +320,6 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr, int size
 		__bad_xchg(ptr, size), ret = 0;
 		break;
 	}
-
 	smp_mb();
 
 	return ret;
@@ -318,6 +329,12 @@ extern void disable_hlt(void);
 extern void enable_hlt(void);
 
 #include <asm-generic/cmpxchg-local.h>
+
+#if __LINUX_ARM_ARCH__ < 6
+
+#ifdef CONFIG_SMP
+#error "SMP is not supported on this platform"
+#endif
 
 /*
  * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
@@ -330,8 +347,15 @@ extern void enable_hlt(void);
 
 #ifndef CONFIG_SMP
 #include <asm-generic/cmpxchg.h>
-#elif __LINUX_ARM_ARCH__ >= 6
+#endif
+
+#else	/* __LINUX_ARM_ARCH__ >= 6 */
+
 extern void __bad_cmpxchg(volatile void *ptr, int size);
+
+/*
+ * cmpxchg only support 32-bits operands on ARMv6.
+ */
 
 static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
 				      unsigned long new, int size)
@@ -339,34 +363,44 @@ static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
 	unsigned long oldval, res;
 
 	switch (size) {
+#ifdef CONFIG_CPU_32v6K
 	case 1:
 		do {
 			asm volatile("@ __cmpxchg1\n"
 			"	ldrexb	%1, [%2]\n"
 			"	mov	%0, #0\n"
 			"	teq	%1, %3\n"
-			"	it	eq\n"
-			"	strexeqb %0, %4, [%2]\n"
+			"	strexbeq %0, %4, [%2]\n"
 				: "=&r" (res), "=&r" (oldval)
 				: "r" (ptr), "Ir" (old), "r" (new)
-				: "cc");
+				: "memory", "cc");
 		} while (res);
 		break;
-
+	case 2:
+		do {
+			asm volatile("@ __cmpxchg1\n"
+			"	ldrexh	%1, [%2]\n"
+			"	mov	%0, #0\n"
+			"	teq	%1, %3\n"
+			"	strexheq %0, %4, [%2]\n"
+				: "=&r" (res), "=&r" (oldval)
+				: "r" (ptr), "Ir" (old), "r" (new)
+				: "memory", "cc");
+		} while (res);
+		break;
+#endif /* CONFIG_CPU_32v6K */
 	case 4:
 		do {
 			asm volatile("@ __cmpxchg4\n"
 			"	ldrex	%1, [%2]\n"
 			"	mov	%0, #0\n"
 			"	teq	%1, %3\n"
-			"	it	eq\n"
 			"	strexeq %0, %4, [%2]\n"
 				: "=&r" (res), "=&r" (oldval)
 				: "r" (ptr), "Ir" (old), "r" (new)
-				: "cc");
+				: "memory", "cc");
 		} while (res);
 		break;
-
 	default:
 		__bad_cmpxchg(ptr, size);
 		oldval = 0;
@@ -375,12 +409,112 @@ static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
 	return oldval;
 }
 
-#define cmpxchg(ptr,o,n)					\
-	((__typeof__(*(ptr)))__cmpxchg((ptr),			\
-				       (unsigned long)(o),	\
-				       (unsigned long)(n),	\
+static inline unsigned long __cmpxchg_mb(volatile void *ptr, unsigned long old,
+					 unsigned long new, int size)
+{
+	unsigned long ret;
+
+	smp_mb();
+	ret = __cmpxchg(ptr, old, new, size);
+	smp_mb();
+
+	return ret;
+}
+
+#define cmpxchg(ptr,o,n)						\
+	((__typeof__(*(ptr)))__cmpxchg_mb((ptr),			\
+					  (unsigned long)(o),		\
+					  (unsigned long)(n),		\
+					  sizeof(*(ptr))))
+
+static inline unsigned long __cmpxchg_local(volatile void *ptr,
+					    unsigned long old,
+					    unsigned long new, int size)
+{
+	unsigned long ret;
+
+	switch (size) {
+#ifndef CONFIG_CPU_32v6K
+	case 1:
+	case 2:
+		ret = __cmpxchg_local_generic(ptr, old, new, size);
+		break;
+#endif	/* !CONFIG_CPU_32v6K */
+	default:
+		ret = __cmpxchg(ptr, old, new, size);
+	}
+
+	return ret;
+}
+
+#define cmpxchg_local(ptr,o,n)						\
+	((__typeof__(*(ptr)))__cmpxchg_local((ptr),			\
+				       (unsigned long)(o),		\
+				       (unsigned long)(n),		\
 				       sizeof(*(ptr))))
-#endif
+
+#ifdef CONFIG_CPU_32v6K
+
+/*
+ * Note : ARMv7-M (currently unsupported by Linux) does not support
+ * ldrexd/strexd. If ARMv7-M is ever supported by the Linux kernel, it should
+ * not be allowed to use __cmpxchg64.
+ */
+static inline unsigned long long __cmpxchg64(volatile void *ptr,
+					     unsigned long long old,
+					     unsigned long long new)
+{
+	register unsigned long long oldval asm("r0");
+	register unsigned long long __old asm("r2") = old;
+	register unsigned long long __new asm("r4") = new;
+	unsigned long res;
+
+	do {
+		asm volatile(
+		"	@ __cmpxchg8\n"
+		"	ldrexd	%1, %H1, [%2]\n"
+		"	mov	%0, #0\n"
+		"	teq	%1, %3\n"
+		"	teqeq	%H1, %H3\n"
+		"	strexdeq %0, %4, %H4, [%2]\n"
+			: "=&r" (res), "=&r" (oldval)
+			: "r" (ptr), "Ir" (__old), "r" (__new)
+			: "memory", "cc");
+	} while (res);
+
+	return oldval;
+}
+
+static inline unsigned long long __cmpxchg64_mb(volatile void *ptr,
+						unsigned long long old,
+						unsigned long long new)
+{
+	unsigned long long ret;
+
+	smp_mb();
+	ret = __cmpxchg64(ptr, old, new);
+	smp_mb();
+
+	return ret;
+}
+
+#define cmpxchg64(ptr,o,n)						\
+	((__typeof__(*(ptr)))__cmpxchg64_mb((ptr),			\
+					    (unsigned long long)(o),	\
+					    (unsigned long long)(n)))
+
+#define cmpxchg64_local(ptr,o,n)					\
+	((__typeof__(*(ptr)))__cmpxchg64((ptr),				\
+					 (unsigned long long)(o),	\
+					 (unsigned long long)(n)))
+
+#else	/* !CONFIG_CPU_32v6K */
+
+#define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
+
+#endif	/* CONFIG_CPU_32v6K */
+
+#endif	/* __LINUX_ARM_ARCH__ >= 6 */
 
 #endif /* __ASSEMBLY__ */
 

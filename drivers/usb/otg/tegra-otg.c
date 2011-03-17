@@ -20,14 +20,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define NV_DEBUG 0
+
 #include <linux/usb.h>
 #include <linux/usb/otg.h>
 #include <linux/usb/gadget.h>
-#include <linux/tegra_devices.h>
 #include <linux/platform_device.h>
 #include <asm/io.h>
+#include <mach/usb-otg.h>
+#include <mach/nvrm_linux.h>
 #include "../core/hcd.h"
-#include "mach/nvrm_linux.h"
+#include "nvddk_usbphy.h"
 
 #define TEGRA_USB_ID_INT_ENABLE			(1 << 0)
 #define TEGRA_USB_ID_INT_STATUS			(1 << 1)
@@ -78,7 +81,6 @@ static irqreturn_t tegra_otg_irq(int irq, void *data)
 				tegra_otg->otg.state = OTG_STATE_A_SUSPEND;
 			} else {
 				tegra_otg->otg.state = OTG_STATE_A_HOST;
-				hcd->state = HC_STATE_RUNNING;
 				/* set HCD flags to start host ISR */
 				set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 			}
@@ -255,12 +257,32 @@ static int __exit tegra_otg_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#if defined(CONFIG_PM)
+static int tegra_otg_resume(struct platform_device * pdev)
+{
+	struct tegra_otg_data *tegra_otg = platform_get_drvdata(pdev);
+	unsigned int temp;
+
+	/* enable the cable ID and VBUS interrupts */
+	temp = readl(tegra_otg->regs + TEGRA_USB_WAKEUP_REG_OFFSET);
+	temp |= (TEGRA_USB_ID_INT_ENABLE | TEGRA_USB_ID_PIN_WAKEUP_ENABLE);
+	temp |= (TEGRA_USB_VBUS_INT_ENABLE | TEGRA_USB_VBUS_WAKEUP_ENABLE);
+	temp &= ~TEGRA_USB_VBUS_INT_STATUS;
+	writel(temp, (tegra_otg->regs + TEGRA_USB_WAKEUP_REG_OFFSET));
+
+	return 0;
+}
+#endif
+
 static struct platform_driver tegra_otg_driver = {
 	.driver = {
 		.name  = driver_name,
 	},
 	.remove  = __exit_p(tegra_otg_remove),
 	.probe   = tegra_otg_probe,
+#if defined(CONFIG_PM)
+	.resume = tegra_otg_resume,
+#endif
 };
 
 static int __init tegra_otg_init(void)

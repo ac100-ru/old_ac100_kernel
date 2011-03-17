@@ -1,41 +1,21 @@
 /*
+ * arch/arm/mach-tegra/odm_kit/query/harmony/nvodm_query_discovery.c
+ *
  * Copyright (c) 2009 NVIDIA Corporation.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * Neither the name of the NVIDIA Corporation nor the names of its contributors
- * may be used to endorse or promote products derived from this software
- * without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
- */
-
-/**
- * @file
- * <b>NVIDIA APX ODM Kit::
- *         Implementation of the ODM Peripheral Discovery API</b>
- *
- * @b Description: The peripheral connectivity database implementation.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include "nvcommon.h"
@@ -62,10 +42,10 @@ static NvOdmPeripheralConnectivity s_Peripherals_Default[] =
 #define NVODM_QUERY_MAX_EEPROMS         8   // Maximum number of EEPROMs per bus segment
 
 #define NVODM_QUERY_ERASED_EEPROM_VALUE 0xFF
-
 #define PROCESSOR_BOARD_ID_I2C_ADDRESS ((0x56)<<1)
 #define PROCESSOR_BOARD_ID_I2C_SEGMENT (0x00)
 
+NvBool IsBoardTango(void);
 // The following are used to store entries read from EEPROMs at runtime.
 static NvOdmPeripheralConnectivity s_Peripherals[NVODM_QUERY_MAX_PERIPHERALS];
 static NvOdmIoAddress s_Peripheral_IoAddresses[NVODM_QUERY_MAX_IO_ADDRESSES];
@@ -80,7 +60,8 @@ static NvOdmBoardInfo s_BoardModuleTable[NVODM_QUERY_MAX_EEPROMS];
 
 #define NVODM_QUERY_PERIPH_CONN_STRUCT_COMPRESSED   10  // See EEPROM_format.txt
 #define NVODM_PERIPH_IO_ADDR_STRUCT_SZ_COMPRESSED   2   // See EEPROM_format.txt
-
+#define EEPROM_ID_E1206 0x0C06
+#define ACCEL_TANGO_GUID NV_ODM_GUID('k','x','t','9','-','0','0','0')
 
 static NvOdmI2cStatus
 NvOdmPeripheralI2cRead8(
@@ -485,9 +466,11 @@ NvOdmPeripheralGetBoardInfo(
     static NvBool s_ReadBoardInfoDone = NV_FALSE;
 
     if (!s_ReadBoardInfoDone)
+        hOdmI2c = NvOdmI2cOpen(NvOdmIoModule_I2c_Pmu, 0);
+
+    if (!s_ReadBoardInfoDone)
     {
         s_ReadBoardInfoDone = NV_TRUE;
-        hOdmI2c = NvOdmI2cOpen(NvOdmIoModule_I2c_Pmu, 0);
         if (!hOdmI2c)
         {
             // Exit
@@ -502,8 +485,9 @@ NvOdmPeripheralGetBoardInfo(
             if (RetVal == NV_TRUE)
                 NumBoards++;
         }
-        NvOdmI2cClose(hOdmI2c);
     }
+    if (hOdmI2c)
+        NvOdmI2cClose(hOdmI2c);
 
     if (NumBoards)
     {
@@ -618,6 +602,20 @@ NvApGetAllPeripherals (NvU32 *pNum)
     return (const NvOdmPeripheralConnectivity *)s_Peripherals;
 }
 
+NvBool IsBoardTango(void)
+{
+    NvOdmBoardInfo BoardInfo;
+    static NvBool s_IsBoardIdRead = NV_FALSE;
+    static NvBool IsBoardTango = NV_FALSE;
+
+    if (!s_IsBoardIdRead)
+    {
+        IsBoardTango = NvOdmPeripheralGetBoardInfo(EEPROM_ID_E1206, &BoardInfo);
+        s_IsBoardIdRead = NV_TRUE;
+    }
+    return IsBoardTango;
+}
+
 // This implements a simple linear search across the entire set of currently-
 // connected peripherals to find the set of GUIDs that Match the search
 // criteria.  More clever implementations are possible, but given the
@@ -629,12 +627,15 @@ NvOdmPeripheralGetGuid(NvU64 SearchGuid)
     const NvOdmPeripheralConnectivity *pAllPeripherals;
     NvU32 NumPeripherals;
     NvU32 i;
+    NvBool IsE1206Board;
 
     pAllPeripherals = NvApGetAllPeripherals(&NumPeripherals);
 
+    IsE1206Board = IsBoardTango();
     if (!pAllPeripherals || !NumPeripherals)
         return NULL;
-
+    if ((SearchGuid == ACCEL_TANGO_GUID) && (!IsE1206Board))
+        return NULL;
     for (i=0; i<NumPeripherals; i++) 
     {
         if (SearchGuid == pAllPeripherals[i].Guid)
@@ -644,7 +645,6 @@ NvOdmPeripheralGetGuid(NvU64 SearchGuid)
             return &pAllPeripherals[i];
         }
     }
-
     return NULL;
 }
 

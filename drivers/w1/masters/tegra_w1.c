@@ -1,5 +1,5 @@
 /*
- * drivers/w1/masters/tegra-w1.c
+ * drivers/w1/masters/tegra_w1.c
  *
  * ONE WIRE (OWR) bus driver for internal OWR controllers in NVIDIA Tegra SoCs
  *
@@ -20,139 +20,102 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define NV_DEBUG 0
+
 #include <linux/module.h>
 #include <linux/clk.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
-#include <linux/tegra_devices.h>
 #include <asm/uaccess.h>
 
 #include "../w1.h"
 #include "../w1_int.h"
 #include "../w1_log.h"
 
+#include <mach/w1.h>
 #include <mach/nvrm_linux.h>
-#include <nvrm_module.h>
+#include <nvrm_owr.h>
 #include <nvos.h>
-#include <nvodm_query_discovery.h>
 
-struct tegra_w1_dev
-{
-	NvRmOwrHandle		OwrHandle;
-	NvOdmOwrPinMap		pin_map;
-	struct w1_bus_master	bus_master;
+struct tegra_w1_dev {
+	NvRmOwrHandle rm_owr;
+	unsigned int pin_map;
+	struct platform_device *pdev;
+	struct w1_bus_master bus_master;
 };
+
+static void tegra_w1_write_op(void *data, u8 a_byte,
+			      NvRmOwrTransactionFlags flag)
+{
+	struct tegra_w1_dev *dev = data;
+	NvRmOwrTransactionInfo info;
+	NvError err;
+
+	info.Flags = flag,
+	info.NumBytes = 1;
+	info.Address = 0;
+	info.Offset = 0;
+
+	err = NvRmOwrTransaction(dev->rm_owr, dev->pin_map,
+				 &a_byte, 1, &info, 1);
+	if (err != NvSuccess) {
+		dev_err(&dev->pdev->dev, "%s (op:%s) failed 0x%x\r\n",
+			__func__, (flag==NvRmOwr_WriteByte)?"byte":"bit", err);
+	}
+}
+
+static u8 tegra_w1_read_op(void *data, NvRmOwrTransactionFlags flag)
+{
+	struct tegra_w1_dev *dev = data;
+	NvRmOwrTransactionInfo info;
+	NvError err;
+	u8 byte;
+
+	info.Flags = flag;
+	info.NumBytes = 1;
+	info.Address = 0;
+	info.Offset = 0;
+
+	err = NvRmOwrTransaction(dev->rm_owr, dev->pin_map,
+				 &byte, info.NumBytes, &info, 1);
+	if (err != NvSuccess) {
+		dev_err(&dev->pdev->dev, "%s (op:%s) failed 0x%x\n",
+			__func__, (flag==NvRmOwr_ReadByte)?"byte":"bit", err);
+		return 0;
+	}
+
+	return byte;
+}
 
 static u8 tegra_w1_read_byte(void *data)
 {
-	struct tegra_w1_dev *dev = data;
-	NvRmOwrTransactionInfo tInfo;
-	NvError err;
-	u8 buffer[1];
-
-	tInfo.Flags = NvRmOwr_ReadByte;
-	tInfo.NumBytes = 1;
-	tInfo.Address = 0;
-	tInfo.Offset = 0;
-
-	err = NvRmOwrTransaction(dev->OwrHandle, dev->pin_map,
-			buffer, tInfo.NumBytes, &tInfo, 1);
-	if (err != NvSuccess)
-	{
-		printk(KERN_ERR "tegra_w1_read_byte failed 0x%x\r\n", err);
-		err = -EIO;
-	}
-
-	if (!err)
-		return buffer[0];
-	else
-		return 0;
+	return tegra_w1_read_op(data, NvRmOwr_ReadByte);
 }
 
 static void tegra_w1_write_byte(void *data, u8 a_byte)
 {
-	struct tegra_w1_dev *dev = data;
-	NvRmOwrTransactionInfo tInfo;
-	NvError err;
-	u8 buffer[1];
-
-	tInfo.Flags = NvRmOwr_WriteByte;
-	tInfo.NumBytes = 1;
-	tInfo.Address = 0;
-	tInfo.Offset = 0;
-	buffer[0] = a_byte;
-
-	err = NvRmOwrTransaction(dev->OwrHandle, dev->pin_map,
-			buffer, tInfo.NumBytes, &tInfo, 1);
-	if (err != NvSuccess)
-	{
-		printk(KERN_ERR "tegra_w1_write_byte failed 0x%x\r\n", err);
-		err = -EIO;
-	}
+	tegra_w1_write_op(data, a_byte, NvRmOwr_WriteByte);
 }
 
 static u8 tegra_w1_read_bit(void *data)
 {
-	struct tegra_w1_dev *dev = data;
-	NvRmOwrTransactionInfo tInfo;
-	NvError err;
-	u8 buffer[1];
-
-	tInfo.Flags = NvRmOwr_ReadBit;
-	tInfo.NumBytes = 1;
-	tInfo.Address = 0;
-	tInfo.Offset = 0;
-
-	err = NvRmOwrTransaction(dev->OwrHandle, dev->pin_map,
-			buffer, tInfo.NumBytes, &tInfo, 1);
-	if (err != NvSuccess)
-	{
-		printk(KERN_ERR "tegra_w1_read_bit failed 0x%x\r\n", err);
-		err = -EIO;
-	}
-
-	if (!err)
-		return (buffer[0] & 0x1);
-	else
-		return 0;
+	return tegra_w1_read_op(data, NvRmOwr_ReadBit) & 1;
 }
 
 static void tegra_w1_write_bit(void *data, u8 bit)
 {
-	struct tegra_w1_dev *dev = data;
-	NvRmOwrTransactionInfo tInfo;
-	NvError err;
-	u8 buffer[1];
-
-	tInfo.Flags = NvRmOwr_WriteBit;
-	tInfo.NumBytes = 1;
-	tInfo.Address = 0;
-	tInfo.Offset = 0;
-	buffer[0] = bit & 0x1;
-
-	err = NvRmOwrTransaction(dev->OwrHandle, dev->pin_map,
-			buffer, tInfo.NumBytes, &tInfo, 1);
-	if (err != NvSuccess)
-	{
-		printk(KERN_ERR "tegra_w1_write_bit failed 0x%x\r\n", err);
-		err = -EIO;
-	}
+	tegra_w1_write_op(data, bit&0x1, NvRmOwr_WriteBit);
 }
 
 /* Performs a write-0 or write-1 cycle and samples the level */
 static u8 tegra_w1_touch_bit(void *data, u8 bit)
 {
-	struct tegra_w1_dev *dev = data;
-
-	if (bit)
-	{
-		return tegra_w1_read_bit(dev);
-	}
-	else
-	{
-		tegra_w1_write_bit(dev, 0);
+	if (bit) {
+		return tegra_w1_read_bit(data);
+	} else {
+		tegra_w1_write_bit(data, 0);
 		return 0;
 	}
 }
@@ -160,62 +123,52 @@ static u8 tegra_w1_touch_bit(void *data, u8 bit)
 static u8 tegra_w1_reset_bus(void *data)
 {
 	struct tegra_w1_dev *dev = data;
-	NvRmOwrTransactionInfo tInfo;
+	NvRmOwrTransactionInfo info;
 	NvError err;
 	u8 buffer[1];
 
-	tInfo.Flags = NvRmOwr_CheckPresence;
-	tInfo.NumBytes = 1;
-	tInfo.Address = 0;
-	tInfo.Offset = 0;
+	info.Flags = NvRmOwr_CheckPresence;
+	info.NumBytes = 1;
+	info.Address = 0;
+	info.Offset = 0;
 
-	err = NvRmOwrTransaction(dev->OwrHandle, dev->pin_map,
-			buffer, tInfo.NumBytes, &tInfo, 1);
-	if (err != NvSuccess)
-	{
-		printk(KERN_ERR "tegra_w1_reset_bus failed 0x%x\r\n", err);
-		err = -EIO;
-	}
-
-	if (!err)
-	{
-		/* Device present */
-		return 0;
-	}
-	else
-	{
-		/* No Device present */
+	err = NvRmOwrTransaction(dev->rm_owr, dev->pin_map,
+				 buffer, info.NumBytes, &info, 1);
+	if (err != NvSuccess) {
+		dev_err(&dev->pdev->dev, "%s failed 0x%x\r\n", __func__, err);
 		return 1;
 	}
+
+	return 0;
 }
 
 static int tegra_w1_probe(struct platform_device *pdev)
 {
-	struct tegra_w1_dev *dev;
-	struct tegra_w1_platform_data *pdata = pdev->dev.platform_data;
-	int ret;
-	NvError err;
+	struct tegra_w1_platform_data *plat = pdev->dev.platform_data;
+	struct tegra_w1_dev *dev = NULL;
+	int rc;
 
-	printk(KERN_INFO "tegra_w1_probe\r\n");
-	printk(KERN_INFO "Instance = %d, PinMuxConfig = %d\r\n",
-			pdata->Instance, pdata->PinMuxConfig);
-
-	if (pdata == NULL)
-		return -ENODEV;
-
-	dev = kzalloc(sizeof(struct tegra_w1_dev), GFP_KERNEL);
-	if (!dev)
-		return -ENOMEM;
-
-	err = NvRmOwrOpen(s_hRmGlobal, pdata->Instance, &dev->OwrHandle);
-	if (err)
-	{
-		ret = -ENODEV;
-		printk(KERN_INFO "Failed to open NvRmOwrOpen - returned %d\n", err);
-		goto err_rmapi_failed;
+	dev_dbg(&pdev->dev, "%s: %p\n", __func__, pdev);
+	if (!plat) {
+		dev_err(&pdev->dev, "no platform data?\n");
+		return -EINVAL;
 	}
 
-	dev->pin_map = pdata->PinMuxConfig;
+	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	if (!dev) {
+		dev_err(&pdev->dev, "out of memory\n");
+		return -ENOMEM;
+	}
+
+	if (NvRmOwrOpen(s_hRmGlobal, pdev->id, &dev->rm_owr) != NvSuccess) {
+		dev_err(&pdev->dev, "unable to open RM One-Wire API\n");
+		rc = -ENODEV;
+		goto fail;
+	}
+
+	dev->pin_map = plat->pinmux;
+	dev->pdev = pdev;
+
 	dev->bus_master.data = dev;
 	dev->bus_master.read_byte = tegra_w1_read_byte;
 	dev->bus_master.write_byte = tegra_w1_write_byte;
@@ -224,40 +177,37 @@ static int tegra_w1_probe(struct platform_device *pdev)
 	dev->bus_master.touch_bit = tegra_w1_touch_bit;
 	dev->bus_master.reset_bus = tegra_w1_reset_bus;
 
-	if (tegra_w1_reset_bus(dev))
-	{
-		printk(KERN_INFO "No Device Present\n");
-		ret = -ENODEV;
-		goto err_device_not_found;
+	if (tegra_w1_reset_bus(dev)) {
+		dev_err(&pdev->dev, "No device present\n");
+		rc = -ENODEV;
+		goto fail;
 	}
 
-	ret = w1_add_master_device(&dev->bus_master);
-	if (ret)
-	{
-		printk(KERN_INFO "w1_add_master_device - failed %d\r\n", ret);
-		goto err_w1_add_master_device_failed;
+	rc = w1_add_master_device(&dev->bus_master);
+	if (rc) {
+		dev_err(&pdev->dev, "failed to add device: %d\n", rc);
+		goto fail;
 	}
 
 	platform_set_drvdata(pdev, dev);
 
 	return 0;
 
-err_w1_add_master_device_failed:
-err_device_not_found:
-	NvRmOwrClose(dev->OwrHandle);
-err_rmapi_failed:
-	kfree(dev);
-	return ret;
+fail:
+	if (dev) {
+		if (dev->rm_owr)
+			NvRmOwrClose(dev->rm_owr);
+		kfree(dev);
+	}
+	return rc;
 }
 
-static int
-tegra_w1_remove(struct platform_device *pdev)
+static int tegra_w1_remove(struct platform_device *pdev)
 {
 	struct tegra_w1_dev *dev = platform_get_drvdata(pdev);
 
-	NvRmOwrClose(dev->OwrHandle);
+	NvRmOwrClose(dev->rm_owr);
 	w1_remove_master_device(&dev->bus_master);
-	platform_set_drvdata(pdev, NULL);
 	kfree(dev);
 	return 0;
 }
@@ -277,15 +227,13 @@ static struct platform_driver tegra_w1_driver = {
 	.remove  = tegra_w1_remove,
 	.suspend = tegra_w1_suspend,
 	.resume  = tegra_w1_resume,
-	.driver  =
-	{
-	.name  = "tegra_w1",
-	.owner = THIS_MODULE,
+	.driver  = {
+		.name  = "tegra_w1",
+		.owner = THIS_MODULE,
 	},
 };
 
-static int __init
-tegra_w1_init(void)
+static int __init tegra_w1_init(void)
 {
 	return platform_driver_register(&tegra_w1_driver);
 }

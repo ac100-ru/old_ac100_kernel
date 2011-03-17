@@ -13,12 +13,11 @@
  */
 #include <linux/string.h>
 #include <linux/thread_info.h>
-#include <linux/sched.h>
-#include <asm/unified.h>
 #include <asm/errno.h>
 #include <asm/memory.h>
 #include <asm/domain.h>
 #include <asm/system.h>
+#include <asm/unified.h>
 
 #define VERIFY_READ 0
 #define VERIFY_WRITE 1
@@ -71,7 +70,7 @@ static inline void set_fs(mm_segment_t fs)
 
 #define __addr_ok(addr) ({ \
 	unsigned long flag; \
-	__asm__("cmp %2, %0; it lo; movlo %0, #0" \
+	__asm__("cmp %2, %0; movlo %0, #0" \
 		: "=&r" (flag) \
 		: "0" (current_thread_info()->addr_limit), "r" (addr) \
 		: "cc"); \
@@ -81,7 +80,7 @@ static inline void set_fs(mm_segment_t fs)
 #define __range_ok(addr,size) ({ \
 	unsigned long flag, roksum; \
 	__chk_user_ptr(addr);	\
-	__asm__("adds %1, %2, %3; it cc; sbcccs %1, %1, %0; it cc; movcc %0, #0" \
+	__asm__("adds %1, %2, %3; sbcccs %1, %1, %0; movcc %0, #0" \
 		: "=&r" (flag), "=&r" (roksum) \
 		: "r" (addr), "Ir" (size), "0" (current_thread_info()->addr_limit) \
 		: "cc"); \
@@ -390,7 +389,9 @@ do {									\
 #ifdef CONFIG_MMU
 extern unsigned long __must_check __copy_from_user(void *to, const void __user *from, unsigned long n);
 extern unsigned long __must_check __copy_to_user(void __user *to, const void *from, unsigned long n);
+extern unsigned long __must_check __copy_to_user_std(void __user *to, const void *from, unsigned long n);
 extern unsigned long __must_check __clear_user(void __user *addr, unsigned long n);
+extern unsigned long __must_check __clear_user_std(void __user *addr, unsigned long n);
 #else
 #define __copy_from_user(to,from,n)	(memcpy(to, (void __force *)from, n), 0)
 #define __copy_to_user(to,from,n)	(memcpy((void __force *)to, from, n), 0)

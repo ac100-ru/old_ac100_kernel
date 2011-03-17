@@ -1,39 +1,20 @@
 /*
  * Copyright (c) 2007-2009 NVIDIA Corporation.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * Neither the name of the NVIDIA Corporation nor the names of its contributors
- * may be used to endorse or promote products derived from this software
- * without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
- 
-/*  NVIDIA Tegra ODM Kit Sample Accelerometer Adaptation of the
- *  WinCE Accelerometer Driver
- */
-
 
 #include "nvodm_accelerometer_adi340.h"
 #include "nvodm_services.h"
@@ -42,8 +23,8 @@
 
 #define NV_ACCELEROMETER_REGISTER_RANGE 8
 // When acc is put in horizontal, the max value from acc.
-#define NV_ADI340_ACCELEROMETER_NORMAL_THRESHOLD 30
-#define NV_ADI340_ACCELEROMETER_TAP_THRESHOLD 40
+#define NV_ADI340_ACCELEROMETER_NORMAL_THRESHOLD 38
+#define NV_ADI340_ACCELEROMETER_TAP_THRESHOLD 7
 #define NV_ADI340_LOW_POWER_SAMPLERATE 3
 #define NV_ADI340_FULL_RUN_SAMPLERATE  100
 #define NV_ADI340_FORCE_FACTOR 1000
@@ -536,7 +517,8 @@ NvOdmAccelOpen(NvOdmAccelHandle* hDevice)
     hAccel->CtrlRegsList[0].RegAddr = XLR_CTL; //0x12
     hAccel->CtrlRegsList[0].RegValue = 0x20;
     hAccel->CtrlRegsList[1].RegAddr = XLR_INTCONTROL; //0x13
-    hAccel->CtrlRegsList[1].RegValue = 0xF3;  // modify so that sw is compatible
+    // Ignore Z-axis interrupt, as it is getting fired continuously.
+    hAccel->CtrlRegsList[1].RegValue = 0xD3;  // modify so that sw is compatible,
     hAccel->CtrlRegsList[2].RegAddr = XLR_INTCONTROL2; //0x14
     hAccel->CtrlRegsList[2].RegValue = 0xe0;
     hAccel->CtrlRegsList[3].RegAddr = XLR_THRESHG; //0x1C
@@ -550,9 +532,9 @@ NvOdmAccelOpen(NvOdmAccelHandle* hDevice)
     hAccel->CtrlRegsList[7].RegAddr = XLR_THRESHC; //0x1D
     hAccel->CtrlRegsList[7].RegValue = NV_ADI340_ACCELEROMETER_TAP_THRESHOLD;
     hAccel->CtrlRegsList[8].RegAddr = XLR_DUR; //0x21
-    hAccel->CtrlRegsList[8].RegValue = 0x40;
+    hAccel->CtrlRegsList[8].RegValue = 0x2;
     hAccel->CtrlRegsList[9].RegAddr = XLR_LATENT; //0x22
-    hAccel->CtrlRegsList[9].RegValue = 0xff;
+    hAccel->CtrlRegsList[9].RegValue = 0x0;
     hAccel->CtrlRegsList[10].RegAddr = XLR_INTVL; //0x23
     hAccel->CtrlRegsList[10].RegValue = 0;
     hAccel->CtrlRegsList[11].RegAddr = XLR_INTCONTROL2; //0x14
@@ -570,7 +552,7 @@ NvOdmAccelOpen(NvOdmAccelHandle* hDevice)
     hAccel->Caption.MinSampleRate = 3;
     hAccel->PowerState = NvOdmAccelPower_Fullrun;
     hAccel->AxisXMapping = NvOdmAccelAxis_X;
-    hAccel->AxisXDirection = 1;
+    hAccel->AxisXDirection = -1;
     hAccel->AxisYMapping = NvOdmAccelAxis_Y;
     hAccel->AxisYDirection = 1;
     hAccel->AxisZMapping = NvOdmAccelAxis_Z;
@@ -657,8 +639,8 @@ NvOdmAccelOpen(NvOdmAccelHandle* hDevice)
      *  Write to INTCONTROL register to disable genetration of the interrupts.
      *  Write to INTCONTROL2 to clear the already latched interrupts.
      */
-    NvOdmAccelerometerSetParameter(hAccel, XLR_ATTR_INTCONTROL, 0x0);
-    NvOdmAccelerometerSetParameter(hAccel, XLR_ATTR_INTCONTROL2, 0x1);
+    NvOdmAccelerometerSetParameter(hAccel, XLR_INTCONTROL, 0x0);
+    NvOdmAccelerometerSetParameter(hAccel, XLR_INTCONTROL2, 0x1);
     if(NV_FALSE == NvAccelerometerConnectSemaphore(hAccel))
     {
         goto error;
@@ -880,17 +862,16 @@ NvOdmAccelSetIntEnable(NvOdmAccelHandle  hDevice,
                 }
                 case NvOdmAccelAxis_All:
                 {
+                    // Z-axis interrupt is ignored so do not enable or disable it
                     if(Toggle == NV_TRUE)
                     {
                         uTemp |= XLR_INTCONTROL_COM_SRC_X;
                         uTemp |= XLR_INTCONTROL_COM_SRC_Y;
-                        uTemp |= XLR_INTCONTROL_COM_SRC_Z;
                     }
                     else
                     {
                         uTemp &= XLR_INTCONTROL_COM_SRC_X_MASK;
                         uTemp &= XLR_INTCONTROL_COM_SRC_Y_MASK;
-                        uTemp &= XLR_INTCONTROL_COM_SRC_Z_MASK;
                     }
                     break;
                 }

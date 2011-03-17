@@ -45,6 +45,7 @@
 
 #include "compat.h"
 #include "atags.h"
+#include "tcm.h"
 
 #ifndef MEM_SIZE
 #define MEM_SIZE	(16*1024*1024)
@@ -109,9 +110,7 @@ struct stack {
 	u32 und[3];
 } ____cacheline_aligned;
 
-#ifndef CONFIG_CPU_V7M
 static struct stack stacks[NR_CPUS];
-#endif
 
 char elf_platform[ELF_PLATFORM_SIZE];
 EXPORT_SYMBOL(elf_platform);
@@ -199,12 +198,6 @@ static const char *proc_arch[] = {
 	"?(17)",
 };
 
-#ifdef CONFIG_CPU_V7M
-int cpu_architecture(void)
-{
-	return CPU_ARCH_ARMv7M;
-}
-#else
 int cpu_architecture(void)
 {
 	int cpu_arch;
@@ -224,7 +217,7 @@ int cpu_architecture(void)
 		 * Register 0 and check for VMSAv7 or PMSAv7 */
 		asm("mrc	p15, 0, %0, c0, c1, 4"
 		    : "=r" (mmfr0));
-		if ((mmfr0 & 0x0000000f) >= 0x00000003 ||
+		if ((mmfr0 & 0x0000000f) == 0x00000003 ||
 		    (mmfr0 & 0x000000f0) == 0x00000030)
 			cpu_arch = CPU_ARCH_ARMv7;
 		else if ((mmfr0 & 0x0000000f) == 0x00000002 ||
@@ -237,8 +230,6 @@ int cpu_architecture(void)
 
 	return cpu_arch;
 }
-#endif
-EXPORT_SYMBOL(cpu_architecture);
 
 static void __init cacheid_init(void)
 {
@@ -307,15 +298,9 @@ static void __init setup_processor(void)
 	cpu_cache = *list->cache;
 #endif
 
-#ifdef CONFIG_CPU_V7M
-	printk("CPU: %s [%08x] revision %d (ARMv%sM)\n",
-	       cpu_name, processor_id, (int)processor_id & 15,
-	       proc_arch[cpu_architecture()]);
-#else
 	printk("CPU: %s [%08x] revision %d (ARMv%s), cr=%08lx\n",
 	       cpu_name, read_cpuid_id(), read_cpuid_id() & 15,
 	       proc_arch[cpu_architecture()], cr_alignment);
-#endif
 
 	sprintf(init_utsname()->machine, "%s%c", list->arch_name, ENDIANNESS);
 	sprintf(elf_platform, "%s%c", list->elf_name, ENDIANNESS);
@@ -335,7 +320,6 @@ static void __init setup_processor(void)
  */
 void cpu_init(void)
 {
-#ifndef CONFIG_CPU_V7M
 	unsigned int cpu = smp_processor_id();
 	struct stack *stk = &stacks[cpu];
 
@@ -378,7 +362,6 @@ void cpu_init(void)
 	      "I" (offsetof(struct stack, und[0])),
 	      PLC (PSR_F_BIT | PSR_I_BIT | SVC_MODE)
 	    : "r14");
-#endif
 }
 
 static struct machine_desc * __init setup_machine(unsigned int nr)
@@ -727,12 +710,10 @@ void __init setup_arch(char **cmdline_p)
 	if (mdesc->soft_reboot)
 		reboot_setup("s");
 
-#ifndef CONFIG_NAKED_BOOT
 	if (__atags_pointer)
 		tags = phys_to_virt(__atags_pointer);
 	else if (mdesc->boot_params)
 		tags = phys_to_virt(mdesc->boot_params);
-#endif
 
 	/*
 	 * If we have the old style parameters, convert them to
@@ -769,6 +750,7 @@ void __init setup_arch(char **cmdline_p)
 #endif
 
 	cpu_init();
+	tcm_init();
 
 	/*
 	 * Set up various architecture-specific pointers

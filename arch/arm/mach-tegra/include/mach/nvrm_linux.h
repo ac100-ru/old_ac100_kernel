@@ -44,15 +44,10 @@
 #else
 #define NV_DEBUG 0
 #endif
-#endif 
+#endif
 
 #include <nvrm_init.h>
-#include <nvrm_i2c.h>
-#include <nvrm_owr.h>
 #include <nvrm_gpio.h>
-#include <nvodm_query_pinmux.h>
-#include <nvodm_query.h>
-#include "nvddk_usbphy.h"
 
 extern NvRmDeviceHandle s_hRmGlobal;
 extern NvRmGpioHandle s_hGpioGlobal;

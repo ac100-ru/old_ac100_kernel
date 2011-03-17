@@ -150,8 +150,7 @@ NvOdmSdioHandle NvOdmSdioOpen(NvU32 Instance)
     }
 
     pDevice->pConnectivity = pConnectivity;
-    if (Instance == 0)
-        NvOdmSetPowerOnSdio(pDevice, NV_TRUE);
+    NvOdmSetPowerOnSdio(pDevice, NV_TRUE);
 
     if (pConnectivity->Guid == WLAN_GUID)
     {
@@ -221,8 +220,7 @@ void NvOdmSdioClose(NvOdmSdioHandle hOdmSdio)
         NvOdmGpioReleasePinHandle(hOdmSdio->hGpio, hOdmSdio->hResetPin);    
         NvOdmGpioClose(hOdmSdio->hGpio);
     }
-    if (hOdmSdio->Instance == 0)
-        NvOdmSetPowerOnSdio(hOdmSdio, NV_FALSE);
+    NvOdmSetPowerOnSdio(hOdmSdio, NV_FALSE);
     if (hOdmSdio->hPmu != NULL)
     {
          NvOdmServicesPmuClose(hOdmSdio->hPmu);
@@ -289,8 +287,7 @@ NvBool NvOdmSdioSuspend(NvOdmSdioHandle hOdmSdio)
     }
 
     NV_DRIVER_TRACE(("Suspend SDIO%d", hOdmSdio->Instance));
-    if (hOdmSdio->Instance == 0)
-        NvOdmSetPowerOnSdio(hOdmSdio, NV_FALSE);
+    NvOdmSetPowerOnSdio(hOdmSdio, NV_FALSE);
 
     pConnectivity = hOdmSdio->pConnectivity;
     if (pConnectivity->Guid == WLAN_GUID)
@@ -314,8 +311,8 @@ NvBool NvOdmSdioResume(NvOdmSdioHandle hOdmSdio)
         NV_DRIVER_TRACE(("SDIO%d already resumed", hOdmSdio->Instance));
         return NV_TRUE;
     }
-    if (hOdmSdio->Instance == 0)
-        NvOdmSetPowerOnSdio(hOdmSdio, NV_TRUE);
+
+    NvOdmSetPowerOnSdio(hOdmSdio, NV_TRUE);
 
     pConnectivity = hOdmSdio->pConnectivity;
     if (pConnectivity->Guid == WLAN_GUID)

@@ -285,8 +285,25 @@ typedef struct
         NvBool IsApbDmaBasedTransfer,
         NvBool IsOnlyUseSWCS);
 
+    /**
+     * Set the CS setup and hold time.
+     */
+    void
+    (* HwSetCsSetupHoldTime)(
+        SerialHwRegisters *pHwRegs,
+        NvU32 CsSetupTimeInClocks,
+        NvU32 CsHoldTimeInClocks);
 
-     /**
+    /**
+     * Set active CS id for slave.
+     */
+    void
+    (* HwSetSlaveCsIdFxn)(
+        SerialHwRegisters *pHwRegs,
+        NvU32 CsId,
+        NvBool IsHigh);
+
+    /**
      * Set the packet length.
      */
     void
@@ -360,6 +377,16 @@ typedef struct
      */
     void 
     (* HwClearTransferStatusFxn)(
+        SerialHwRegisters *pHwRegs,
+        SerialHwDataFlow DataDirection);
+
+
+    /**
+     * Clear the fifos before starting new transfer to make sure there is no
+     * residuals from past.
+     */
+    NvBool
+    (* HwClearFifosForNewTransferFxn)(
         SerialHwRegisters *pHwRegs,
         SerialHwDataFlow DataDirection);
 

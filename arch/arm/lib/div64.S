@@ -84,10 +84,8 @@ ENTRY(__do_div64)
 	@ The division loop for needed upper bit positions.
  	@ Break out early if dividend reaches 0.
 2:	cmp	xh, yl
-	itt	cs
 	orrcs	yh, yh, ip
 	subcss	xh, xh, yl
-	it	ne
 	movnes	ip, ip, lsr #1
 	mov	yl, yl, lsr #1
 	bne	2b
@@ -95,9 +93,7 @@ ENTRY(__do_div64)
 	@ See if we need to handle lower 32-bit result.
 3:	cmp	xh, #0
 	mov	yl, #0
-	it	eq
 	cmpeq	xl, r4
-	itt	lo
 	movlo	xh, xl
 	movlo	pc, lr
 
@@ -108,9 +104,7 @@ ENTRY(__do_div64)
 4:	movs	xl, xl, lsl #1
 	adcs	xh, xh, xh
 	beq	6f
-	it	cc
 	cmpcc	xh, r4
-	itt	cs
 5:	orrcs	yl, yl, ip
 	subcs	xh, xh, r4
 	movs	ip, ip, lsr #1
@@ -122,7 +116,6 @@ ENTRY(__do_div64)
 	@ Otherwise, if lower part is also null then we are done.
 6:	bcs	5b
 	cmp	xl, #0
-	it	eq
 	moveq	pc, lr
 
 	@ We still have remainer bits in the low part.  Bring them up.
@@ -192,8 +185,7 @@ ENTRY(__do_div64)
 	mov	pc, lr
 
 	@ eq -> division by 1: obvious enough...
-9:	itttt	eq
-	moveq	yl, xl
+9:	moveq	yl, xl
 	moveq	yh, xh
 	moveq	xh, #0
 	moveq	pc, lr

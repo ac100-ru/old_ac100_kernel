@@ -114,10 +114,11 @@ switch_mm(struct mm_struct *prev, struct mm_struct *next,
 
 #ifdef CONFIG_SMP
 	/* check for possible thread migration */
-	if (!cpus_empty(next->cpu_vm_mask) && !cpu_isset(cpu, next->cpu_vm_mask))
+	if (!cpumask_empty(mm_cpumask(next)) &&
+	    !cpumask_test_cpu(cpu, mm_cpumask(next)))
 		__flush_icache_all();
 #endif
-	if (!cpu_test_and_set(cpu, next->cpu_vm_mask) || prev != next) {
+	if (!cpumask_test_and_set_cpu(cpu, mm_cpumask(next)) || prev != next) {
 #ifdef CONFIG_SMP
 		struct mm_struct **crt_mm = &per_cpu(current_mm, cpu);
 		*crt_mm = next;
@@ -125,7 +126,7 @@ switch_mm(struct mm_struct *prev, struct mm_struct *next,
 		check_context(next);
 		cpu_switch_mm(next->pgd, next);
 		if (cache_is_vivt())
-			cpu_clear(cpu, prev->cpu_vm_mask);
+			cpumask_clear_cpu(cpu, mm_cpumask(prev));
 	}
 #endif
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2009 NVIDIA Corporation.
+ * Copyright (c) 2007-2010 NVIDIA Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -314,6 +314,7 @@ NvRmPrivAp15PllSet(
     NvU32 old_base, old_misc;
     NvU32 delay = 0;
     NvU32 override = 0;
+    NvBool diff_clock = NV_FALSE;
 
     NV_ASSERT(hRmDevice);
     NV_ASSERT(pCinfo);
@@ -336,7 +337,7 @@ NvRmPrivAp15PllSet(
      *
      * c) PLLD/PLLU miscellaneous register has a unique fields determined based
      *  on the input flags. For other PLLs these fields have different meaning,
-     *  and will be preserved. 
+     *  and will be preserved.
      *
      *  PLLP h/w field definitions will be used in DRF macros to construct
      *  miscellaneous values with common layout. For unique fields PLLD h/w
@@ -431,7 +432,7 @@ NvRmPrivAp15PllSet(
     {   // Compiler failed to generate correct code for the base fields
         // concatenation without the split below
         volatile NvU32 prebase =
-            NV_DRF_DEF(CLK_RST_CONTROLLER, PLLP_BASE, PLLP_BYPASS, ENABLE) |
+            NV_DRF_DEF(CLK_RST_CONTROLLER, PLLP_BASE, PLLP_BYPASS, DISABLE) |
             NV_DRF_DEF(CLK_RST_CONTROLLER, PLLP_BASE, PLLP_ENABLE, ENABLE) |
             NV_DRF_DEF(CLK_RST_CONTROLLER, PLLP_BASE, PLLP_REF_DIS, REF_ENABLE);
         base = prebase |
@@ -442,25 +443,48 @@ NvRmPrivAp15PllSet(
     }
 
     // If PLL is not bypassed, and new configurations is the same as the old
-    // one - exit without overwriting h/w. Otherwise, bypass PLL before
-    // changing configuration.
-    if (NV_DRF_VAL(CLK_RST_CONTROLLER, PLLP_BASE, PLLP_BYPASS, old_base) ==
-        CLK_RST_CONTROLLER_PLLP_BASE_0_PLLP_BYPASS_DISABLE)
+    // one - exit without overwriting h/w. Otherwise, bypass and disable PLL
+    // outputs before changing configuration.
+    if ((base == old_base) && (misc == old_misc))
     {
-        old_base = NV_FLD_SET_DRF_DEF(
-            CLK_RST_CONTROLLER, PLLP_BASE, PLLP_BYPASS, ENABLE, old_base);
-        if ((base == old_base) && (misc == old_misc))
-        {
-            NvRmPrivPllFreqUpdate(hRmDevice, pCinfo);
-            return;
-        }
-        NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
-                pCinfo->PllBaseOffset, old_base);
+        NvRmPrivPllFreqUpdate(hRmDevice, pCinfo);
+        return;
     }
+    if (pCinfo->SourceId == NvRmClockSource_PllD0)
+    {
+        old_misc = NV_FLD_SET_DRF_NUM(
+            CLK_RST_CONTROLLER, PLLD_MISC, PLLD_CLKENABLE, 0, old_misc);
+        NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
+                pCinfo->PllMiscOffset, old_misc);
+        if (NV_DRF_VAL(CLK_RST_CONTROLLER, PLLD_MISC, PLLD_CLKENABLE, misc))
+        {
+            diff_clock = NV_TRUE;
+            misc = NV_FLD_SET_DRF_NUM(
+                CLK_RST_CONTROLLER, PLLD_MISC, PLLD_CLKENABLE, 0, misc);
+        }
+    }
+    old_base = NV_FLD_SET_DRF_DEF(
+        CLK_RST_CONTROLLER, PLLP_BASE, PLLP_BYPASS, ENABLE, old_base);
+    NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
+            pCinfo->PllBaseOffset, old_base);
+    old_base = NV_FLD_SET_DRF_DEF(
+        CLK_RST_CONTROLLER, PLLP_BASE, PLLP_ENABLE, DISABLE, old_base);
+    NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
+            pCinfo->PllBaseOffset, old_base);
 
     // Configure and enable PLL, keep it bypassed
-    NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0, pCinfo->PllMiscOffset, misc);
-    NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0, pCinfo->PllBaseOffset, base);
+    base = NV_FLD_SET_DRF_DEF(
+        CLK_RST_CONTROLLER, PLLP_BASE, PLLP_BYPASS, ENABLE, base);
+    base = NV_FLD_SET_DRF_DEF(
+        CLK_RST_CONTROLLER, PLLP_BASE, PLLP_ENABLE, DISABLE, base);
+    NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
+            pCinfo->PllBaseOffset, base);
+    NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
+            pCinfo->PllMiscOffset, misc);
+    base = NV_FLD_SET_DRF_DEF(
+        CLK_RST_CONTROLLER, PLLP_BASE, PLLP_ENABLE, ENABLE, base);
+    NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
+            pCinfo->PllBaseOffset, base);
 
     // Wait for PLL to stabilize and switch to PLL output
     NV_ASSERT(StableDelayUs);
@@ -468,8 +492,17 @@ NvRmPrivAp15PllSet(
         StableDelayUs = delay;
     NvOsWaitUS(StableDelayUs);
 
-    base = NV_FLD_SET_DRF_DEF(CLK_RST_CONTROLLER, PLLP_BASE, PLLP_BYPASS, DISABLE, base);
-    NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0, pCinfo->PllBaseOffset, base);
+    if (diff_clock)
+    {
+        misc = NV_FLD_SET_DRF_NUM(
+            CLK_RST_CONTROLLER, PLLD_MISC, PLLD_CLKENABLE, 1, misc);
+        NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
+            pCinfo->PllMiscOffset, misc);
+    }
+    base = NV_FLD_SET_DRF_DEF(
+        CLK_RST_CONTROLLER, PLLP_BASE, PLLP_BYPASS, DISABLE, base);
+    NV_REGW(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
+            pCinfo->PllBaseOffset, base);
     NvRmPrivPllFreqUpdate(hRmDevice, pCinfo);
 }
 
@@ -683,13 +716,23 @@ NvRmPrivAp15PllConfigureSimple(
 
 // Fixed list of PLL HDMI configurations for different reference frequencies
 // arranged according to CLK_RST_CONTROLLER_OSC_CTRL_0_OSC_FREQ_FIELD enum
-static const NvRmPllFixedConfig s_Ap15HdmiPllConfigurations[] =
+static const NvRmPllFixedConfig s_Ap15HdmiPllD_Configurations[] =
 {
     NVRM_PLLHD_AT_13MHZ,
     NVRM_PLLHD_AT_19MHZ,
     NVRM_PLLHD_AT_12MHZ,
     NVRM_PLLHD_AT_26MHZ
 };
+
+static const NvRmPllFixedConfig s_Ap15HdmiPllC_Configurations[] =
+{
+    NVRM_PLLHC_AT_13MHZ,
+    NVRM_PLLHC_AT_19MHZ,
+    NVRM_PLLHC_AT_12MHZ,
+    NVRM_PLLHC_AT_26MHZ
+};
+
+#define NVRM_HDMI_CPCON (8)
 
 void
 NvRmPrivAp15PllConfigureHdmi(
@@ -702,17 +745,22 @@ NvRmPrivAp15PllConfigureHdmi(
     const NvRmPllClockInfo* pCinfo =
         NvRmPrivGetClockSourceHandle(PllId)->pInfo.pPll;
 
-    // Only PLLD or PLLC should be configured here
-    NV_ASSERT((PllId == NvRmClockSource_PllD0) ||
-              (PllId == NvRmClockSource_PllC0));
-
     reg = NV_REGR(hRmDevice, NvRmPrivModuleID_ClockAndReset, 0,
                   CLK_RST_CONTROLLER_OSC_CTRL_0);
-    HdmiConfig = s_Ap15HdmiPllConfigurations[NV_DRF_VAL(
-        CLK_RST_CONTROLLER, OSC_CTRL, OSC_FREQ, reg)];
 
+    if (PllId == NvRmClockSource_PllD0)
+        HdmiConfig = s_Ap15HdmiPllD_Configurations[NV_DRF_VAL(
+            CLK_RST_CONTROLLER, OSC_CTRL, OSC_FREQ, reg)];
+    else if (PllId == NvRmClockSource_PllC0)
+        HdmiConfig = s_Ap15HdmiPllC_Configurations[NV_DRF_VAL(
+            CLK_RST_CONTROLLER, OSC_CTRL, OSC_FREQ, reg)];
+    else
+    {
+        NV_ASSERT(!"Only PLLD or PLLC should be configured here");
+        return;
+    }
     NvRmPrivAp15PllSet(hRmDevice, pCinfo, HdmiConfig.M, HdmiConfig.N,
-                       HdmiConfig.P, (NvU32)-1, 0, 0, NV_TRUE, 0);
+        HdmiConfig.P, (NvU32)-1, NVRM_HDMI_CPCON, 0, NV_FALSE, 0);
     *pPllOutKHz = NvRmPrivGetClockSourceFreq(pCinfo->SourceId);
 }
 
@@ -846,7 +894,7 @@ PllUhsConfigure(NvRmDeviceHandle hRmDevice, NvRmFreqKHz TargetFreq)
                   CLK_RST_CONTROLLER_OSC_CTRL_0);
     reg = NV_DRF_VAL(CLK_RST_CONTROLLER, OSC_CTRL, OSC_FREQ, reg);
 
-    // If PLLU is already configured - exit 
+    // If PLLU is already configured - exit
     if (CurrentFreq == s_Ap15UhsPllConfigurations[reg].OutputKHz)
         return;
 
@@ -1011,7 +1059,7 @@ Ap15PllDControl(
     NvRmModuleClockState* pCstate = NULL;
     NV_ASSERT_SUCCESS(NvRmPrivGetClockState(
         hRmDevice, NvRmModuleID_Dsi, &pCinfo, &pCstate));
-    
+
     if (Enable)
     {
         Ap15PllControl(hRmDevice, NvRmClockSource_PllD0, NV_TRUE);
@@ -1106,9 +1154,11 @@ Ap15DisplayClockConfigure(
      */
     if (flags & NvRmClockConfig_MipiSync)
     {
-        // PLLD requested
+        // PLLD requested - use it as a source, and reconfigure,
+        //  unless it is also routed to the pads
         SourceId = NvRmClockSource_PllD0;
-        Ap15PllDConfigure(hRmDevice, TargetFreq);
+        if (!(flags & NvRmClockConfig_InternalClockForPads))
+            Ap15PllDConfigure(hRmDevice, TargetFreq);
     }
     else if (NvRmIsFreqRangeReachable(
         SourceClockFreq, MinFreq, MaxFreq, NVRM_DISPLAY_DIVIDER_MAX))
@@ -1185,7 +1235,7 @@ Ap15DisplayClockConfigure(
             (((pCstate->actual_freq * 2 ) + PixelFreq / 2) / PixelFreq) - 2;
         pTvDacState->actual_freq =
             (pCstate->actual_freq * 2 ) / (pTvDacState->Divider + 2);
-        NvRmPrivModuleClockSet(hRmDevice, pTvDacInfo, pTvDacState); 
+        NvRmPrivModuleClockSet(hRmDevice, pTvDacInfo, pTvDacState);
     }
     if (flags & NvRmClockConfig_DisableTvDAC)
     {
@@ -1234,7 +1284,7 @@ NvRmPrivAp15IsModuleClockException(
             /*
              * Reconfigure PLLD to match requested frequency, and update DSI
              * clock state.
-             */ 
+             */
             Ap15PllDConfigure(hRmDevice, PrefFreqList[0]);
             NV_ASSERT((MinFreq <= pCstate->actual_freq) &&
                       (pCstate->actual_freq <= MaxFreq));
@@ -1243,11 +1293,15 @@ NvRmPrivAp15IsModuleClockException(
         case NvRmModuleID_Hdmi:
             /*
              * Complete HDMI configuration; choose among possible sources:
-             * PLLP, PLLD, PLLC in the same order as for display (PLLD or
-             * PLLC should be already configured properly for display)
+             * Osc, PLLP, PLLD, PLLC in the same order as for display (PLLD
+             * or PLLC should be already configured properly for display)
              */
             if (flags & NvRmClockConfig_MipiSync)
                 SourceId = NvRmClockSource_PllD0;
+            else if (NvRmIsFreqRangeReachable(
+                         NvRmPrivGetClockSourceFreq(NvRmClockSource_ClkM),
+                         MinFreq, MaxFreq, NVRM_DISPLAY_DIVIDER_MAX))
+                SourceId = NvRmClockSource_ClkM;
             else if (NvRmIsFreqRangeReachable(NVRM_PLLP_FIXED_FREQ_KHZ,
                          MinFreq, MaxFreq, NVRM_DISPLAY_DIVIDER_MAX))
                 SourceId = NvRmClockSource_PllP0;
@@ -1293,7 +1347,7 @@ NvRmPrivAp15IsModuleClockException(
                 pCstate->actual_freq = (FreqKHz << 1) / (pCstate->Divider + 2);
                 if (NvRmPrivGetExecPlatform(hRmDevice) == ExecPlatform_Fpga)
                 {   // Fake return on FPGA (PLLA is not configurable, anyway)
-                    pCstate->actual_freq = PrefFreqList[0]; 
+                    pCstate->actual_freq = PrefFreqList[0];
                 }
                 NV_ASSERT(pCinfo->Sources[pCstate->SourceClock] ==
                           NvRmClockSource_PllA0);
@@ -1309,7 +1363,7 @@ NvRmPrivAp15IsModuleClockException(
             /*
              * Reconfigure PLLU to match requested frequency, and complete USB
              * clock configuration (PLLU is a single source, no divider)
-             */ 
+             */
             Ap15PllUConfigure(hRmDevice, PrefFreqList[0]);
             pCstate->SourceClock = 0;
             pCstate->Divider = 1;
@@ -1795,7 +1849,7 @@ NvRmPrivAp15EmcConfigInit(NvRmDeviceHandle hRmDevice)
                 s_Ap15EmcConfigSortedTable[i].FbioDqsibDly =
                     pEmcConfigurations[j].EmcFbioDqsibDly +
                     NvRmPrivGetEmcDqsibOffset(hRmDevice);
-                s_Ap15EmcConfigSortedTable[i].FbioQuseDly = 
+                s_Ap15EmcConfigSortedTable[i].FbioQuseDly =
                     pEmcConfigurations[j].EmcFbioQuseDly;
                 s_Ap15EmcConfigSortedTable[i].CoreVoltageMv =
                     pEmcConfigurations[j].EmcCoreVoltageMv;
@@ -1875,7 +1929,7 @@ NvRmPrivAp15EmcConfigInit(NvRmDeviceHandle hRmDevice)
                  * Final CPU clock limit is minimum of the above limits
                  */
                 s_Ap15EmcConfigSortedTable[i].CpuLimitKHz =
-                    (NvU32)NvDiv64(((NvU64)Emc2xKHz * McKHz * 119), 
+                    (NvU32)NvDiv64(((NvU64)Emc2xKHz * McKHz * 119),
                                 (((McKHz << 2) - Emc2xKHz) * 10));
                 reg = NvRmPrivGetSocClockLimits(NvRmModuleID_Cpu)->MaxKHz;
                 if (k != 0)
@@ -1892,7 +1946,7 @@ NvRmPrivAp15EmcConfigInit(NvRmDeviceHandle hRmDevice)
         if (s_Ap15EmcConfigSortedTable[i].Emc2xKHz != 0)
             i++;                // Entry found - advance sorting index
         else if (i == 0)
-            break;              // PLLM0 entry not found - abort sorting 
+            break;              // PLLM0 entry not found - abort sorting
 
         Emc2xKHz = PllM0KHz / ((++k) << 1);
         if (Emc2xKHz < NvRmPrivGetSocClockLimits(
@@ -2058,7 +2112,7 @@ NvRmPrivAp15FastClockConfig(NvRmDeviceHandle hRmDevice)
 
     // Now configure both dividers and select the output with highest frequency
     // as a source for the system bus clock; reconfigure MIO as necessary
-    SclkKHz = NV_MAX(PllM1KHz, PllP2KHz); 
+    SclkKHz = NV_MAX(PllM1KHz, PllP2KHz);
     FreqKHz = NvRmPrivGetClockSourceFreq(NvRmClockSource_SystemBus);
     if (FreqKHz < SclkKHz)
     {
@@ -2243,7 +2297,7 @@ Ap15SystemClockSourceFind(
 
     /*
      * 4st and final option - PLLM divider fixed at maximum possible frequency
-     * during initialization. Select PLLP/PLLM divider according to the 
+     * during initialization. Select PLLP/PLLM divider according to the
      * following rule: select the divider with smaller frequency if it is equal
      * or above the target frequency, otherwise select the divider with bigger
      * output frequency.
@@ -2673,7 +2727,7 @@ NvRmPrivAp15DfsVscaleFreqGet(
         {
             if ((s_Ap15EmcConfigSortedTable[i+1].Emc2xKHz == 0) ||
                 (s_Ap15EmcConfigSortedTable[i].CoreVoltageMv <= TargetMv))
-                break;  // exit if found entry or next entry is invalid 
+                break;  // exit if found entry or next entry is invalid
         }
         pDfsKHz->Domains[NvRmDfsClockId_Emc] =
             (s_Ap15EmcConfigSortedTable[i].Emc2xKHz >> 1);
@@ -2682,7 +2736,7 @@ NvRmPrivAp15DfsVscaleFreqGet(
 
     // Binary search for maximum CPU frequency, with source that can be used
     // at target voltage or below
-    Fb = NV_MIN(CpuMaxKHz, f); 
+    Fb = NV_MIN(CpuMaxKHz, f);
     Fa = NvRmPrivGetClockSourceFreq(NvRmClockSource_ClkM);
     NV_ASSERT(Fa <= Fb);
     while ((Fb - Fa) > 1000)    // 1MHz resolution
@@ -2699,7 +2753,7 @@ NvRmPrivAp15DfsVscaleFreqGet(
 
     // Binary search for maximum System/Avp frequency, with source that can be used
     // at target voltage or below
-    Fb = SysMaxKHz; 
+    Fb = SysMaxKHz;
     Fa = NvRmPrivGetClockSourceFreq(NvRmClockSource_ClkM);
     NV_ASSERT(Fa <= Fb);
     while ((Fb - Fa) > 1000)    // 1MHz resolution
@@ -2718,6 +2772,3 @@ NvRmPrivAp15DfsVscaleFreqGet(
     pDfsKHz->Domains[NvRmDfsClockId_Apb] = Fa;
     pDfsKHz->Domains[NvRmDfsClockId_Vpipe] = Fa;
 }
-
-/*****************************************************************************/
-

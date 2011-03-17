@@ -28,6 +28,7 @@
 #include <asm/atomic.h>
 #include <asm/cacheflush.h>
 #include <asm/cpu.h>
+#include <asm/cputype.h>
 #include <asm/mmu_context.h>
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -64,9 +65,6 @@ enum ipi_msg_type {
 	IPI_CALL_FUNC,
 	IPI_CALL_FUNC_SINGLE,
 	IPI_CPU_STOP,
-#ifdef CONFIG_CPU_NO_CACHE_BCAST
-	IPI_DMA_CACHE,
-#endif
 };
 
 int __cpuinit __cpu_up(unsigned int cpu)
@@ -109,7 +107,7 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	 */
 	secondary_data.stack = task_stack_page(idle) + THREAD_START_SP;
 	secondary_data.pgdir = virt_to_phys(pgd);
-	__cpuc_coherent_kern_range(&secondary_data, &secondary_data+1);
+	__cpuc_flush_dcache_area(&secondary_data, sizeof(secondary_data));
 	outer_clean_range(__pa(&secondary_data), __pa(&secondary_data + 1));
 
 	/*
@@ -158,7 +156,7 @@ int __cpuinit __cpu_up(unsigned int cpu)
 /*
  * __cpu_disable runs on the processor to be shutdown.
  */
-int __cpuexit __cpu_disable(void)
+int __cpu_disable(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct task_struct *p;
@@ -172,7 +170,7 @@ int __cpuexit __cpu_disable(void)
 	 * Take this CPU offline.  Once we clear this, we can't return,
 	 * and we must not schedule until we're ready to give up the cpu.
 	 */
-	cpu_clear(cpu, cpu_online_map);
+	set_cpu_online(cpu, false);
 
 	/*
 	 * OK - migrate IRQs away from this CPU
@@ -194,7 +192,7 @@ int __cpuexit __cpu_disable(void)
 	read_lock(&tasklist_lock);
 	for_each_process(p) {
 		if (p->mm)
-			cpu_clear(cpu, p->mm->cpu_vm_mask);
+			cpumask_clear_cpu(cpu, mm_cpumask(p->mm));
 	}
 	read_unlock(&tasklist_lock);
 
@@ -205,7 +203,7 @@ int __cpuexit __cpu_disable(void)
  * called on the thread which is asking for a CPU to be shutdown -
  * waits until shutdown has completed, or it is timed out.
  */
-void __cpuexit __cpu_die(unsigned int cpu)
+void __cpu_die(unsigned int cpu)
 {
 	if (!platform_cpu_kill(cpu))
 		printk("CPU%u: unable to kill\n", cpu);
@@ -219,7 +217,7 @@ void __cpuexit __cpu_die(unsigned int cpu)
  * of the other hotplug-cpu capable cores, so presumably coming
  * out of idle fixes this.
  */
-void __cpuexit cpu_die(void)
+void __ref cpu_die(void)
 {
 	unsigned int cpu = smp_processor_id();
 
@@ -262,7 +260,7 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 	atomic_inc(&mm->mm_users);
 	atomic_inc(&mm->mm_count);
 	current->active_mm = mm;
-	cpu_set(cpu, mm->cpu_vm_mask);
+	cpumask_set_cpu(cpu, mm_cpumask(mm));
 	cpu_switch_mm(mm->pgd, mm);
 	enter_lazy_tlb(mm, current);
 	local_flush_tlb_all();
@@ -294,7 +292,7 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 	/*
 	 * OK, now it's safe to let the boot CPU continue
 	 */
-	cpu_set(cpu, cpu_online_map);
+	set_cpu_online(cpu, true);
 
 	/*
 	 * OK, it's off to the idle thread for us
@@ -335,14 +333,14 @@ void __init smp_prepare_boot_cpu(void)
 	per_cpu(cpu_data, cpu).idle = current;
 }
 
-static void send_ipi_message(cpumask_t callmap, enum ipi_msg_type msg)
+static void send_ipi_message(const struct cpumask *mask, enum ipi_msg_type msg)
 {
 	unsigned long flags;
 	unsigned int cpu;
 
 	local_irq_save(flags);
 
-	for_each_cpu_mask(cpu, callmap) {
+	for_each_cpu(cpu, mask) {
 		struct ipi_data *ipi = &per_cpu(ipi_data, cpu);
 
 		spin_lock(&ipi->lock);
@@ -353,19 +351,19 @@ static void send_ipi_message(cpumask_t callmap, enum ipi_msg_type msg)
 	/*
 	 * Call the platform specific cross-CPU call function.
 	 */
-	smp_cross_call(callmap);
+	smp_cross_call(mask);
 
 	local_irq_restore(flags);
 }
 
-void arch_send_call_function_ipi(cpumask_t mask)
+void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 {
 	send_ipi_message(mask, IPI_CALL_FUNC);
 }
 
 void arch_send_call_function_single_ipi(int cpu)
 {
-	send_ipi_message(cpumask_of_cpu(cpu), IPI_CALL_FUNC_SINGLE);
+	send_ipi_message(cpumask_of(cpu), IPI_CALL_FUNC_SINGLE);
 }
 
 void show_ipi_list(struct seq_file *p)
@@ -423,7 +421,7 @@ asmlinkage void __exception do_local_timer(struct pt_regs *regs)
 #ifdef CONFIG_GENERIC_CLOCKEVENTS_BROADCAST
 static void smp_timer_broadcast(const struct cpumask *mask)
 {
-	send_ipi_message(*(cpumask_t*)mask, IPI_TIMER);
+	send_ipi_message(mask, IPI_TIMER);
 }
 
 static void broadcast_timer_set_mode(enum clock_event_mode mode,
@@ -468,8 +466,7 @@ static void ipi_cpu_stop(unsigned int cpu)
 	dump_stack();
 	spin_unlock(&stop_lock);
 
-	cpu_relax();
-	cpu_clear(cpu, cpu_online_map);
+	set_cpu_online(cpu, false);
 
 	local_fiq_disable();
 	local_irq_disable();
@@ -477,10 +474,6 @@ static void ipi_cpu_stop(unsigned int cpu)
 	while (1)
 		cpu_relax();
 }
-
-#ifdef CONFIG_CPU_NO_CACHE_BCAST
-static void ipi_dma_cache_op(unsigned int cpu);
-#endif
 
 /*
  * Main handler for inter-processor interrupts
@@ -541,12 +534,6 @@ asmlinkage void __exception do_IPI(struct pt_regs *regs)
 				ipi_cpu_stop(cpu);
 				break;
 
-#ifdef CONFIG_CPU_NO_CACHE_BCAST
-			case IPI_DMA_CACHE:
-				ipi_dma_cache_op(cpu);
-				break;
-#endif
-
 			default:
 				printk(KERN_CRIT "CPU%u: Unknown IPI message 0x%x\n",
 				       cpu, nextmsg);
@@ -560,21 +547,14 @@ asmlinkage void __exception do_IPI(struct pt_regs *regs)
 
 void smp_send_reschedule(int cpu)
 {
-	send_ipi_message(cpumask_of_cpu(cpu), IPI_RESCHEDULE);
-}
-
-void smp_send_timer(void)
-{
-	cpumask_t mask = cpu_online_map;
-	cpu_clear(smp_processor_id(), mask);
-	send_ipi_message(mask, IPI_TIMER);
+	send_ipi_message(cpumask_of(cpu), IPI_RESCHEDULE);
 }
 
 void smp_send_stop(void)
 {
 	cpumask_t mask = cpu_online_map;
 	cpu_clear(smp_processor_id(), mask);
-	send_ipi_message(mask, IPI_CPU_STOP);
+	send_ipi_message(&mask, IPI_CPU_STOP);
 }
 
 /*
@@ -585,20 +565,17 @@ int setup_profiling_timer(unsigned int multiplier)
 	return -EINVAL;
 }
 
-static int
-on_each_cpu_mask(void (*func)(void *), void *info, int wait, cpumask_t mask)
+static void
+on_each_cpu_mask(void (*func)(void *), void *info, int wait,
+		const struct cpumask *mask)
 {
-	int ret = 0;
-
 	preempt_disable();
 
-	ret = smp_call_function_mask(mask, func, info, wait);
-	if (cpu_isset(smp_processor_id(), mask))
+	smp_call_function_many(mask, func, info, wait);
+	if (cpumask_test_cpu(smp_processor_id(), mask))
 		func(info);
 
 	preempt_enable();
-
-	return ret;
 }
 
 /**********************************************************************/
@@ -662,10 +639,8 @@ void flush_tlb_all(void)
 
 void flush_tlb_mm(struct mm_struct *mm)
 {
-	cpumask_t mask = mm->cpu_vm_mask;
-
 	if (tlb_ops_need_broadcast())
-		on_each_cpu_mask(ipi_flush_tlb_mm, mm, 1, mask);
+		on_each_cpu_mask(ipi_flush_tlb_mm, mm, 1, mm_cpumask(mm));
 	else
 		local_flush_tlb_mm(mm);
 }
@@ -673,13 +648,10 @@ void flush_tlb_mm(struct mm_struct *mm)
 void flush_tlb_page(struct vm_area_struct *vma, unsigned long uaddr)
 {
 	if (tlb_ops_need_broadcast()) {
-		cpumask_t mask = vma->vm_mm->cpu_vm_mask;
 		struct tlb_args ta;
-
 		ta.ta_vma = vma;
 		ta.ta_start = uaddr;
-
-		on_each_cpu_mask(ipi_flush_tlb_page, &ta, 1, mask);
+		on_each_cpu_mask(ipi_flush_tlb_page, &ta, 1, mm_cpumask(vma->vm_mm));
 	} else
 		local_flush_tlb_page(vma, uaddr);
 }
@@ -688,26 +660,21 @@ void flush_tlb_kernel_page(unsigned long kaddr)
 {
 	if (tlb_ops_need_broadcast()) {
 		struct tlb_args ta;
-
 		ta.ta_start = kaddr;
-
 		on_each_cpu(ipi_flush_tlb_kernel_page, &ta, 1);
 	} else
 		local_flush_tlb_kernel_page(kaddr);
 }
 
 void flush_tlb_range(struct vm_area_struct *vma,
-	unsigned long start, unsigned long end)
+                     unsigned long start, unsigned long end)
 {
 	if (tlb_ops_need_broadcast()) {
-		cpumask_t mask = vma->vm_mm->cpu_vm_mask;
 		struct tlb_args ta;
-
 		ta.ta_vma = vma;
 		ta.ta_start = start;
 		ta.ta_end = end;
-
-		on_each_cpu_mask(ipi_flush_tlb_range, &ta, 1, mask);
+		on_each_cpu_mask(ipi_flush_tlb_range, &ta, 1, mm_cpumask(vma->vm_mm));
 	} else
 		local_flush_tlb_range(vma, start, end);
 }
@@ -716,137 +683,9 @@ void flush_tlb_kernel_range(unsigned long start, unsigned long end)
 {
 	if (tlb_ops_need_broadcast()) {
 		struct tlb_args ta;
-
 		ta.ta_start = start;
 		ta.ta_end = end;
-
 		on_each_cpu(ipi_flush_tlb_kernel_range, &ta, 1);
 	} else
 		local_flush_tlb_kernel_range(start, end);
 }
-
-#ifdef CONFIG_CPU_NO_CACHE_BCAST
-/*
- * DMA cache maintenance operations on SMP if the automatic hardware
- * broadcasting is not available
- */
-struct smp_dma_cache_struct {
-	int type;
-	const void *start;
-	const void *end;
-	cpumask_t unfinished;
-};
-
-static struct smp_dma_cache_struct *smp_dma_cache_data;
-static DEFINE_RWLOCK(smp_dma_cache_data_lock);
-static DEFINE_SPINLOCK(smp_dma_cache_lock);
-
-static void local_dma_cache_op(int type, const void *start, const void *end)
-{
-	switch (type) {
-	case SMP_DMA_CACHE_INV:
-		dmac_inv_range(start, end);
-		break;
-	case SMP_DMA_CACHE_CLEAN:
-		dmac_clean_range(start, end);
-		break;
-	case SMP_DMA_CACHE_FLUSH:
-		dmac_flush_range(start, end);
-		break;
-	case SMP_DMA_CACHE_CLEAN_ALL:
-		dmac_clean_all();
-		break;
-	case SMP_DMA_CACHE_FLUSH_ALL:
-		dmac_flush_all();
-		break;
-	default:
-		printk(KERN_CRIT "CPU%u: Unknown SMP DMA cache type %d\n",
-		       smp_processor_id(), type);
-	}
-}
-
-/*
- * This function must be executed with interrupts disabled.
- */
-static void ipi_dma_cache_op(unsigned int cpu)
-{
-	read_lock(&smp_dma_cache_data_lock);
-
-	/* check for spurious IPI */
-	if ((smp_dma_cache_data == NULL) ||
-	    (!cpu_isset(cpu, smp_dma_cache_data->unfinished)))
-		goto out;
-	local_dma_cache_op(smp_dma_cache_data->type,
-			   smp_dma_cache_data->start, smp_dma_cache_data->end);
-	cpu_clear(cpu, smp_dma_cache_data->unfinished);
- out:
-	read_unlock(&smp_dma_cache_data_lock);
-}
-
-/*
- * Execute the DMA cache operations on all online CPUs. This function
- * can be called with interrupts disabled or from interrupt context.
- */
-static void __smp_dma_cache_op(int type, const void *start, const void *end)
-{
-	struct smp_dma_cache_struct data;
-	cpumask_t callmap = cpu_online_map;
-	unsigned int cpu = get_cpu();
-	unsigned long flags;
-
-	cpu_clear(cpu, callmap);
-	data.type = type;
-	data.start = start;
-	data.end = end;
-	data.unfinished = callmap;
-
-	/*
-	 * If the spinlock cannot be acquired, other CPU is trying to
-	 * send an IPI. If the interrupts are disabled, we have to
-	 * poll for an incoming IPI.
-	 */
-	while (!spin_trylock_irqsave(&smp_dma_cache_lock, flags)) {
-		if (irqs_disabled())
-			ipi_dma_cache_op(cpu);
-	}
-
-	write_lock(&smp_dma_cache_data_lock);
-	smp_dma_cache_data = &data;
-	write_unlock(&smp_dma_cache_data_lock);
-
-	if (!cpus_empty(callmap))
-		send_ipi_message(callmap, IPI_DMA_CACHE);
-	/* run the local operation in parallel with the other CPUs */
-	local_dma_cache_op(type, start, end);
-
-	while (!cpus_empty(data.unfinished))
-		barrier();
-
-	write_lock(&smp_dma_cache_data_lock);
-	smp_dma_cache_data = NULL;
-	write_unlock(&smp_dma_cache_data_lock);
-
-	spin_unlock_irqrestore(&smp_dma_cache_lock, flags);
-	put_cpu();
-}
-
-#define DMA_MAX_RANGE		SZ_4K
-
-/*
- * Split the cache range in smaller pieces if interrupts are enabled
- * to reduce the latency caused by disabling the interrupts during the
- * broadcast.
- */
-void smp_dma_cache_op(int type, const void *start, const void *end)
-{
-	if (irqs_disabled() || (end - start <= DMA_MAX_RANGE))
-		__smp_dma_cache_op(type, start, end);
-	else {
-		const void *ptr;
-		for (ptr = start; ptr < end - DMA_MAX_RANGE;
-		     ptr += DMA_MAX_RANGE)
-			__smp_dma_cache_op(type, ptr, ptr + DMA_MAX_RANGE);
-		__smp_dma_cache_op(type, ptr, end);
-	}
-}
-#endif

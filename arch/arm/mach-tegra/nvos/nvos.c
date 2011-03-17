@@ -61,6 +61,15 @@
 #include <asm/cacheflush.h>
 #include <mach/irqs.h>
 #include <linux/freezer.h>
+#include <linux/rbtree.h>
+#include <linux/rwsem.h>
+
+#define ATAG_NVIDIA_TEGRA 0x41000801
+struct tag_nvidia_tegra {
+    __u32 bootarg_key;
+    __u32 bootarg_len;
+    char bootarg[1];
+};
 
 #if NVOS_TRACE || NV_DEBUG
 #undef NvOsAlloc
@@ -134,6 +143,9 @@
 
 static spinlock_t gs_NvOsSpinLock;
 
+/* this semaphore lives forever and is used to protect the rb tree*/
+static DECLARE_RWSEM(s_sem);
+
 typedef struct NvOsIrqHandlerRec
 {
     union
@@ -164,6 +176,40 @@ static NvOsInterruptBlock *s_pIrqList[NVOS_MAX_SYSTEM_IRQS] = { NULL };
 
 static NvBootArgs s_BootArgs = { {0}, {0}, {0}, {0}, {0}, {0}, {{0}} };
 
+
+NvError NvOsLinuxErrnoToNvError(int err)
+{
+    switch (err)
+    {
+    case EROFS:  return NvError_ReadOnlyAttribute;
+    case ENOENT: return NvError_FileNotFound;
+    case EACCES: return NvError_AccessDenied;
+    case ENOTDIR: return NvError_DirOperationFailed;
+    case EFAULT: return NvError_InvalidAddress;
+    case ENFILE: return NvError_NotSupported;
+    case EMFILE: return NvError_NotSupported;
+    case EIO: return NvError_ResourceError;
+    case EADDRINUSE: return NvError_AlreadyAllocated;
+    case EBADF: return NvError_FileOperationFailed;
+    case EAGAIN: return NvError_Busy;
+    case EADDRNOTAVAIL: return NvError_InvalidAddress;
+    case EFBIG: return NvError_InvalidSize;
+    case EINTR: return NvError_Timeout;
+    case EALREADY: return NvError_AlreadyAllocated;
+    // case ENOTSUP: *e = NvError_NotSupported;
+    case ENOSPC: return NvError_InvalidSize;
+    case EPERM: return NvError_AccessDenied;
+    case ETIME: return NvError_Timeout;
+    case ETIMEDOUT: return NvError_Timeout;
+    case ELOOP: return NvError_InvalidState;
+    case ENXIO: return NvError_ModuleNotPresent;
+    case ENOMEM: return NvError_InsufficientMemory;
+    default:
+        return NvError_BadParameter;
+    }
+}
+
+
 /*  The tasklet "data" parameter is a munging of the s_pIrqList index
  *  (just the IRQ number), and the InterruptBlock's IrqList index, to
  *  make interrupt handler lookups O(n)
@@ -173,7 +219,7 @@ static void NvOsTaskletWrapper(
 {
     NvOsInterruptBlock *pBlock = s_pIrqList[(data&0xffff)];
     if (pBlock)
-        (*pBlock->IrqList[data>>16].pHandler)(pBlock->pArg);    
+        (*pBlock->IrqList[data>>16].pHandler)(pBlock->pArg);
 }
 
 /*  The thread "pdata" parameter is a munging of the s_pIrqList index
@@ -189,7 +235,7 @@ static int NvOsInterruptThreadWrapper(
     if (!pBlock)
     {
         return 0;
-    } 
+    }
     while (!pBlock->Shutdown)
     {
         int t;
@@ -359,7 +405,8 @@ NvError NvOsCopyIn(void *pDst, const void *pSrc, size_t Bytes)
 
     if( access_ok( VERIFY_READ, pSrc, Bytes ) )
     {
-        __copy_from_user(pDst, pSrc, Bytes);
+        if (__copy_from_user(pDst, pSrc, Bytes))
+            return NvError_InvalidSize;
         return NvSuccess;
     }
 
@@ -373,7 +420,8 @@ NvError NvOsCopyOut(void *pDst, const void *pSrc, size_t Bytes)
 
     if( access_ok( VERIFY_WRITE, pDst, Bytes ) )
     {
-        __copy_to_user(pDst, pSrc, Bytes);
+        if (__copy_to_user(pDst, pSrc, Bytes))
+            return NvError_InvalidSize;
         return NvSuccess;
     }
 
@@ -574,7 +622,7 @@ void NvOsSharedMemUnmap(void *ptr, size_t size)
 
 void NvOsSharedMemFree(NvOsSharedMemHandle descriptor)
 {
-}    
+}
 
 NvError NvOsPhysicalMemMap(
     NvOsPhysAddr phys,
@@ -583,33 +631,7 @@ NvError NvOsPhysicalMemMap(
     NvU32 flags,
     void **ptr)
 {
-    /*  For apertures in the static kernel mapping, just return the
-     *  static VA rather than creating a new mapping 
-     *  FIXME:  Eventually, the static phyiscal apertures should be
-     *  registered with NvOs when mapped, since they could be
-     *  chip-dependent
-     */
-#define aperture_comp_map(_name, _pa, _len)                             \
-    if ((phys >= (NvOsPhysAddr)(_pa)) &&                                \
-        ((NvOsPhysAddr)(phys+size)<=(NvOsPhysAddr)((_pa)+(_len)))) {    \
-            *ptr = (void *)tegra_munge_pa(phys);                        \
-            return NvSuccess;                                           \
-    }
-
-    tegra_apertures(aperture_comp_map);
-
-    if (attrib == NvOsMemAttribute_WriteCombined)
-    {
-        *ptr = ioremap_wc(phys, size);
-    }
-    else if (attrib == NvOsMemAttribute_WriteBack)
-    {
-        *ptr = ioremap_cached(phys, size);
-    }
-    else
-    {
-        *ptr = ioremap_nocache(phys, size);
-    }
+    *ptr = ioremap(phys, size);
 
     if (*ptr == 0)
         return NvError_InsufficientMemory;
@@ -629,16 +651,6 @@ NvError NvOsPhysicalMemMapIntoCaller(
 
 void NvOsPhysicalMemUnmap(void *ptr, size_t size)
 {
-    NvUPtr va = (NvUPtr)ptr;
-
-    /*  No unmapping required for statically mapped I/O space */
-#define aperture_comp_unmap(_name, _pa, _len)                           \
-    if ((tegra_munge_pa((_pa)) <= va) &&                                \
-        (tegra_munge_pa((_pa))+(_len) >= (va+size)))                    \
-        return;
-
-
-    tegra_apertures(aperture_comp_unmap);
     iounmap(ptr);
 }
 
@@ -819,17 +831,99 @@ void NvOsSpinMutexDestroy(NvOsSpinMutexHandle mutex)
         kfree(mutex);
 }
 
+struct sem_node
+{
+    struct rb_node node;
+    NvOsSemaphoreHandle h;
+};
+
 typedef struct NvOsSemaphoreRec
 {
     struct semaphore sem;
     atomic_t refcount;
+    NvU32 id; /* identifier to track the handle in rb tree */
+    struct rb_root root;
 } NvOsSemaphore;
+
+static struct sem_node *sem_handle_search(NvOsSemaphoreHandle h)
+{
+    struct rb_node **node = &(h->root.rb_node);
+
+    if (IS_ERR_OR_NULL(h->root.rb_node)) {
+        return NULL;
+    }
+
+    down_read(&s_sem);
+    while (*node) {
+        struct sem_node *data = rb_entry(*node, struct sem_node, node);
+
+        if (h < data->h)
+            node = &((*node)->rb_left);
+        else if (h > data->h)
+            node = &((*node)->rb_right);
+        else
+            up_read(&s_sem);
+            return data;
+    }
+    up_read(&s_sem);
+    return NULL;
+}
+
+static int sem_handle_insert(NvOsSemaphoreHandle h)
+{
+    struct rb_node **new = &(h->root.rb_node);
+    struct rb_node *parent = NULL;
+    struct sem_node *data;
+
+    down_write(&s_sem);
+    /* Figure out where to put the new node */
+    while (*new) {
+        data = rb_entry(*new, struct sem_node, node);
+        parent = *new;
+
+        if (h < data->h) {
+            new = &((*new)->rb_left);
+        } else if (h > data->h) {
+            new = &((*new)->rb_right);
+        } else
+            /* It already is in the tree */
+            up_write(&s_sem);
+            return -EALREADY;
+    }
+
+    /* Add the new node and rebalance the tree. */
+    data = kzalloc(sizeof(struct sem_node), GFP_KERNEL);
+    if (!data) {
+        pr_err("Could not allocate sema handle\n");
+        up_write(&s_sem);
+        return -ENOMEM;
+    }
+
+    data->h = h;
+    rb_link_node(&data->node, parent, new);
+    rb_insert_color(&data->node, &(h->root));
+    up_write(&s_sem);
+    return 0;
+}
+
+static int sem_handle_remove(struct sem_node *data, NvOsSemaphoreHandle h)
+{
+    down_write(&s_sem);
+    rb_erase(&data->node, &(h->root));
+    up_write(&s_sem);
+    kfree(data);
+    return 0;
+}
 
 NvError NvOsSemaphoreCreate(
     NvOsSemaphoreHandle *semaphore,
     NvU32 value)
 {
     NvOsSemaphore *s;
+    NvError e;
+
+    if (!semaphore)
+        return NvError_BadParameter;
 
     s = kzalloc( sizeof(NvOsSemaphore), GFP_KERNEL );
     if( !s )
@@ -838,21 +932,46 @@ NvError NvOsSemaphoreCreate(
     sema_init( &s->sem, value );
     atomic_set( &s->refcount, 1 );
 
-    *semaphore = s;
-
-    return NvSuccess;
+    /* start tracking the handle */
+    e = sem_handle_insert(s);
+    if (!e)
+    {
+        *semaphore = s;
+        return NvSuccess;
+    }
+    else
+    {
+        kfree(s);
+        *semaphore = NULL;
+        return NvOsLinuxErrnoToNvError(-e);
+    }
 }
 
 NvError NvOsSemaphoreClone(
     NvOsSemaphoreHandle orig,
     NvOsSemaphoreHandle *semaphore)
 {
+    NvError e;
+
     NV_ASSERT( orig );
     NV_ASSERT( semaphore );
 
-    atomic_inc( &orig->refcount );
-    *semaphore = orig;
+    if (!orig || !semaphore)
+        return NvError_BadParameter;
 
+    atomic_inc( &orig->refcount );
+
+    /* track the handle if we are not already tracking it */
+    if (sem_handle_search(orig) == NULL) 
+    {
+        if ((e = sem_handle_insert(orig)) != 0)
+        {
+            *semaphore  = NULL;
+            return NvOsLinuxErrnoToNvError(-e);
+        }
+    }
+
+    *semaphore = orig;
     return NvSuccess;
 }
 
@@ -863,7 +982,15 @@ NvError NvOsSemaphoreUnmarshal(
     NV_ASSERT( hClientSema );
     NV_ASSERT( phDriverSema );
 
+    if (!hClientSema || !phDriverSema)
+        return NvError_BadParameter;
+
     atomic_inc( &hClientSema->refcount );
+
+    /* track the handle if we are not already tracking it */
+    if (sem_handle_search(hClientSema) == NULL) {
+        sem_handle_insert(hClientSema);
+    }
     *phDriverSema = hClientSema;
 
     return NvSuccess;
@@ -872,31 +999,44 @@ NvError NvOsSemaphoreUnmarshal(
 int NvOsSemaphoreWaitInterruptible(NvOsSemaphoreHandle semaphore);
 int NvOsSemaphoreWaitInterruptible(NvOsSemaphoreHandle semaphore)
 {
+    int ret;
+
     NV_ASSERT(semaphore);
 
-    return down_interruptible(&semaphore->sem);
+    if (sem_handle_search(semaphore) == NULL)
+        return -EINVAL;
+
+    do {
+        ret = down_interruptible(&semaphore->sem);
+        if ( (ret != -EINTR) || ((ret == -EINTR) && (!try_to_freeze())) ) {
+            return ret;
+        }
+        schedule();
+    } while (1);
 }
 
 void NvOsSemaphoreWait(NvOsSemaphoreHandle semaphore)
 {
     int ret;
-    
+
     NV_ASSERT(semaphore);
 
-    do
-    {
-        /* FIXME: We should split the implementation into two parts -
-         * one for semaphore that were created by users ioctl'ing into
-         * the nvos device (which need down_interruptible), and others that
-         * are created and used by the kernel drivers, which do not */
-        ret = down_interruptible(&semaphore->sem);
-        /* The kernel doesn't reschedule tasks
-         * that have pending signals. If a signal
-         * is pending, forcibly reschedule the task.
-         */
-        if (ret && !try_to_freeze())
-            schedule();
-    } while (ret);
+    if (sem_handle_search(semaphore) != NULL) {
+        do
+        {
+            /* FIXME: We should split the implementation into two parts -
+             * one for semaphore that were created by users ioctl'ing into
+             * the nvos device (which need down_interruptible), and others that
+             * are created and used by the kernel drivers, which do not */
+            ret = down_interruptible(&semaphore->sem);
+            /* The kernel doesn't reschedule tasks
+             * that have pending signals. If a signal
+             * is pending, forcibly reschedule the task.
+             */
+            if (ret && !try_to_freeze())
+                schedule();
+        } while (ret);
+    }
 }
 
 NvError NvOsSemaphoreWaitTimeout(
@@ -908,6 +1048,9 @@ NvError NvOsSemaphoreWaitTimeout(
     NV_ASSERT( semaphore );
 
     if (!semaphore)
+        return NvError_Timeout;
+
+    if (sem_handle_search(semaphore) == NULL)
         return NvError_Timeout;
 
     if (msec==NV_WAIT_INFINITE)
@@ -941,16 +1084,33 @@ void NvOsSemaphoreSignal(NvOsSemaphoreHandle semaphore)
 {
     NV_ASSERT( semaphore );
 
-    up( &semaphore->sem );
+    BUG_ON( (unsigned long)semaphore < PAGE_SIZE );
+
+    if (semaphore) {
+        if (!in_interrupt()) {
+            if (sem_handle_search(semaphore) != NULL)
+                up( &semaphore->sem );
+        }
+        else
+            up( &semaphore->sem );
+    }
 }
 
 void NvOsSemaphoreDestroy(NvOsSemaphoreHandle semaphore)
 {
-    if (!semaphore)
-        return;
+    struct sem_node *data = NULL;
 
-    if( atomic_dec_return( &semaphore->refcount ) == 0 )
-        kfree( semaphore );
+    if (semaphore) {
+        /* check if the node exists */
+        data = sem_handle_search(semaphore);
+        if (data) {
+            if( atomic_dec_return( &semaphore->refcount ) == 0 ) {
+                if ( sem_handle_remove( data, semaphore ) == 0 ) {
+                    kfree( semaphore );
+                }
+            }
+        }
+    }
 }
 
 NvError NvOsThreadMode(int coop)
@@ -1018,7 +1178,7 @@ static NvError NvOsThreadCreateInternal(
     if (sched_setscheduler_nocheck( t->task, scheduler, &sched ) < 0)
         NvOsDebugPrintf("Failed to set task priority to %d\n",
             sched.sched_priority);
-    
+
     *thread = t;
     wake_up_process( t->task );
     e = NvSuccess;
@@ -1137,7 +1297,7 @@ NvU64 NvOsGetTimeUS(void)
     getnstimeofday(&ts);
     nsec = timespec_to_ns(&ts);
     do_div(nsec, 1000);
-    return (NvU64)nsec;
+    return (NvU32)nsec;
 }
 
 void NvOsDataCacheWritebackRange(
@@ -1220,7 +1380,7 @@ NvError NvOsInterruptRegisterInternal(
             e = NvError_AlreadyAllocated;
             goto clean_fail;
         }
-        snprintf(pNewBlock->IrqList[i].IrqName, 
+        snprintf(pNewBlock->IrqList[i].IrqName,
             sizeof(pNewBlock->IrqList[i].IrqName),
             "NvOsIrq%s%04d", (IsUser)?"User":"Kern", pIrqList[i]);
 
@@ -1240,15 +1400,15 @@ NvError NvOsInterruptRegisterInternal(
             else
                 pNewBlock->Flags |= NVOS_IRQ_IS_TASKLET;
         }
-    
+
         if ((pNewBlock->Flags & NVOS_IRQ_TYPE_MASK)==NVOS_IRQ_IS_KERNEL_THREAD)
         {
             struct sched_param p;
             p.sched_priority = KTHREAD_IRQ_PRIO;
             sema_init(&(pNewBlock->IrqList[i].sem), 0);
-            pNewBlock->IrqList[i].task = 
+            pNewBlock->IrqList[i].task =
                 kthread_create(NvOsInterruptThreadWrapper,
-                    (void *)((pIrqList[i]&0xffff) | ((i&0xffff)<<16)), 
+                    (void *)((pIrqList[i]&0xffff) | ((i&0xffff)<<16)),
                     pNewBlock->IrqList[i].IrqName);
             if (sched_setscheduler(pNewBlock->IrqList[i].task,
                     SCHED_FIFO, &p)<0)
@@ -1260,7 +1420,7 @@ NvError NvOsInterruptRegisterInternal(
         if ((pNewBlock->Flags & NVOS_IRQ_TYPE_MASK)==NVOS_IRQ_IS_TASKLET)
         {
             tasklet_init(&pNewBlock->IrqList[i].Tasklet, NvOsTaskletWrapper,
-                (pIrqList[i]&0xffff) | ((i&0xffff)<<16)); 
+                (pIrqList[i]&0xffff) | ((i&0xffff)<<16));
         }
 
         /* NvOs specifies that the interrupt handler is responsible for
@@ -1270,7 +1430,7 @@ NvError NvOsInterruptRegisterInternal(
          */
         set_irq_flags(pIrqList[i], IRQF_VALID | IRQF_NOAUTOEN);
 
-        if (request_irq(pIrqList[i], NvOsIrqWrapper, 
+        if (request_irq(pIrqList[i], NvOsIrqWrapper,
                 0, pNewBlock->IrqList[i].IrqName, (void*)i)!=0)
         {
             e = NvError_ResourceError;
@@ -1299,7 +1459,7 @@ NvError NvOsInterruptRegisterInternal(
         }
         if ((pNewBlock->Flags & NVOS_IRQ_TYPE_MASK) == NVOS_IRQ_IS_TASKLET)
         {
-            tasklet_kill(&pNewBlock->IrqList[i].Tasklet); 
+            tasklet_kill(&pNewBlock->IrqList[i].Tasklet);
         }
         free_irq(pIrqList[i], (void*)i);
         set_irq_flags(pIrqList[i], IRQF_VALID);
@@ -1321,7 +1481,7 @@ NvError NvOsInterruptRegister(
     NvBool InterruptEnable)
 {
     return NvOsInterruptRegisterInternal(IrqListSize, pIrqList,
-               (const void*)pIrqHandlerList, context, handle, 
+               (const void*)pIrqHandlerList, context, handle,
                InterruptEnable, NV_FALSE);
 }
 
@@ -1348,7 +1508,7 @@ void NvOsInterruptUnregister(NvOsInterruptHandle handle)
         }
         if ((pBlock->Flags & NVOS_IRQ_TYPE_MASK) == NVOS_IRQ_IS_TASKLET)
         {
-            tasklet_kill(&pBlock->IrqList[i].Tasklet); 
+            tasklet_kill(&pBlock->IrqList[i].Tasklet);
         }
         set_irq_flags(pBlock->IrqList[i].Irq, IRQF_VALID);
     }
@@ -1445,8 +1605,7 @@ NvError NvOsBootArgGet(NvU32 key, void *arg, NvU32 size)
     }
     else
     {
-        switch (key)
-        {
+        switch (key) {
         case NvBootArgKey_ChipShmoo:
             src = &s_BootArgs.ChipShmooArgs;
             size_src = sizeof(NvBootArgsChipShmoo);
@@ -1459,7 +1618,7 @@ NvError NvOsBootArgGet(NvU32 key, void *arg, NvU32 size)
             src = &s_BootArgs.DisplayArgs;
             size_src = sizeof(NvBootArgsDisplay);
             break;
-        case NvBootArgKey_Rm:            
+        case NvBootArgKey_Rm:
             src = &s_BootArgs.RmArgs;
             size_src = sizeof(NvBootArgsRm);
             break;
@@ -1478,10 +1637,19 @@ NvError NvOsBootArgGet(NvU32 key, void *arg, NvU32 size)
         }
     }
 
-    if (!arg || !src || (size_src!=size))
+    if( !arg || !src )
+    {
         return NvError_BadParameter;
+    }
 
-    NvOsMemcpy(arg, src, size_src);
+    /* don't copy too much if the size has changed (gotten bigger in new
+     * binaries.
+     */
+    NvOsMemcpy(arg, src, NV_MIN( size, size_src) );
+    if( size > size_src )
+    {
+        NvOsMemset( (NvU8 *)src + size_src, 0, size - size_src );
+    }
     return NvSuccess;
 }
 
@@ -1540,7 +1708,8 @@ void NvOsSetResourceAllocFileLine(void* userptr, const char* file, int line)
 
 static int __init parse_tegra_tag(const struct tag *tag)
 {
-    const struct tag_nvidia_tegra *nvtag = &tag->u.tegra;
+    const char *addr = (const char *)&tag->hdr + sizeof(struct tag_header);
+    const struct tag_nvidia_tegra *nvtag = (const struct tag_nvidia_tegra*)addr;
 
     if (nvtag->bootarg_key >= NvBootArgKey_PreservedMemHandle_0 &&
         nvtag->bootarg_key < NvBootArgKey_PreservedMemHandle_Num)

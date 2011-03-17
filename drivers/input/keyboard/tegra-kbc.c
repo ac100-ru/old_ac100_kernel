@@ -21,7 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#define RM_SUPPORT
+/* #define RM_SUPPORT */
 
 #include <linux/module.h>
 #include <linux/input.h>
@@ -30,20 +30,17 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/interrupt.h>
-#include <linux/regulator/consumer.h>
 #include <linux/clk.h>
 #include <mach/kbc.h>
-
-#ifdef RM_SUPPORT
-#include <linux/tegra_devices.h>
-#include <mach/nvrm_linux.h>
-#include "nvrm_power.h"
-#endif
+#include <mach/pmc.h>
+#include <mach/clk.h>
+#include <nvodm_kbc.h>
 
 #define KBC_CONTROL_0	0
 #define KBC_INT_0	4
 #define KBC_ROW_CFG0_0	8
 #define KBC_COL_CFG0_0	0x18
+#define KBC_TO_CNT_0	0x24
 #define KBC_RPT_DLY_0	0x2c
 #define KBC_KP_ENT0_0	0x30
 #define KBC_KP_ENT1_0	0x34
@@ -55,112 +52,15 @@ struct tegra_kbc {
 	void __iomem *mmio;
 	struct input_dev *idev;
 	int irq;
+	unsigned int wake_enable_rows;
+	unsigned int wake_enable_cols;
 	spinlock_t lock;
 	unsigned int repoll_time;
 	struct tegra_kbc_plat *pdata;
 	struct work_struct key_repeat;
 	struct workqueue_struct *kbc_work_queue;
-#ifdef RM_SUPPORT
-	NvU32 client_id;
-#else
 	struct clk *clk;
-	struct regulator *reg;
-#endif
 };
-
-#ifdef RM_SUPPORT
-static int alloc_resource(struct tegra_kbc *kbc, struct platform_device *pdev)
-{
-	NvError e = NvRmPowerRegister(s_hRmGlobal, NULL, &kbc->client_id);
-	if (e!=NvSuccess) return -ENXIO;
-	return 0;
-}
-
-static void free_resource(struct tegra_kbc *kbc)
-{
-	NvRmPowerUnRegister(s_hRmGlobal, kbc->client_id);
-}
-
-static void enable_power(struct tegra_kbc *kbc)
-{
-	NvError e;
-	e = NvRmPowerVoltageControl(s_hRmGlobal,
-		NVRM_MODULE_ID(NvRmModuleID_Kbc, 0),
-		kbc->client_id, NvRmVoltsUnspecified,
-		NvRmVoltsUnspecified, NULL, 0, NULL);
-	BUG_ON(e!=NvSuccess);
-}
-
-static void disable_power(struct tegra_kbc *kbc)
-{
-	NvError e;
-	e = NvRmPowerVoltageControl(s_hRmGlobal,
-		NVRM_MODULE_ID(NvRmModuleID_Kbc, 0),
-		kbc->client_id, NvRmVoltsOff,
-		NvRmVoltsOff, NULL, 0, NULL);
-	BUG_ON(e!=NvSuccess);
-}
-
-static void enable_clock(struct tegra_kbc *kbc)
-{
-	NvError e;
-	e = NvRmPowerModuleClockControl(s_hRmGlobal,
-		NVRM_MODULE_ID(NvRmModuleID_Kbc,0), 0, NV_TRUE);
-	BUG_ON(e!=NvSuccess);
-	NvRmModuleReset(s_hRmGlobal, NVRM_MODULE_ID(NvRmModuleID_Kbc, 0));
-}
-
-static void disable_clock(struct tegra_kbc *kbc)
-{
-	NvRmPowerModuleClockControl(s_hRmGlobal,
-		NVRM_MODULE_ID(NvRmModuleID_Kbc,0), 0, NV_FALSE);
-}
-
-#else
-static int alloc_resource(struct tegra_kbc *kbc, struct platform_device *pdev)
-{
-	kbc->clk = clk_get(&pdev->dev, NULL);
-	if (IS_ERR(kbc->clk)) {
-		int err;
-		dev_err(&pdev->dev, "failed to get keypad clock\n");
-		err = PTR_ERR(kbc->clk);
-		kbc->clk = NULL;
-		return err;
-	}
-	kbc->reg = regulator_get(&pdev->dev, "Vcc");
-	if (IS_ERR(kbc->reg)) {
-		dev_err(&pdev->dev, "no regulator support\n");
-		kbc->reg = NULL;
-	}
-	return 0;
-}
-
-static void free_resource(struct tegra_kbc *kbc)
-{
-	if (kbc->clk) clk_put(kbc->clk);
-	if (kbc->reg) regulator_put(kbc->reg);
-}
-
-static void enable_power(struct tegra_kbc *kbc)
-{
-	if (kbc->reg) regulator_enable(kbc->reg);
-}
-
-static void disable_power(struct tegra_kbc *kbc)
-{
-	if (kbc->reg) regulator_disable(kbc->reg);
-}
-
-static void enable_clock(struct tegra_kbc *kbc)
-{
-	clk_enable(kbc->clk);
-}
-
-static void disable_clock(struct tegra_kbc *kbc)
-{
-	clk_disable(kbc->clk);
-}
-#endif
 
 static int tegra_kbc_keycode(const struct tegra_kbc *kbc, int r, int c) {
 	unsigned int i = kbc_indexof(r,c);
@@ -179,11 +79,27 @@ static void tegra_kbc_setup_wakekeys(struct tegra_kbc *kbc, bool filter);
 static int tegra_kbc_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct tegra_kbc *kbc = platform_get_drvdata(pdev);
+	unsigned long flags;
+	unsigned long val;
 
-	if (device_may_wakeup(&pdev->dev)) {
+	if (device_may_wakeup(&pdev->dev) && kbc->pdata->wake_cnt) {
+		spin_lock_irqsave(&kbc->lock, flags);
+		/* Disable the kbc to stop key scanning */
+		val = readl(kbc->mmio + KBC_CONTROL_0);
+		val &= ~1;
+		writel(val, kbc->mmio + KBC_CONTROL_0);
+
 		tegra_kbc_setup_wakekeys(kbc, true);
 		enable_irq_wake(kbc->irq);
-		disable_power(kbc);
+		tegra_configure_dpd_kbc(kbc->wake_enable_rows, kbc->wake_enable_cols);
+		/* Forcefully clear the interrupt status */
+		writel(0x7, kbc->mmio + KBC_INT_0);
+
+		/* Enable the kbc to wakeup from key event */
+		val |= 1;
+		writel(val, kbc->mmio + KBC_CONTROL_0);
+		spin_unlock_irqrestore(&kbc->lock, flags);
+		msleep(30);
 	} else {
 		tegra_kbc_close(kbc->idev);
 	}
@@ -195,10 +111,10 @@ static int tegra_kbc_resume(struct platform_device *pdev)
 {
 	struct tegra_kbc *kbc = platform_get_drvdata(pdev);
 
-	if (device_may_wakeup(&pdev->dev)) {
-		enable_power(kbc);
+	if (device_may_wakeup(&pdev->dev) && kbc->pdata->wake_cnt) {
 		disable_irq_wake(kbc->irq);
 		tegra_kbc_setup_wakekeys(kbc, false);
+		tegra_configure_dpd_kbc(0, 0);
 	} else if (kbc->idev->users)
 		return tegra_kbc_open(kbc->idev);
 
@@ -209,10 +125,11 @@ static int tegra_kbc_resume(struct platform_device *pdev)
 static void tegra_kbc_report_keys(struct tegra_kbc *kbc, int *fifo)
 {
 	int curr_fifo[KBC_MAX_KPENT];
+	int rows_val[KBC_MAX_KPENT], cols_val[KBC_MAX_KPENT];
 	u32 kp_ent_val[(KBC_MAX_KPENT + 3) / 4];
 	u32 *kp_ents = kp_ent_val;
-	u32 kp_ent;
-	unsigned long flags = 0;
+	u32 kp_ent = 0;
+	unsigned long flags;
 	int i, j, valid=0;
 
 	local_irq_save(flags);
@@ -220,17 +137,25 @@ static void tegra_kbc_report_keys(struct tegra_kbc *kbc, int *fifo)
 		kp_ent_val[i] = readl(kbc->mmio + KBC_KP_ENT0_0 + (i*4));
 	local_irq_restore(flags);
 
+	valid = 0;
 	for (i=0; i<KBC_MAX_KPENT; i++) {
 		if (!(i&3)) kp_ent=*kp_ents++;
 
 		if (kp_ent & 0x80) {
-			int c = kp_ent & 0x7;
-			int r = (kp_ent >> 3) & 0xf;
-			int k = tegra_kbc_keycode(kbc, r, c);
-			if (likely(k!=-1)) curr_fifo[valid++] = k;
+			cols_val[valid] = kp_ent & 0x7;
+			rows_val[valid++] = (kp_ent >> 3) & 0xf;
 		}
 		kp_ent >>= 8;
 	}
+
+	valid = NvOdmKbcFilterKeys(rows_val, cols_val, valid);
+
+	j = 0;
+	for (i=0; i<valid; i++) {
+		int k = tegra_kbc_keycode(kbc, rows_val[i], cols_val[i]);
+		if (likely(k!=-1)) curr_fifo[j++] = k;
+	}
+	valid = j;
 
 	for (i=0; i<KBC_MAX_KPENT; i++) {
 		if (fifo[i]==-1) continue;
@@ -261,7 +186,7 @@ static void tegra_kbc_report_keys(struct tegra_kbc *kbc, int *fifo)
 static void tegra_kbc_key_repeat(struct work_struct *work)
 {
 	struct tegra_kbc *kbc;
-	unsigned long flags = 0;
+	unsigned long flags;
 	u32 val;
 	int fifo[KBC_MAX_KPENT];
 	int i;
@@ -294,7 +219,7 @@ static void tegra_kbc_key_repeat(struct work_struct *work)
 static void tegra_kbc_close(struct input_dev *dev)
 {
 	struct tegra_kbc *kbc = input_get_drvdata(dev);
-	unsigned long flags = 0;
+	unsigned long flags;
 	u32 val;
 
 	spin_lock_irqsave(&kbc->lock, flags);
@@ -303,13 +228,9 @@ static void tegra_kbc_close(struct input_dev *dev)
 	writel(val, kbc->mmio + KBC_CONTROL_0);
 	spin_unlock_irqrestore(&kbc->lock, flags);
 
-	disable_clock(kbc);
-	disable_power(kbc);
+	clk_disable(kbc->clk);
 }
 
-#ifdef CONFIG_ARCH_TEGRA_1x_SOC
-#define tegra_kbc_setup_wakekeys(kbc, filter) do { } while (0)
-#else
 static void tegra_kbc_setup_wakekeys(struct tegra_kbc *kbc, bool filter)
 {
 	int i;
@@ -331,7 +252,6 @@ static void tegra_kbc_setup_wakekeys(struct tegra_kbc *kbc, bool filter)
 		}
 	}
 }
-#endif
 
 static void tegra_kbc_config_pins(struct tegra_kbc *kbc)
 {
@@ -366,11 +286,16 @@ static void tegra_kbc_config_pins(struct tegra_kbc *kbc)
 static int tegra_kbc_open(struct input_dev *dev)
 {
 	struct tegra_kbc *kbc = input_get_drvdata(dev);
-	unsigned long flags = 0;
+	unsigned long flags;
 	u32 val = 0;
 
-	enable_power(kbc);
-	enable_clock(kbc);
+	clk_enable(kbc->clk);
+
+	/* Reset the KBC controller to clear all previous status.*/
+	tegra_periph_reset_assert(kbc->clk);
+	udelay(100);
+	tegra_periph_reset_deassert(kbc->clk);
+	udelay(100);
 
 	tegra_kbc_config_pins(kbc);
 	tegra_kbc_setup_wakekeys(kbc, false);
@@ -382,6 +307,10 @@ static int tegra_kbc_open(struct input_dev *dev)
 	val |= 1<<3;  /* interrupt on FIFO threshold reached */
 	val |= 1;     /* enable */
 	writel(val, kbc->mmio + KBC_CONTROL_0);
+
+	/* Bit 19:0 is for scan timeout count */
+	kbc->pdata->scan_timeout_cnt &= 0xFFFFF;
+	writel(kbc->pdata->scan_timeout_cnt, kbc->mmio + KBC_TO_CNT_0);
 
 	/* atomically clear out any remaining entries in the key FIFO
 	 * and enable keyboard interrupts */
@@ -409,9 +338,8 @@ static int __devexit tegra_kbc_remove(struct platform_device *pdev)
 	struct resource *res;
 
 	free_irq(kbc->irq, pdev);
-	disable_clock(kbc);
-	disable_power(kbc);
-	free_resource(kbc);
+	clk_disable(kbc->clk);
+	clk_put(kbc->clk);
 
 	input_unregister_device(kbc->idev);
 	input_free_device(kbc->idev);
@@ -503,8 +431,13 @@ static int __init tegra_kbc_probe(struct platform_device *pdev)
 		err = -ENXIO;
 		goto fail;
 	}
-	err = alloc_resource(kbc, pdev);
-	if (err) goto fail;
+	kbc->clk = clk_get(&pdev->dev, NULL);
+	if (IS_ERR_OR_NULL(kbc->clk)) {
+		dev_err(&pdev->dev, "failed to get keypad clock\n");
+		err = (kbc->clk) ? PTR_ERR(kbc->clk) : -ENODEV;
+		kbc->clk = NULL;
+		goto fail;
+	}
 
 	platform_set_drvdata(pdev, kbc);
 
@@ -540,9 +473,15 @@ static int __init tegra_kbc_probe(struct platform_device *pdev)
 			cols[pdata->pin_cfg[i].num] = 1;
 		}
 	}
+	kbc->wake_enable_rows = 0;
+	kbc->wake_enable_cols = 0;
 
-	/* The debaunce count is maximum 0x3FF clocks i.e. 10 bit configuration */
-	pdata->debounce_cnt = (pdata->debounce_cnt > 0x3FF)?0x3FF:pdata->debounce_cnt;
+	for (i=0; i<pdata->wake_cnt; i++) {
+		kbc->wake_enable_rows |= (1 << kbc->pdata->wake_cfg[i].row);
+		kbc->wake_enable_cols |= (1 << kbc->pdata->wake_cfg[i].col);
+	}
+
+	pdata->debounce_cnt = min_t(unsigned int, pdata->debounce_cnt, 0x3fful);
 	kbc->repoll_time = 5 + (16+pdata->debounce_cnt)*nr + pdata->repeat_cnt;
 	kbc->repoll_time = (kbc->repoll_time + 31) / 32;
 
@@ -592,7 +531,7 @@ static int __init tegra_kbc_probe(struct platform_device *pdev)
 fail:
 	if (kbc->irq >= 0) free_irq(kbc->irq, pdev);
 	if (kbc->idev) input_free_device(kbc->idev);
-	free_resource(kbc);
+	if (kbc->clk) clk_put(kbc->clk);
 	if (kbc->mmio) iounmap(kbc->mmio);
 	if (kbc->kbc_work_queue) destroy_workqueue(kbc->kbc_work_queue);
 	kfree(kbc);

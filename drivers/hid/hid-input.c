@@ -58,11 +58,6 @@ static const struct {
 	__s32 y;
 }  hid_hat_to_axis[] = {{ 0, 0}, { 0,-1}, { 1,-1}, { 1, 0}, { 1, 1}, { 0, 1}, {-1, 1}, {-1, 0}, {-1,-1}};
 
-#ifdef CONFIG_USB_KEYBOARD_USES_COMMON_NAME
-/* The name of the input driver for the usb keyboard */
-static const char *usb_keyboard_name_string = CONFIG_USB_KEYBOARD_COMMON_NAME;
-#endif
-
 #define map_abs(c)	hid_map_usage(hidinput, usage, &bit, &max, EV_ABS, (c))
 #define map_rel(c)	hid_map_usage(hidinput, usage, &bit, &max, EV_REL, (c))
 #define map_key(c)	hid_map_usage(hidinput, usage, &bit, &max, EV_KEY, (c))
@@ -164,17 +159,12 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 
 	field->hidinput = hidinput;
 
-	dbg_hid("Mapping: ");
-	hid_resolv_usage(usage->hid);
-	dbg_hid_line(" ---> ");
-
 	if (field->flags & HID_MAIN_ITEM_CONSTANT)
 		goto ignore;
 
 	/* only LED usages are supported in output fields */
 	if (field->report_type == HID_OUTPUT_REPORT &&
 			(usage->hid & HID_USAGE_PAGE) != HID_UP_LED) {
-		dbg_hid_line(" [non-LED output field] ");
 		goto ignore;
 	}
 
@@ -566,15 +556,9 @@ mapped:
 		set_bit(MSC_SCAN, input->mscbit);
 	}
 
-	hid_resolv_event(usage->type, usage->code);
-
-	dbg_hid_line("\n");
-
-	return;
-
 ignore:
-	dbg_hid_line("IGNORED\n");
 	return;
+
 }
 
 void hidinput_hid_event(struct hid_device *hid, struct hid_field *field, struct hid_usage *usage, __s32 value)
@@ -712,21 +696,9 @@ int hidinput_connect(struct hid_device *hid, unsigned int force)
 	struct input_dev *input_dev;
 	int i, j, k;
 	int max_report_type = HID_OUTPUT_REPORT;
-#ifdef CONFIG_USB_KEYBOARD_USES_COMMON_NAME
-	int is_keyboard_type = 0;
-#endif
+
 	INIT_LIST_HEAD(&hid->inputs);
 
-#ifdef CONFIG_USB_KEYBOARD_USES_COMMON_NAME
-	for (i = 0; i < hid->maxcollection; i++) {
-		struct hid_collection *col = &hid->collection[i];
-		if (col->type == HID_COLLECTION_APPLICATION &&
-			(col->usage & HID_USAGE_PAGE) == HID_UP_GENDESK) {
-			is_keyboard_type = ((col->usage & 0xffff) == 0x6);
-			break;
-		}
-	}
-#endif
 	if (!force) {
 		for (i = 0; i < hid->maxcollection; i++) {
 			struct hid_collection *col = &hid->collection[i];
@@ -767,14 +739,7 @@ int hidinput_connect(struct hid_device *hid, unsigned int force)
 				input_dev->setkeycode = hidinput_setkeycode;
 				input_dev->getkeycode = hidinput_getkeycode;
 
-#ifdef CONFIG_USB_KEYBOARD_USES_COMMON_NAME
-				if (is_keyboard_type)
-					input_dev->name = usb_keyboard_name_string;
-				else
-					input_dev->name = hid->name;
-#else
 				input_dev->name = hid->name;
-#endif
 				input_dev->phys = hid->phys;
 				input_dev->uniq = hid->uniq;
 				input_dev->id.bustype = hid->bus;
