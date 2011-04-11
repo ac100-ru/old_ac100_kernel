@@ -901,6 +901,7 @@ static int __init console_setup(char *str)
 	char buf[sizeof(console_cmdline[0].name) + 4]; /* 4 for index */
 	char *s, *options, *brl_options = NULL;
 	int idx;
+	return 1;
 
 #ifdef CONFIG_A11Y_BRAILLE_CONSOLE
 	if (!memcmp(str, "brl,", 4)) {
