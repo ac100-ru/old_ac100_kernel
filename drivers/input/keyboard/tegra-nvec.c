@@ -62,7 +62,7 @@ static NvBool   b_flag_keyboard_suspend = NV_FALSE;
  */
 NvU32 code_tab_102us[EC_TOTAL_CODES] = {
 	KEY_GRAVE,	// 0x00
-	KEY_BACK,
+	KEY_ESC,
 	KEY_1,
 	KEY_2,
 	KEY_3,
@@ -330,6 +330,7 @@ if (b_flag_keyboard_suspend==NV_TRUE && code!=KEY_OPEN) {
 
 //*********henry+ enter suspend,disable report data*******************
     input_report_key(nvec_input_dev, code, value); 
+    input_sync(nvec_input_dev);
     return 0;
 }
 
@@ -397,6 +398,7 @@ static int nvec_keyboard_recv(void *arg)
 		{   //henry+ specially handle for F9 key,
 		    //report make code and break code.
 			input_report_key(keyboard->input_dev, KEY_F9, 2);
+			input_sync(keyboard->input_dev);
 			input_report_key(keyboard->input_dev, KEY_F9, 0);			
 			continue;
 		}
@@ -410,6 +412,7 @@ static int nvec_keyboard_recv(void *arg)
 			code -= EC_FIRST_CODE;
 			code = code_tab_102us[code];
 			input_report_key(keyboard->input_dev, code, pressed);
+			input_sync(keyboard->input_dev);
 		}
 		else if ((code >= EC_EXT_CODE_FIRST) &&
 			(code <= EC_EXT_CODE_LAST)) {
@@ -417,6 +420,7 @@ static int nvec_keyboard_recv(void *arg)
 			code -= EC_EXT_CODE_FIRST;
 			code = extcode_tab_us102[code];
 			input_report_key(keyboard->input_dev, code, pressed);
+			input_sync(keyboard->input_dev);
 		}
 	}
 
@@ -477,6 +481,7 @@ static int __devinit nvec_keyboard_probe(struct nvec_device *pdev)
 	input_dev->close = nvec_keyboard_close;
 
 	__set_bit(EV_KEY, input_dev->evbit);
+	__set_bit(EV_REP, input_dev->evbit);
 	for (i=1; i<EC_TOTAL_CODES; i++) {
 		__set_bit(code_tab_102us[i], input_dev->keybit);
 	}
