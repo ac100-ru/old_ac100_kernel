@@ -735,10 +735,12 @@ static struct nvec_device nvec_battery_device = {
 	.driver	= &nvec_battery_driver,
 };
 
+#ifdef CONFIG_WAKELOCK
 static struct early_suspend nvec_battery_early_suspend_handler = {
     .suspend = nvec_battery_early_suspend,
     .resume = nvec_battery_late_resume,
 }; //
+#endif
 
 static int __init nvec_battery_init(void)
 {
