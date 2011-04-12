@@ -128,7 +128,7 @@ static struct fb_ops tegra_fb_ops = {
 	.fb_fillrect	= tegra_fb_fillrect,
 	.fb_copyarea	= tegra_fb_copyarea,
 	.fb_imageblit	= tegra_fb_imageblit,
-	.fb_cursor	= tegra_fb_cursor,
+	.fb_cursor	= NULL,
 	.fb_sync	= tegra_fb_sync,
 };
 
@@ -165,6 +165,9 @@ int tegra_fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 		if( regno >= 16 ) {
 			return -EINVAL;
 		}
+		red>>=(16-var->red.length);
+		blue>>=(16-var->blue.length);
+		green>>=(16-var->green.length);
 
 		v = (red << var->red.offset) | (green << var->green.offset) |
 			(blue << var->blue.offset);
