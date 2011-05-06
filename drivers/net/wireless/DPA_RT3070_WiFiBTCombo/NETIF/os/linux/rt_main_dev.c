@@ -446,17 +446,6 @@ int rt28xx_close(IN PNET_DEV dev)
 	printk("Number of Packet Freed = %d\n", pAd->NumOfPktFree);
 #endif // VENDOR_FEATURE2_SUPPORT //
 
-    /*
-    PBF_SYS_CTRL_STRUC PbfSysCtrl = { { 0 } };
-    NTSTATUS Status;
-    RTMP_IO_READ32(pAd, PBF_SYS_CTRL, &PbfSysCtrl.word);
-    PbfSysCtrl.field.MCU_RESET = 1;
-    RTMP_IO_WRITE32(pAd, PBF_SYS_CTRL, PbfSysCtrl.word);
-    printk("Ralink mcu reset");
-    for(i=0; i<8192; i=i+4)
-        Status = RTUSBWriteMACRegister(pAd, FIRMWARE_IMAGE_BASE + i, 0x0);
-    */
-
 	DBGPRINT(RT_DEBUG_TRACE, ("<=== rt28xx_close\n"));
 	return 0; // close ok
 } /* End of rt28xx_close */
