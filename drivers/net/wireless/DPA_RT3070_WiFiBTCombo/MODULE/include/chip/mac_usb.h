@@ -269,7 +269,7 @@ typedef struct _RX_CONTEXT
 				if (pAd->DeQueueRunning[QueIdx])						\
 				{														\
 					RTMP_IRQ_UNLOCK(&pAd->DeQueueLock[QueIdx], irqFlags);\
-					DBGPRINT(RT_DEBUG_OFF, ("DeQueueRunning[%d]= TRUE!\n", QueIdx));		\
+					DBGPRINT(RT_DEBUG_INFO, ("DeQueueRunning[%d]= TRUE!\n", QueIdx));		\
 					continue;											\
 				}														\
 				else													\

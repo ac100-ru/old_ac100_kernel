@@ -228,9 +228,10 @@ static void rtusb_dataout_complete(unsigned long data)
 									fRTMP_ADAPTER_NIC_NOT_EXIST |
 									fRTMP_ADAPTER_BULKOUT_RESET)))
 		{
-			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
-			pAd->bulkResetPipeid = BulkOutPipeId;
-			pAd->bulkResetReq[BulkOutPipeId] = pAd->BulkOutReq;
+			//ignore !!??
+			//RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
+			//pAd->bulkResetPipeid = BulkOutPipeId;
+			//pAd->bulkResetReq[BulkOutPipeId] = pAd->BulkOutReq;
 		}
 		RTMP_IRQ_UNLOCK(&pAd->BulkOutLock[BulkOutPipeId], IrqFlags);
 
@@ -296,10 +297,11 @@ static void rtusb_null_frame_done_tasklet(unsigned long data)
 			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET)))
 		{
 			DBGPRINT_RAW(RT_DEBUG_ERROR, ("Bulk Out Null Frame Failed, ReasonCode=%d!\n", Status));
-			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
-			pAd->bulkResetPipeid = (MGMTPIPEIDX | BULKOUT_MGMT_RESET_FLAG);
+			//ignore !!??
+			//RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
+			//pAd->bulkResetPipeid = (MGMTPIPEIDX | BULKOUT_MGMT_RESET_FLAG);
 			RTMP_IRQ_UNLOCK(&pAd->BulkOutLock[0], irqFlag);
-			RTEnqueueInternalCmd(pAd, CMDTHREAD_RESET_BULK_OUT, NULL, 0);
+			//RTEnqueueInternalCmd(pAd, CMDTHREAD_RESET_BULK_OUT, NULL, 0);
 		}
 		else
 		{
@@ -345,10 +347,11 @@ static void rtusb_rts_frame_done_tasklet(unsigned long data)
 			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET)))
 		{
 			DBGPRINT_RAW(RT_DEBUG_ERROR, ("Bulk Out RTS Frame Failed\n"));
-			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
-			pAd->bulkResetPipeid = (MGMTPIPEIDX | BULKOUT_MGMT_RESET_FLAG);
+			//ignore !!??
+			//RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
+			//pAd->bulkResetPipeid = (MGMTPIPEIDX | BULKOUT_MGMT_RESET_FLAG);
 			RTMP_IRQ_UNLOCK(&pAd->BulkOutLock[0], irqFlag);
-			RTEnqueueInternalCmd(pAd, CMDTHREAD_RESET_BULK_OUT, NULL, 0);
+			//RTEnqueueInternalCmd(pAd, CMDTHREAD_RESET_BULK_OUT, NULL, 0);
 		}
 		else
 		{
@@ -399,9 +402,10 @@ static void rtusb_pspoll_frame_done_tasklet(unsigned long data)
 			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET)))
 		{
 			DBGPRINT_RAW(RT_DEBUG_ERROR, ("Bulk Out PSPoll Failed\n"));
-			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
-			pAd->bulkResetPipeid = (MGMTPIPEIDX | BULKOUT_MGMT_RESET_FLAG);
-			RTEnqueueInternalCmd(pAd, CMDTHREAD_RESET_BULK_OUT, NULL, 0);
+			//ignore !!??
+			//RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
+			//pAd->bulkResetPipeid = (MGMTPIPEIDX | BULKOUT_MGMT_RESET_FLAG);
+			//RTEnqueueInternalCmd(pAd, CMDTHREAD_RESET_BULK_OUT, NULL, 0);
 		}
 	}
 
@@ -541,8 +545,9 @@ static void rtusb_mgmt_dma_done_tasklet(unsigned long data)
 		{
 			DBGPRINT_RAW(RT_DEBUG_ERROR, ("Bulk Out MLME Failed, Status=%d!\n", Status));
 			// TODO: How to handle about the MLMEBulkOut failed issue. Need to resend the mgmt pkt?
-			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
-			pAd->bulkResetPipeid = (MGMTPIPEIDX | BULKOUT_MGMT_RESET_FLAG);
+			//ignore !!??
+			//RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_BULKOUT_RESET);
+			//pAd->bulkResetPipeid = (MGMTPIPEIDX | BULKOUT_MGMT_RESET_FLAG);
 		}
 	}
 

@@ -679,7 +679,7 @@ VOID RtmpUSBNullFrameKickOut(
 
 		// Fill out frame length information for global Bulk out arbitor
 		//pNullContext->BulkOutSize = TransferBufferLength;
-		DBGPRINT(RT_DEBUG_TRACE, ("SYNC - send NULL Frame @%d Mbps...\n", RateIdToMbps[pAd->CommonCfg.TxRate]));
+		DBGPRINT(RT_DEBUG_INFO, ("SYNC - send NULL Frame @%d Mbps...\n", RateIdToMbps[pAd->CommonCfg.TxRate]));
 		RTUSB_SET_BULK_FLAG(pAd, fRTUSB_BULK_OUT_DATA_NULL);
 
 		pAd->Sequence = (pAd->Sequence+1) & MAXSEQ;
